@@ -1,0 +1,161 @@
+/**
+ * Pure AST node constructors for MyST-spec compliant nodes.
+ * Every function returns a plain object — no side effects, no state.
+ */
+
+import { toSlug } from '../utils/slug.js';
+
+// ── Inline nodes ──
+
+export function text(value: string) {
+  return { type: 'text' as const, value };
+}
+
+export function strong(children: any[]) {
+  return { type: 'strong' as const, children };
+}
+
+export function emphasis(children: any[]) {
+  return { type: 'emphasis' as const, children };
+}
+
+export function inlineCode(value: string) {
+  return { type: 'inlineCode' as const, value };
+}
+
+export function link(url: string, children: any[]) {
+  return { type: 'link' as const, url, children };
+}
+
+export function crossReference(identifier: string, children: any[]) {
+  return { type: 'crossReference' as const, identifier, children };
+}
+
+// ── Block nodes ──
+
+export function heading(depth: 1 | 2 | 3 | 4 | 5 | 6, children: any[], identifier?: string) {
+  return {
+    type: 'heading' as const,
+    depth,
+    identifier,
+    children,
+  };
+}
+
+export function paragraph(children: any[]) {
+  return { type: 'paragraph' as const, children };
+}
+
+export function blockquote(children: any[]) {
+  return { type: 'blockquote' as const, children };
+}
+
+export function thematicBreak() {
+  return { type: 'thematicBreak' as const };
+}
+
+export function code(lang: string, value: string) {
+  return { type: 'code' as const, lang, value };
+}
+
+// ── Container nodes ──
+
+export function admonition(kind: string, children: any[], opts?: { open?: boolean; class?: string }) {
+  return {
+    type: 'admonition' as const,
+    kind,
+    ...(opts?.open !== undefined ? { open: opts.open } : {}),
+    ...(opts?.class ? { class: opts.class } : {}),
+    children,
+  };
+}
+
+export function admonitionTitle(children: any[]) {
+  return { type: 'admonitionTitle' as const, children };
+}
+
+export function container(kind: string, children: any[], identifier?: string) {
+  return {
+    type: 'container' as const,
+    kind,
+    ...(identifier ? { identifier } : {}),
+    children,
+  };
+}
+
+export function caption(children: any[]) {
+  return { type: 'caption' as const, children };
+}
+
+export function image(url: string, alt?: string) {
+  return {
+    type: 'image' as const,
+    url,
+    ...(alt ? { alt } : {}),
+  };
+}
+
+// ── Table nodes ──
+
+export function table(children: any[]) {
+  return { type: 'table' as const, children };
+}
+
+export function tableRow(children: any[], isHeader?: boolean) {
+  return {
+    type: 'tableRow' as const,
+    ...(isHeader ? { isHeader: true } : {}),
+    children,
+  };
+}
+
+export function tableCell(children: any[], header?: boolean) {
+  return {
+    type: 'tableCell' as const,
+    ...(header ? { header: true } : {}),
+    children,
+  };
+}
+
+// ── Extension nodes (myst-spec-ext) ──
+
+export function tabSet(children: any[]) {
+  return { type: 'tabSet' as const, children };
+}
+
+let tabKeyCounter = 0;
+
+export function tabItem(title: string, children: any[]) {
+  // The book-theme React renderer requires a unique `key` on each tabItem
+  const key = `tab-${(tabKeyCounter++).toString(36)}`;
+  return { type: 'tabItem' as const, title, key, children };
+}
+
+export function card(title: string, children: any[], url?: string) {
+  return {
+    type: 'card' as const,
+    title,
+    ...(url ? { url } : {}),
+    children,
+  };
+}
+
+// ── List nodes ──
+
+export function list(children: any[], ordered = false) {
+  return { type: 'list' as const, ordered, children };
+}
+
+export function listItem(children: any[]) {
+  return { type: 'listItem' as const, children };
+}
+
+// ── Convenience composites ──
+
+export function sectionHeading(depth: 1 | 2 | 3 | 4 | 5 | 6, label: string, identifier?: string) {
+  return heading(depth, [text(label)], identifier ?? toSlug(label));
+}
+
+export function doiLink(doi: string) {
+  return link(`https://doi.org/${doi}`, [text(doi)]);
+}

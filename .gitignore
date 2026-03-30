@@ -1,0 +1,11 @@
+extern/
+astra_example/
+
+.venv
+node_modules/
+dist/
+_build/
+.mystra-cache/
+.playwright-mcp/
+*.png
+snapshot.md
