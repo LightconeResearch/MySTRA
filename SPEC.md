@@ -1,35 +1,39 @@
-# Spec: Live ASTRA Document Rendering via MyST
+# MySTRA — Live ASTRA Document Rendering via MyST
 
 ## 1. Goal
 
-Render an ASTRA analysis (`astra.yaml` + `universes/` + `results/`) as a live, browsable structured document — using MyST's rendering infrastructure. The document updates automatically whenever the ASTRA spec, universe selections, or results change on disk (typically because an agent modified them).
+Render an ASTRA analysis (`astra.yaml` + `universes/` + `results/`) as a live, browsable structured document using MyST's rendering infrastructure. The document updates automatically when the spec, universe selections, or results change on disk (typically because an agent modified them).
+
+### Guiding principle
+
+Reuse existing MyST ecosystem packages wherever possible. The MyST project (MIT-licensed) provides well-tested utilities for AST types, citation resolution, React rendering, and theming. We should import and use these directly rather than reimplementing. Custom code should be limited to the ASTRA-specific transform and the thin content server.
 
 ## 2. Architecture
 
 ### How MyST works internally
 
-MyST uses a **content/theme separation**:
+MyST uses a content/theme separation:
 
 ```
 [Content Server :3100]  ←────  [Theme Server :3000]  ────→  Browser
   serves JSON AST                fetches JSON AST
   per-page content               renders via myst-to-react
-  config, xrefs, search          sidebar, navigation, styling
+  config, xrefs                  sidebar, navigation, styling
 ```
 
 The **content server** exposes:
-- `GET /config.json` — site metadata, table of contents, project config
-- `GET /content/{slug}.json` — page AST + frontmatter for each page
+- `GET /config.json` — site metadata, table of contents
+- `GET /content/{slug}.json` — page AST + frontmatter
 - `GET /myst.xref.json` — cross-reference index
 - `WS /socket` — WebSocket for live reload notifications
 
-The **theme server** (book-theme) is a Remix app that fetches from the content server and renders React components using `myst-to-react`. It has no knowledge of the source format — it only sees JSON AST.
+The **theme server** (book-theme) is a Remix app that fetches JSON from the content server and renders it with `myst-to-react`. It has no knowledge of the source format.
 
 ### The key insight
 
-The theme doesn't care where the JSON AST came from. Normally MyST parses `.md` files into AST. But we can **replace the content server** with one that transforms ASTRA directly into the same JSON AST format. The theme works identically — it just fetches and renders JSON.
+The theme doesn't care where the JSON AST came from. We replace the content server with one that transforms ASTRA directly into MyST AST JSON. The theme works identically.
 
-### Proposed architecture
+### Architecture
 
 ```
                     ┌──────────────────────────────┐
@@ -44,7 +48,7 @@ The theme doesn't care where the JSON AST came from. Normally MyST parses `.md` 
 │ astra.yaml  │────▶│   ASTRA → AST Transform  │────▶│ Content API  │
 │ universes/  │     │                           │     │  :3100       │
 │ results/    │     │  Reads ASTRA spec          │     │              │
-│ insights    │     │  Reads universe selections  │    │ /config.json │
+│             │     │  Reads universe selections  │    │ /config.json │
 │             │     │  Reads result artifacts     │    │ /content/*.json
 │             │     │  Produces MyST AST JSON     │    │ /myst.xref.json
 │             │     │                             │    │ WS /socket   │
@@ -55,6 +59,7 @@ The theme doesn't care where the JSON AST came from. Normally MyST parses `.md` 
                                                      ┌──────────────┐
                                                      │  Theme :3000  │
                                                      │  (book-theme) │
+                                                     │  unmodified   │
                                                      │               │
                                                      │  myst-to-react│
                                                      │  renders AST  │
@@ -65,165 +70,128 @@ The theme doesn't care where the JSON AST came from. Normally MyST parses `.md` 
                                                           Browser
 ```
 
-## 3. Two implementation approaches
+### Why direct AST generation (not markdown)
 
-### Approach A: Generate MyST Markdown, use full MyST pipeline
+We generate MyST AST JSON directly rather than generating MyST markdown because:
+
+1. **No syntax fragility** — Nested MyST directives require careful fence-depth management (`:::` vs `::::` vs `::::::`). AST nodes are just objects; nesting is trivial.
+2. **Tree-to-tree is natural** — ASTRA is a tree (Analysis → Decision → Option → Insight → Evidence). The MyST AST is a tree. The transform is a direct structural mapping.
+3. **The content server API is small** — Only 4 endpoints. The page content endpoint just returns a JSON object.
+4. **Extensible** — We can add custom AST node types if needed and register renderers for them.
+
+DOI auto-resolution (which MyST's markdown parser provides for free) is handled by fetching citation metadata in the content server as a background enrichment step.
+
+## 3. The ASTRA → MyST AST transform
+
+### Node type mapping
+
+| ASTRA Concept | MyST AST Node(s) |
+|---|---|
+| Analysis (root) | `root` + `heading` (h1) |
+| Analysis description | `paragraph` |
+| Universe banner | `admonition` (kind: tip) |
+| Finding claim | `heading` (h3) + `paragraph` |
+| Finding evidence (figure) | `container` (kind: figure) + `image` + `caption` |
+| Finding evidence (table) | `table` + `tableRow` + `tableCell` |
+| Finding → method link | `admonition` (kind: seealso) + `crossReference` |
+| Decision group heading | `heading` (h3) |
+| Decision | `heading` (h4) + `details` + `summary` |
+| Decision options | `tabSet` + `tabItem` per option |
+| Option description | `paragraph` inside tab |
+| Option evidence | Nested `details` (collapsible) |
+| Insight quote | `blockquote` + `paragraph` |
+| DOI reference | `link` (url: `https://doi.org/...`) |
+| Input | `tableRow` |
+| Output (produced) | `image` or `table` |
+| Output (pending) | `admonition` (kind: warning) |
+| Sub-analysis | Separate page + `card` link in parent |
+
+### Document structure
+
+The transform produces this document structure for each analysis page:
 
 ```
-astra.yaml ──→ generator ──→ .md file(s) ──→ myst start ──→ browser
+Root
+├── Abstract (paragraph)
+├── Universe banner (admonition: tip)
+├── Findings (h2)
+│   ├── Finding 1 (h3)
+│   │   ├── Narrative (paragraph)
+│   │   ├── Evidence figure/table (container/table)
+│   │   ├── Supporting data (dropdown with table)
+│   │   └── Methodology callout (admonition: seealso → cross-refs to Methods)
+│   ├── Finding 2 (h3)
+│   │   └── ...
+│   └── ...
+├── Methods (h2)
+│   ├── Section by concern, e.g. "Reddening & Extinction" (h3)
+│   │   ├── Decision: "R_V for SMC" (h4 + details/summary)
+│   │   │   ├── Rationale (paragraph)
+│   │   │   └── Options (tabSet)
+│   │   │       ├── Tab: "R_V = 2.7 ●" with evidence dropdown
+│   │   │       └── Tab: "R_V = 3.3 ○" with evidence dropdown
+│   │   └── Decision: "Reddening cut" (h4 + details/summary)
+│   │       └── ...
+│   ├── "Sample Construction" (h3)
+│   │   └── ...
+│   └── ...
+├── Data Sources (h2)
+│   └── Inputs table
+└── Sub-Analyses (h2, if any)
+    └── Cards linking to child pages
 ```
 
-**How it works:**
-1. A generator script reads `astra.yaml` and produces MyST markdown (like the prototype we built)
-2. A file watcher on `astra.yaml` re-runs the generator when anything changes
-3. `myst start` watches the `.md` files and live-reloads the browser
+### AST examples
 
-**Pros:**
-- Simplest to build — the generator is string interpolation into markdown
-- Full MyST pipeline for free: DOI resolution, citation generation, cross-reference resolution, search indexing, PDF export
-- Debugging is easy — you can read the generated `.md` file
-- The generator can be written in any language (Python fits the ASTRA ecosystem)
-
-**Cons:**
-- Markdown is a lossy intermediate format — deeply nested directives are fragile (we hit this with fence depth issues)
-- Two-step file watching (astra.yaml → .md → browser) adds latency
-- Can't represent ASTRA-specific semantics that don't map cleanly to MyST syntax
-
-### Approach B: Generate MyST AST JSON directly, replace content server
-
-```
-astra.yaml ──→ AST generator ──→ custom content server ──→ myst theme ──→ browser
-```
-
-**How it works:**
-1. A custom content server reads `astra.yaml` and produces MyST AST JSON on the fly
-2. It implements the same HTTP API as the MyST content server (`/config.json`, `/content/*.json`, `/myst.xref.json`)
-3. The standard MyST book-theme connects to it and renders normally
-4. File watcher triggers AST regeneration + WebSocket reload notification
-
-**Pros:**
-- No markdown intermediate — no fence depth issues, no parsing ambiguity
-- Single process — no two-step file watching
-- Programmatically precise — every AST node is a typed object
-- Can extend with custom node types if needed (myst-to-react can be configured with custom renderers)
-- Faster: no markdown parsing step
-
-**Cons:**
-- Need to produce valid MyST AST JSON (match the spec exactly)
-- Lose some free MyST features that happen during markdown parsing (DOI auto-resolution, citation bibliography generation)
-- Need to implement the content server API (config, xrefs, search)
-- More code to maintain
-
-### Recommendation: Approach B
-
-Approach B is the right choice because:
-
-1. **The markdown generation was fragile** — we spent significant time debugging nested directive fence depths. The AST approach eliminates this entire class of problems.
-
-2. **The transform is naturally tree-to-tree** — ASTRA's data model is a tree (Analysis → Decision → Option → Insight → Evidence). The MyST AST is a tree. The transform is a direct tree-to-tree mapping, which is much cleaner as code than as string interpolation into markdown syntax.
-
-3. **DOI resolution can be handled separately** — The main "free" feature we'd lose is DOI auto-resolution (fetching full citation metadata from doi.org). This can be done as a one-time step when insights are added to astra.yaml, or as a background enrichment step in the content server.
-
-4. **The content server API is small** — Only 4-5 endpoints to implement. The page content endpoint is by far the most important, and it's just "return a JSON object."
-
-5. **It opens the door to custom node types** — We can define ASTRA-specific AST nodes (e.g., `DecisionNode`, `UniverseBanner`, `ResultStatus`) and register custom renderers for them, extending the document beyond what MyST markdown can express.
-
-## 4. The ASTRA → MyST AST transform
-
-### MyST AST node types we need
-
-The transform produces standard MyST AST nodes. Here's the mapping from ASTRA concepts:
-
-| ASTRA Concept | MyST AST Node(s) | Notes |
-|---|---|---|
-| Analysis (root) | `root` + `heading` (h1) + `paragraph` | Page root with title |
-| Analysis description | `paragraph` | Abstract text |
-| Finding / Insight claim | `heading` (h3) + `paragraph` | Finding narrative |
-| Finding evidence (figure) | `container` + `image` + `caption` | Inline figure |
-| Finding evidence (table) | `table` + `tableRow` + `tableCell` | Inline table from CSV |
-| Finding → method link | `admonition` (kind: seealso) + `crossReference` | "Methodology" callout |
-| Decision (as section) | `heading` (h4) | Section heading |
-| Decision (interactive) | `details` + `summary` | Dropdown with label + selected |
-| Decision options (tabs) | TabSet node (custom or div-based) | Tabs per option |
-| Option description | `paragraph` inside tab | Option content |
-| Option evidence | `admonition` (kind: note, dropdown) | Collapsible evidence |
-| Insight claim | `strong` + `paragraph` | Bold paper name + claim |
-| Evidence quote | `blockquote` + `paragraph` | Blockquote styling |
-| DOI reference | `link` (url: https://doi.org/...) | Clickable DOI |
-| Input | `tableRow` in inputs table | Row in list-table |
-| Output (figure) | `image` | If result file exists |
-| Output (table) | `table` | If CSV result exists |
-| Output (pending) | `admonition` (kind: warning) | Status indicator |
-| Success criterion | `tableRow` with status + crossReference | Row linking to finding |
-| Universe banner | `admonition` (kind: tip) | Top-of-page banner |
-| Sub-analysis | Separate page + `card` in parent | Multi-page navigation |
-
-### AST structure for a finding
+**A finding with inline figure and methodology cross-references:**
 
 ```json
-{
-  "type": "heading",
-  "depth": 3,
-  "identifier": "finding-1-b-seq-best",
-  "children": [
-    { "type": "text", "value": "1. B-sequence SARGs are the best TRGB standard candles" }
-  ]
-},
-{
-  "type": "paragraph",
-  "children": [
-    { "type": "text", "value": "The TRGB magnitude hierarchy is consistent..." }
-  ]
-},
-{
-  "type": "container",
-  "kind": "figure",
-  "identifier": "fig-hierarchy",
-  "children": [
-    {
-      "type": "image",
-      "url": "results/trgb_hierarchy_figure.png",
-      "alt": "TRGB Hierarchy Across Samples"
-    },
-    {
-      "type": "caption",
-      "children": [
-        { "type": "strong", "children": [{ "type": "text", "value": "Figure 13" }] },
-        { "type": "text", "value": " — M_I,OGLE vs mean (V-I)_0 ..." }
-      ]
-    }
-  ]
-},
-{
-  "type": "admonition",
-  "kind": "seealso",
-  "children": [
-    {
-      "type": "admonitionTitle",
-      "children": [{ "type": "text", "value": "Methodology" }]
-    },
-    {
-      "type": "paragraph",
-      "children": [
-        { "type": "text", "value": "This finding depends on: " },
-        {
-          "type": "crossReference",
-          "identifier": "sample-construction",
-          "children": [{ "type": "text", "value": "Sample Construction" }]
-        },
-        { "type": "text", "value": ", " },
-        {
-          "type": "crossReference",
-          "identifier": "trgb-detection",
-          "children": [{ "type": "text", "value": "TRGB Detection" }]
-        }
-      ]
-    }
-  ]
-}
+[
+  {
+    "type": "heading",
+    "depth": 3,
+    "identifier": "finding-1",
+    "children": [{ "type": "text", "value": "1. B-sequence SARGs are the best TRGB standard candles" }]
+  },
+  {
+    "type": "paragraph",
+    "children": [{ "type": "text", "value": "The TRGB magnitude hierarchy is consistent across both galaxies..." }]
+  },
+  {
+    "type": "container",
+    "kind": "figure",
+    "identifier": "fig-hierarchy",
+    "children": [
+      { "type": "image", "url": "results/trgb_hierarchy_figure.png" },
+      {
+        "type": "caption",
+        "children": [
+          { "type": "strong", "children": [{ "type": "text", "value": "Figure 13" }] },
+          { "type": "text", "value": " — M_I vs mean (V-I)_0 for all samples in LMC and SMC." }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "admonition",
+    "kind": "seealso",
+    "children": [
+      { "type": "admonitionTitle", "children": [{ "type": "text", "value": "Methodology" }] },
+      {
+        "type": "paragraph",
+        "children": [
+          { "type": "text", "value": "This finding depends on: " },
+          { "type": "crossReference", "identifier": "sample-construction", "children": [{ "type": "text", "value": "Sample Construction" }] },
+          { "type": "text", "value": " and " },
+          { "type": "crossReference", "identifier": "trgb-detection", "children": [{ "type": "text", "value": "TRGB Detection" }] }
+        ]
+      }
+    ]
+  }
+]
 ```
 
-### AST structure for a decision
+**A decision as a collapsible dropdown with option tabs:**
 
 ```json
 {
@@ -237,12 +205,7 @@ The transform produces standard MyST AST nodes. Here's the mapping from ASTRA co
         { "type": "text", "value": " — selected: R_V = 2.7" }
       ]
     },
-    {
-      "type": "paragraph",
-      "children": [
-        { "type": "text", "value": "R_V controls extinction coefficients..." }
-      ]
-    },
+    { "type": "paragraph", "children": [{ "type": "text", "value": "R_V controls extinction coefficients..." }] },
     {
       "type": "tabSet",
       "children": [
@@ -250,29 +213,19 @@ The transform produces standard MyST AST nodes. Here's the mapping from ASTRA co
           "type": "tabItem",
           "title": "R_V = 2.7 ●",
           "children": [
-            { "type": "paragraph", "children": [{ "type": "text", "value": "SMC average..." }] },
+            { "type": "paragraph", "children": [{ "type": "text", "value": "SMC average from Bouchet+1985..." }] },
             {
               "type": "details",
               "children": [
-                {
-                  "type": "summary",
-                  "children": [{ "type": "text", "value": "Evidence (3 insights)" }]
-                },
-                {
-                  "type": "paragraph",
-                  "children": [
-                    { "type": "strong", "children": [{ "type": "text", "value": "Gordon et al. (2003)" }] },
-                    { "type": "text", "value": " — " },
-                    { "type": "link", "url": "https://doi.org/10.1086/376774", "children": [{ "type": "text", "value": "10.1086/376774" }] }
-                  ]
-                },
-                {
-                  "type": "blockquote",
-                  "children": [{
-                    "type": "paragraph",
-                    "children": [{ "type": "text", "value": "For the SMC Bar, we find that RV = 2.74 ± 0.13..." }]
-                  }]
-                }
+                { "type": "summary", "children": [{ "type": "text", "value": "Evidence (3 insights)" }] },
+                { "type": "paragraph", "children": [
+                  { "type": "strong", "children": [{ "type": "text", "value": "Gordon et al. (2003)" }] },
+                  { "type": "text", "value": " — " },
+                  { "type": "link", "url": "https://doi.org/10.1086/376774", "children": [{ "type": "text", "value": "10.1086/376774" }] }
+                ]},
+                { "type": "blockquote", "children": [
+                  { "type": "paragraph", "children": [{ "type": "text", "value": "For the SMC Bar, we find that RV = 2.74 ± 0.13..." }] }
+                ]}
               ]
             }
           ]
@@ -280,7 +233,7 @@ The transform produces standard MyST AST nodes. Here's the mapping from ASTRA co
         {
           "type": "tabItem",
           "title": "R_V = 3.3 ○",
-          "children": [...]
+          "children": [ "..." ]
         }
       ]
     }
@@ -288,332 +241,54 @@ The transform produces standard MyST AST nodes. Here's the mapping from ASTRA co
 }
 ```
 
-### Transform function signature (TypeScript)
+### Transform implementation
 
 ```typescript
 interface ASTRASource {
   analysis: ASTRAFile           // parsed astra.yaml
   universe: Universe            // active universe selections
-  results: Map<string, string>  // output_id → file path (for produced outputs)
-  findings?: Finding[]          // extracted findings (from astra.yaml or derived)
+  results: Map<string, string>  // output_id → file path (if produced)
 }
 
-interface MystPage {
-  kind: 'Article'
-  sha256: string
-  slug: string
-  mdast: Root                   // the AST tree
-  frontmatter: Frontmatter
-  references: References
-  dependencies: string[]        // image paths, etc.
-}
-
-function astraToMystPage(source: ASTRASource): MystPage
-```
-
-### The core transform logic
-
-```typescript
 function astraToMystAST(source: ASTRASource): Root {
   const { analysis, universe, results } = source
 
   return {
     type: 'root',
     children: [
-      // Abstract
       ...renderAbstract(analysis),
-
-      // Universe banner
       renderUniverseBanner(universe),
 
-      // Findings (front and center)
-      renderSectionHeading(2, 'Findings', 'findings'),
-      ...analysis.findings.flatMap((finding, i) =>
+      sectionHeading(2, 'Findings', 'findings'),
+      ...Object.values(analysis.findings).flatMap((finding, i) =>
         renderFinding(finding, i + 1, results, analysis.decisions)
       ),
 
-      // Methods (decisions organized by concern)
-      renderSectionHeading(2, 'Methods', 'methods'),
-      ...renderMethodsSections(analysis.decisions, analysis.prior_insights),
+      sectionHeading(2, 'Methods', 'methods'),
+      ...renderMethodsSections(analysis.decisions, analysis.prior_insights, universe),
 
-      // Data Sources
-      renderSectionHeading(2, 'Data Sources', 'data-sources'),
+      sectionHeading(2, 'Data Sources', 'data-sources'),
       renderInputsTable(analysis.inputs),
 
-      // Verification
-      renderSectionHeading(2, 'Verification', 'verification'),
-      renderSuccessCriteriaTable(analysis.success_criteria),
+      ...(analysis.analyses
+        ? [sectionHeading(2, 'Sub-Analyses', 'sub-analyses'),
+           ...renderSubAnalysisCards(analysis.analyses)]
+        : []),
     ]
   }
 }
 ```
 
-### Key transform functions
+**`renderFinding`** — produces heading, narrative, evidence (inline figure/table from results if available, or a "pending" admonition if not), and a methodology callout with cross-references to relevant method sections.
+
+**`renderMethodsSections`** — groups decisions by their first tag into method sections (e.g., all decisions tagged `reddening` go under "Reddening & Extinction"). Each decision renders as a `<details>` dropdown with a `<tabSet>` of options inside. The selected option (from the active universe) is marked with ●.
+
+### Organizing decisions into method sections
+
+Decisions are grouped by their `tags` field. A configurable mapping converts tags to human-readable section headings:
 
 ```typescript
-function renderFinding(
-  finding: Finding,
-  index: number,
-  results: Map<string, string>,
-  decisions: Record<string, Decision>
-): Node[] {
-  const nodes: Node[] = []
-
-  // Heading
-  nodes.push(heading(3, `${index}. ${finding.claim}`, finding.id))
-
-  // Narrative (from finding notes or claim expansion)
-  if (finding.notes) {
-    nodes.push(paragraph(finding.notes))
-  }
-
-  // Evidence: inline figures/tables from results
-  for (const evidence of finding.evidence) {
-    if (evidence.artifact && results.has(evidence.artifact)) {
-      const path = results.get(evidence.artifact)!
-      if (path.endsWith('.png') || path.endsWith('.jpg')) {
-        nodes.push(figure(path, evidence.artifact, finding.id))
-      } else if (path.endsWith('.csv')) {
-        nodes.push(csvTable(path, evidence.artifact))
-      }
-    }
-  }
-
-  // Methodology callout with cross-references to decisions
-  const relatedDecisions = findRelatedDecisions(finding, decisions)
-  if (relatedDecisions.length > 0) {
-    nodes.push(methodologyCallout(relatedDecisions))
-  }
-
-  nodes.push(separator())
-  return nodes
-}
-
-function renderDecision(
-  id: string,
-  decision: Decision,
-  selectedOptionId: string,
-  insights: Record<string, Insight>
-): Node[] {
-  const selectedOption = decision.options[selectedOptionId]
-  const selectedLabel = selectedOption?.label ?? selectedOptionId
-
-  return [
-    // <details> dropdown
-    details(
-      // <summary>: decision label + selected option
-      summary([
-        strong(decision.label),
-        text(` — selected: ${selectedLabel}`)
-      ]),
-      [
-        // Rationale
-        ...(decision.rationale ? [paragraph(decision.rationale)] : []),
-
-        // Tab set with one tab per option
-        tabSet(
-          Object.entries(decision.options).map(([optId, option]) => {
-            const isSelected = optId === selectedOptionId
-            const marker = isSelected ? ' ●' : ' ○'
-
-            return tabItem(`${option.label}${marker}`, [
-              paragraph(option.description ?? ''),
-              // Evidence from insights
-              ...(option.insights?.length
-                ? [renderInsightEvidence(option.insights, insights)]
-                : []
-              )
-            ])
-          })
-        )
-      ]
-    )
-  ]
-}
-```
-
-## 5. Content server implementation
-
-### API endpoints
-
-The custom content server implements the same HTTP API as MyST's built-in content server:
-
-```typescript
-// GET /config.json
-// Returns site configuration + table of contents
-{
-  "id": "astra-analysis",
-  "title": analysis.name,
-  "projects": [{
-    "slug": ".",
-    "index": "index",
-    "pages": buildPageList(analysis)  // one page per analysis node
-  }]
-}
-
-// GET /content/{slug}.json
-// Returns page AST for a given slug
-{
-  "kind": "Article",
-  "sha256": contentHash,
-  "slug": slug,
-  "mdast": astraToMystAST(source),   // the transform output
-  "frontmatter": {
-    "title": analysis.name,
-    "subtitle": "ASTRA Analysis",
-    "authors": analysis.authors?.map(a => ({ name: a })),
-    "tags": analysis.tags
-  },
-  "references": { ... },
-  "dependencies": listImagePaths(results)
-}
-
-// GET /myst.xref.json
-// Returns cross-reference index
-{
-  "version": "1",
-  "references": buildXrefIndex(analysis)
-}
-
-// WebSocket /socket
-// Sends reload notifications when content changes
-// Message: { "type": "reload" }
-```
-
-### File watching
-
-```typescript
-import { watch } from 'chokidar'
-
-const watcher = watch([
-  'astra.yaml',
-  'universes/*.yaml',
-  'results/**/*.{png,jpg,csv,json}'
-], { ignoreInitial: true })
-
-watcher.on('all', (event, path) => {
-  // Re-read ASTRA source
-  const source = loadASTRASource(projectDir)
-  // Regenerate AST (cached, only regenerate what changed)
-  astCache.invalidate(path)
-  // Notify connected browsers via WebSocket
-  ws.send(JSON.stringify({ type: 'reload' }))
-})
-```
-
-### Static file serving
-
-The content server also needs to serve result images. When the theme encounters an `image` node with `url: "results/smoothing_stability_figure.png"`, it fetches that file from the content server:
-
-```typescript
-// GET /results/*.png, /results/*.jpg, etc.
-app.use('/results', express.static(path.join(projectDir, 'results', activeUniverse)))
-```
-
-## 6. Sub-analyses → multi-page
-
-ASTRA's self-similar structure maps to a multi-page MyST site. Each analysis node (root or sub-analysis) becomes its own page:
-
-```
-/                    → root analysis
-/preprocessing       → sub-analysis "preprocessing"
-/training            → sub-analysis "training"
-/training/validation → sub-sub-analysis
-```
-
-The table of contents (left sidebar) reflects the analysis tree:
-
-```json
-{
-  "projects": [{
-    "pages": [
-      { "slug": "index", "title": "TRGB Calibration" },
-      { "slug": "preprocessing", "title": "Preprocessing" },
-      { "slug": "training", "title": "Training",
-        "children": [
-          { "slug": "training/validation", "title": "Validation" }
-        ]
-      }
-    ]
-  }]
-}
-```
-
-In the parent page, sub-analyses appear as card links:
-
-```json
-{
-  "type": "card",
-  "url": "/preprocessing",
-  "children": [
-    { "type": "heading", "depth": 4, "children": [{ "type": "text", "value": "Preprocessing" }] },
-    { "type": "paragraph", "children": [{ "type": "text", "value": "Data preprocessing stage" }] },
-    { "type": "paragraph", "children": [{ "type": "text", "value": "2 decisions · 1 input · 1 output" }] }
-  ]
-}
-```
-
-The transform function is naturally recursive — it calls itself for each sub-analysis:
-
-```typescript
-function buildPages(analysis: Analysis, basePath: string = ''): Page[] {
-  const pages: Page[] = []
-
-  // This analysis node → one page
-  pages.push({
-    slug: basePath || 'index',
-    content: astraToMystAST({ analysis, universe, results })
-  })
-
-  // Sub-analyses → recursive pages
-  if (analysis.analyses) {
-    for (const [id, subAnalysis] of Object.entries(analysis.analyses)) {
-      const subPath = basePath ? `${basePath}/${id}` : id
-      pages.push(...buildPages(subAnalysis, subPath))
-    }
-  }
-
-  return pages
-}
-```
-
-## 7. Document structure generation
-
-### How findings are derived
-
-The `findings` field in `astra.yaml` may or may not be populated. The generator uses these sources in priority order:
-
-1. **Explicit findings** — If `analysis.findings` is populated, use those directly. Each finding has a claim, evidence (linking to outputs), and tags.
-
-2. **Success criteria** — If no findings, derive them from `success_criteria`. Group criteria by the output they reference, and use the claim text as the finding narrative.
-
-3. **Output grouping** — If neither is available, group outputs by type (figures, tables, metrics) and generate a simple results section without findings narrative.
-
-### How decisions are organized in Methods
-
-Decisions in `astra.yaml` have `tags` for grouping. The generator uses tags to organize decisions into method sections:
-
-```typescript
-function organizeDecisions(
-  decisions: Record<string, Decision>
-): Map<string, Decision[]> {
-  const sections = new Map<string, Decision[]>()
-
-  for (const [id, decision] of Object.entries(decisions)) {
-    // Use first tag as section key, or "Other" if no tags
-    const section = decision.tags?.[0] ?? 'other'
-    if (!sections.has(section)) sections.set(section, [])
-    sections.get(section)!.push({ ...decision, _id: id })
-  }
-
-  return sections
-}
-```
-
-The section keys map to human-readable headings:
-
-```typescript
-const SECTION_LABELS: Record<string, string> = {
+const TAG_TO_SECTION: Record<string, string> = {
   'reddening': 'Reddening & Extinction',
   'extinction': 'Reddening & Extinction',
   'sample-selection': 'Sample Construction',
@@ -628,57 +303,171 @@ const SECTION_LABELS: Record<string, string> = {
 }
 ```
 
-### How evidence connects findings to decisions
+Decisions with tags not in the mapping fall under "Other". Decisions with no tags are grouped under "General".
 
-Each finding's evidence references output IDs. Each output's recipe has input dependencies. Each decision parameterizes the scripts that produce outputs. The connection is:
+## 4. Content server
 
-```
-Finding → evidence.artifact (output ID)
-  → output.recipe.command (script)
-    → decisions that parameterize that script (from tags or explicit mapping)
-```
-
-For the prototype, the mapping can be manual (a simple lookup table). For production, decision-output relationships could be derived from the recipe DAG or declared explicitly in astra.yaml.
-
-## 8. Live reload flow
-
-### Complete sequence when agent edits astra.yaml
+### Endpoints
 
 ```
-1. Agent writes to astra.yaml (e.g., changes a decision's default)
-2. chokidar file watcher detects the change
-3. Content server re-reads astra.yaml, re-parses
-4. Content server re-runs astraToMystAST() for affected pages
-5. Content server sends { type: "reload" } via WebSocket
-6. Browser receives WebSocket message
-7. Theme refetches /content/index.json
-8. myst-to-react re-renders the updated AST
-9. User sees the change (typically < 1 second end-to-end)
+GET  /config.json           Site config + table of contents
+GET  /content/{slug}.json   Page AST + frontmatter
+GET  /myst.xref.json        Cross-reference index
+GET  /static/*              Result images and files
+WS   /socket                Live reload notifications
 ```
 
-### Complete sequence when prism run produces a new result
+**`/config.json`:**
+
+```json
+{
+  "id": "mystra",
+  "title": "Analysis Name",
+  "projects": [{
+    "slug": ".",
+    "index": "index",
+    "pages": [
+      { "slug": "index", "title": "Analysis Name" },
+      { "slug": "sub-analysis-id", "title": "Sub-Analysis Name" }
+    ]
+  }]
+}
+```
+
+**`/content/{slug}.json`:**
+
+```json
+{
+  "kind": "Article",
+  "sha256": "content-hash-for-cache-invalidation",
+  "slug": "index",
+  "mdast": { "type": "root", "children": [...] },
+  "frontmatter": {
+    "title": "Analysis Name",
+    "subtitle": "ASTRA Analysis",
+    "authors": [{ "name": "Author Name" }],
+    "tags": ["tag1", "tag2"]
+  },
+  "references": {},
+  "dependencies": ["results/figure.png"]
+}
+```
+
+**`/myst.xref.json`:**
+
+```json
+{
+  "version": "1",
+  "references": [
+    { "identifier": "finding-1", "kind": "heading", "data": "/content/index.json", "url": "/" },
+    { "identifier": "sample-construction", "kind": "heading", "data": "/content/index.json", "url": "/" }
+  ]
+}
+```
+
+### Static file serving
+
+Result images are served from the active universe's results directory:
+
+```typescript
+app.use('/static', express.static(
+  path.join(projectDir, 'results', activeUniverse)
+))
+```
+
+Image URLs in the AST reference `/static/figure_name.png`.
+
+### File watching and live reload
+
+```typescript
+const watcher = watch([
+  'astra.yaml',
+  'universes/*.yaml',
+  'results/**/*.{png,jpg,csv,json}'
+], { ignoreInitial: true })
+
+watcher.on('all', () => {
+  source = loadASTRASource(projectDir)
+  pageCache.clear()
+  wsBroadcast({ type: 'reload' })
+})
+```
+
+The content server caches generated AST per page. On any file change, the cache is cleared and connected browsers are notified via WebSocket to refetch.
+
+## 5. Sub-analyses
+
+ASTRA's self-similar structure maps to a multi-page MyST site. Each analysis node becomes its own page.
+
+**URL structure:**
+```
+/                    → root analysis
+/preprocessing       → sub-analysis "preprocessing"
+/training            → sub-analysis "training"
+/training/validation → nested sub-analysis
+```
+
+**Page generation is recursive:**
+
+```typescript
+function buildPages(analysis: Analysis, universe: Universe, basePath = ''): Page[] {
+  const pages: Page[] = []
+
+  pages.push({
+    slug: basePath || 'index',
+    ast: astraToMystAST({ analysis, universe, results: loadResults(basePath) })
+  })
+
+  if (analysis.analyses) {
+    for (const [id, sub] of Object.entries(analysis.analyses)) {
+      const subPath = basePath ? `${basePath}/${id}` : id
+      const subUniverse = universe.analyses?.[id] ?? { decisions: {} }
+      pages.push(...buildPages(sub, subUniverse, subPath))
+    }
+  }
+
+  return pages
+}
+```
+
+In the parent page, sub-analyses appear as clickable cards showing name, description, and counts (decisions, inputs, outputs).
+
+## 6. Live reload flow
+
+### Agent edits astra.yaml
 
 ```
-1. prism run completes, writes results/baseline/smoothing_stability_figure.png
-2. chokidar detects new file in results/
-3. Content server re-runs transform (the figure node now has a valid path)
-4. AST changes: figure node goes from "pending" admonition to actual image
-5. WebSocket reload → browser re-renders with the new figure inline
+1. Agent writes to astra.yaml
+2. chokidar detects the change
+3. Content server re-reads and re-parses astra.yaml
+4. Page cache is cleared
+5. WebSocket broadcasts { type: "reload" }
+6. Browser refetches /content/index.json
+7. myst-to-react re-renders the updated AST
 ```
 
-## 9. Technology choices
+### New result produced
 
-| Component | Technology | Rationale |
-|---|---|---|
-| Content server | TypeScript + Express/Hono | Matches MyST ecosystem (JS/TS), simple HTTP server |
-| ASTRA parser | `js-yaml` | Standard YAML parsing, already used by MyST |
-| AST construction | TypeScript with myst-spec types | Type-safe AST nodes matching the spec |
-| File watcher | `chokidar` | Battle-tested, used by MyST itself |
-| Theme | `myst-theme/book-theme` (unmodified) | Zero custom UI code needed |
-| CSV → table | `papaparse` | Parse result CSV files for table rendering |
-| Image serving | Express static middleware | Serve result images from results/ directory |
+```
+1. A script produces results/baseline/smoothing_stability_figure.png
+2. chokidar detects the new file
+3. Content server re-runs transform — figure node now has a valid path
+4. AST changes: "pending" admonition becomes an actual image
+5. WebSocket reload → browser shows the new figure inline
+```
 
-### Dependencies
+## 7. Technology
+
+| Component | Technology |
+|---|---|
+| Content server | TypeScript + Express |
+| ASTRA parsing | `js-yaml` |
+| AST construction | TypeScript with `myst-spec` types |
+| Citation resolution | `citation-js-utils` (from MyST ecosystem) |
+| File watcher | `chokidar` |
+| Theme | `myst-theme/book-theme` (unmodified) |
+| CSV parsing | `papaparse` |
+| Static files | Express static middleware |
 
 ```json
 {
@@ -688,85 +477,92 @@ For the prototype, the mapping can be manual (a simple lookup table). For produc
     "express": "^4.18.0",
     "papaparse": "^5.4.0",
     "ws": "^8.16.0",
-    "myst-spec": "^0.0.5"
-  },
-  "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/express": "^4.17.0",
-    "@types/ws": "^8.5.0"
+    "myst-spec": "^0.0.5",
+    "citation-js-utils": "^1.2.0"
   }
 }
 ```
 
-The MyST theme is installed separately via `myst start` (it downloads the book-theme automatically).
+The MyST book-theme is fetched automatically when the theme server starts.
 
-## 10. Integration with Prism
-
-### As a Prism command
+## 8. CLI
 
 ```bash
-prism view                    # Start the document server for the current analysis
-prism view --port 4000        # Custom port
-prism view --universe u001    # View a specific universe
+mystra [project-dir]              # Start MySTRA for the given ASTRA project (default: .)
+mystra --port 4000                # Custom theme server port
+mystra --universe u001            # View a specific universe (default: first in universes/)
 ```
 
-`prism view` would:
-1. Start the custom content server (port 3100)
-2. Start the MyST book-theme (port 3000) pointed at the content server
-3. Open the browser
-4. Keep running, watching for changes
+MySTRA starts two processes:
+1. Content server on port 3100
+2. MyST book-theme on port 3000
 
-### As a VS Code extension integration
+It watches the project directory for changes and keeps the document live.
 
-Prism-UI could launch `prism view` and display the result in a VS Code webview panel (simple iframe or webview pointing at localhost:3000). The existing Prism-UI extension infrastructure handles lifecycle management.
+## 9. Implementation plan
 
-## 11. Implementation plan
+### Phase 1: Transform
 
-### Phase 1: Core transform (2-3 days)
+Implement `astraToMystAST()` and all the render functions:
+- `renderAbstract`, `renderUniverseBanner`
+- `renderFinding` (heading, narrative, evidence figure/table, methodology callout)
+- `renderMethodsSections` (group by tags, render each decision as dropdown + tabs)
+- `renderInputsTable`, `renderSubAnalysisCards`
+- AST helper functions: `heading()`, `paragraph()`, `text()`, `strong()`, `link()`, `details()`, `summary()`, `tabSet()`, `tabItem()`, `admonition()`, `figure()`, `table()`, `crossReference()`, `blockquote()`, `separator()`
 
-- [ ] Implement `astraToMystAST()` — the ASTRA → MyST AST transform
-- [ ] Handle all node types: headings, paragraphs, admonitions, details/dropdowns, tabSets, figures, tables, blockquotes, links, cross-references
-- [ ] Render findings section from `findings` or `success_criteria`
-- [ ] Render methods section from `decisions` organized by tags
-- [ ] Render inputs table, verification table
-- [ ] Test with the TRGB analysis astra.yaml
+Test with the TRGB analysis `astra.yaml`.
 
-### Phase 2: Content server (1-2 days)
+### Phase 2: Content server
 
-- [ ] Implement Express server with `/config.json`, `/content/index.json`, `/myst.xref.json`
-- [ ] Static file serving for result images
-- [ ] File watcher on astra.yaml, universes/, results/
-- [ ] WebSocket for live reload
-- [ ] Test end-to-end with `myst start` connecting to the content server
+- Express server implementing the 4 endpoints + static file serving
+- DOI enrichment: fetch citation metadata at startup, cache on disk
+- File watcher with WebSocket reload
+- Page cache with invalidation
+- Verify end-to-end with the MyST book-theme
 
-### Phase 3: Multi-page for sub-analyses (1 day)
+### Phase 3: Sub-analyses and polish
 
-- [ ] Recursive page generation for sub-analyses
-- [ ] Table of contents generation reflecting analysis tree
-- [ ] Sub-analysis cards in parent pages
-- [ ] Navigation between parent and child pages
+- Recursive page generation
+- Table of contents reflecting analysis tree
+- Sub-analysis cards in parent pages
+- CLI entry point (`mystra` command)
 
-### Phase 4: Result embedding (1 day)
+## 10. DOI enrichment and citations
 
-- [ ] Read CSV results and render as tables
-- [ ] Inline figures from results/ directory
-- [ ] Status indicators (pending/complete/error) based on result file existence
-- [ ] Success criteria pass/fail based on actual values
+MyST's markdown parser auto-resolves DOIs to full citations via doi.org. Since we bypass the parser, we handle this in the content server.
 
-### Phase 5: Prism integration (1 day)
+**Approach:** Import `citation-js-utils` from the MyST ecosystem (MIT-licensed) for citation parsing and rendering. Write a thin DOI fetcher (~30 lines) that requests metadata from `https://doi.org/{doi}` with content negotiation (`Accept: application/x-bibtex`, fallback `application/vnd.citationstyles.csl+json`). Cache results as CSL-JSON on disk.
 
-- [ ] `prism view` CLI command
-- [ ] VS Code extension integration
-- [ ] Documentation
+```typescript
+import { getCitationRenderers } from 'citation-js-utils'
 
-## 12. Open questions
+// At startup:
+// 1. Collect all DOIs from prior_insights + findings evidence
+// 2. For each DOI not in cache: fetch from doi.org, save as CSL-JSON
+// 3. Use getCitationRenderers() to produce formatted HTML
+// 4. Build the references object for the page response
 
-1. **Tab rendering**: The MyST AST spec includes `tabSet` and `tabItem` node types, but they may require specific handling in the book-theme. Need to verify these work when produced programmatically vs. parsed from markdown.
+const references = {
+  cite: {
+    order: ["Gordon_2003", "Rizzi_2007", ...],
+    data: {
+      "Gordon_2003": {
+        label: "Gordon_2003",
+        enumerator: "1",
+        doi: "10.1086/376774",
+        html: "Gordon, K. D., Clayton, G. C., ... (2003). <i>ApJ</i>, 594(1), 279–293."
+      }
+    }
+  }
+}
+```
 
-2. **DOI enrichment**: MyST's markdown parser auto-resolves DOIs to full citation metadata via doi.org. If we bypass the parser, we need to either: (a) do this enrichment in the content server, (b) pre-cache citation metadata when insights are added, or (c) use inline links instead of formal citations.
+This gives us the auto-generated References section and proper citation formatting that the book-theme renders at the bottom of each page.
 
-3. **Custom node types**: If we want rendering that goes beyond standard MyST (e.g., a universe comparison widget, a decision dependency graph), we'd need to register custom renderers with myst-to-react. This is supported but requires forking or extending the theme.
+**Dependencies:** `citation-js-utils` (from MyST monorepo, published on npm).
 
-4. **Incremental updates**: The current design regenerates the full AST on any change. For large analyses with many sub-analyses, incremental updates (only regenerate the affected page) would improve performance. The content hash (`sha256` in the page response) enables this — the theme only refetches pages whose hash changed.
+## 11. Open questions
 
-5. **Finding derivation**: The mapping from success criteria to narrative findings is currently manual. Could an agent generate findings from the analysis results? This would close the loop: agent runs analysis → results appear → agent writes findings → document updates with narrative + evidence.
+1. **Tab AST nodes**: Verify that `tabSet`/`tabItem` nodes work correctly when produced programmatically (vs. parsed from MyST markdown). If not, fall back to nested `details`/`summary` elements.
+
+2. **Content server API surface**: The spec above covers the known endpoints. The exact JSON shapes should be validated against the book-theme's actual fetch calls. The practical approach is to run `myst start` on a real MyST project, inspect the network requests in the browser, and match them exactly.
