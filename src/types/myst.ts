@@ -55,6 +55,40 @@ export interface CardNode {
   children: any[];
 }
 
+// ── Citation nodes ──
+
+export interface CiteNode {
+  type: 'cite';
+  label: string;
+  identifier?: string;
+  kind?: 'narrative' | 'parenthetical';
+  children: any[];
+}
+
+export interface CiteGroupNode {
+  type: 'citeGroup';
+  kind: 'narrative' | 'parenthetical';
+  children: CiteNode[];
+}
+
+// ── Collapsible / structural nodes ──
+
+export interface DetailsNode {
+  type: 'details';
+  open?: boolean;
+  children: any[];
+}
+
+export interface SummaryNode {
+  type: 'summary';
+  children: any[];
+}
+
+export interface BlockBreakNode {
+  type: 'blockBreak';
+  meta?: string;
+}
+
 // ── General AST node union for our purposes ──
 
 export type AnyASTNode =
@@ -63,4 +97,9 @@ export type AnyASTNode =
   | TabSetNode
   | TabItemNode
   | CardNode
+  | CiteNode
+  | CiteGroupNode
+  | DetailsNode
+  | SummaryNode
+  | BlockBreakNode
   | { type: string; [key: string]: any };

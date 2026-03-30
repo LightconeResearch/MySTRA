@@ -8,13 +8,14 @@
 import type { ASTRAAnalysis, ASTRAUniverse, ASTRAUniverseNode } from '../types/astra.js';
 import type { PageData, PageFrontmatter, XRefEntry } from '../types/content-server.js';
 import { join } from 'node:path';
-import { sectionHeading, text, heading } from './ast-helpers.js';
+import { sectionHeading, text, heading, blockBreak } from './ast-helpers.js';
 import { renderAbstract } from './render-abstract.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
 import { renderMethodsSections } from './render-methods.js';
 import { renderInputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
+import { renderVerification } from './render-verification.js';
 import { setDOICacheDir } from './render-evidence.js';
 import { toSlug } from '../utils/slug.js';
 
@@ -34,10 +35,10 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   const outputs = analysis.outputs ?? [];
 
   const children: any[] = [
-    // Title
-    heading(1, [text(analysis.name ?? 'Analysis')], 'root'),
+    // Block break separating frontmatter from content
+    blockBreak('{"class": ""}'),
 
-    // Abstract + success criteria
+    // Abstract
     ...renderAbstract(analysis),
 
     // Universe banner
@@ -55,6 +56,15 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     sectionHeading(2, 'Data Sources', 'data-sources'),
     renderInputsTable(inputs),
   ];
+
+  // Verification section (only if success criteria defined)
+  const successCriteria = analysis.success_criteria ?? [];
+  if (successCriteria.length > 0) {
+    children.push(
+      sectionHeading(2, 'Verification', 'verification'),
+      renderVerification(successCriteria, results),
+    );
+  }
 
   // Sub-Analyses section (only if present)
   if (analysis.analyses && Object.keys(analysis.analyses).length > 0) {
@@ -157,7 +167,7 @@ function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] 
   }
 
   // Section identifiers
-  for (const section of ['findings', 'methods', 'data-sources', 'sub-analyses']) {
+  for (const section of ['findings', 'methods', 'data-sources', 'verification', 'sub-analyses']) {
     entries.push({
       identifier: section,
       kind: 'heading',

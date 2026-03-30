@@ -33,11 +33,11 @@ export function crossReference(identifier: string, children: any[]) {
 
 // ── Block nodes ──
 
-export function heading(depth: 1 | 2 | 3 | 4 | 5 | 6, children: any[], identifier?: string) {
+export function heading(depth: 1 | 2 | 3 | 4 | 5 | 6, children: any[], identifier?: string, label?: string) {
   return {
     type: 'heading' as const,
     depth,
-    identifier,
+    ...(identifier ? { identifier, label: label ?? identifier } : {}),
     children,
   };
 }
@@ -74,11 +74,11 @@ export function admonitionTitle(children: any[]) {
   return { type: 'admonitionTitle' as const, children };
 }
 
-export function container(kind: string, children: any[], identifier?: string) {
+export function container(kind: string, children: any[], identifier?: string, label?: string) {
   return {
     type: 'container' as const,
     kind,
-    ...(identifier ? { identifier } : {}),
+    ...(identifier ? { identifier, label: label ?? identifier } : {}),
     children,
   };
 }
@@ -87,11 +87,12 @@ export function caption(children: any[]) {
   return { type: 'caption' as const, children };
 }
 
-export function image(url: string, alt?: string) {
+export function image(url: string, alt?: string, width?: string) {
   return {
     type: 'image' as const,
     url,
     ...(alt ? { alt } : {}),
+    ...(width ? { width } : {}),
   };
 }
 
@@ -125,10 +126,16 @@ export function tabSet(children: any[]) {
 
 let tabKeyCounter = 0;
 
-export function tabItem(title: string, children: any[]) {
+export function tabItem(title: string, children: any[], selected?: boolean) {
   // The book-theme React renderer requires a unique `key` on each tabItem
   const key = `tab-${(tabKeyCounter++).toString(36)}`;
-  return { type: 'tabItem' as const, title, key, children };
+  return {
+    type: 'tabItem' as const,
+    title,
+    key,
+    ...(selected ? { selected: true } : {}),
+    children,
+  };
 }
 
 export function card(title: string, children: any[], url?: string) {
@@ -150,10 +157,41 @@ export function listItem(children: any[]) {
   return { type: 'listItem' as const, children };
 }
 
+// ── Citation nodes ──
+
+export function cite(label: string, children: any[], kind?: 'narrative' | 'parenthetical') {
+  return {
+    type: 'cite' as const,
+    label,
+    identifier: label.toLowerCase().replace(/\s+/g, '_'),
+    ...(kind ? { kind } : {}),
+    children,
+  };
+}
+
+export function citeGroup(children: any[], kind: 'narrative' | 'parenthetical' = 'narrative') {
+  return { type: 'citeGroup' as const, kind, children };
+}
+
+// ── Collapsible / structural nodes ──
+
+export function details(children: any[], open = false) {
+  return { type: 'details' as const, open, children };
+}
+
+export function summary(children: any[]) {
+  return { type: 'summary' as const, children };
+}
+
+export function blockBreak(meta?: string) {
+  return { type: 'blockBreak' as const, ...(meta ? { meta } : {}) };
+}
+
 // ── Convenience composites ──
 
 export function sectionHeading(depth: 1 | 2 | 3 | 4 | 5 | 6, label: string, identifier?: string) {
-  return heading(depth, [text(label)], identifier ?? toSlug(label));
+  const id = identifier ?? toSlug(label);
+  return heading(depth, [text(label)], id, label);
 }
 
 export function doiLink(doi: string) {

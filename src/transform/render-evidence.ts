@@ -16,13 +16,22 @@ import {
   image,
   container,
   caption,
+  details,
+  summary,
   admonition,
   admonitionTitle,
   link,
   inlineCode,
+  table,
+  tableRow,
+  tableCell,
+  cite,
+  citeGroup,
 } from './ast-helpers.js';
 import { parse as parsePath } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { getCachedMetadata } from '../doi/resolver.js';
+import { parseInlineMarkdown } from './inline-parser.js';
 
 /** DOI cache dir, set by the transform entry point */
 let _doiCacheDir: string | null = null;
@@ -48,45 +57,36 @@ export function renderEvidenceBlock(
 }
 
 /**
- * Format a DOI citation inline using cached metadata.
- * Returns: **Author et al. (Year)** — [DOI](link) (p. N)
- * Falls back to raw DOI if not resolved.
+ * Format a DOI citation as a cite node for hover previews.
+ * Returns a single citeGroup node that the book-theme renders
+ * with a hover tooltip showing the full citation.
+ * Falls back to a plain DOI link if not resolved.
  */
-function formatDOICitation(doi: string, page?: number): any[] {
+function formatCiteNode(doi: string): any {
   const meta = _doiCacheDir ? getCachedMetadata(doi, _doiCacheDir) : null;
 
-  const parts: any[] = [];
-
   if (meta && meta.authorShort) {
-    // Rich format: **Author et al. (Year)** — DOI link
     let authorYear = meta.authorShort;
     if (meta.year) authorYear += ` (${meta.year})`;
-    parts.push(strong([text(authorYear)]));
-    parts.push(text(' — '));
-    parts.push(link(`https://doi.org/${doi}`, [text(doi)]));
-  } else {
-    // Fallback: just DOI link
-    parts.push(link(`https://doi.org/${doi}`, [text(doi)]));
+    return citeGroup([cite(meta.label, [text(authorYear)], 'narrative')], 'narrative');
   }
 
-  if (page) {
-    parts.push(text(` (p. ${page})`));
-  }
-
-  return parts;
+  // Fallback: plain DOI link
+  return link(`https://doi.org/${doi}`, [text(doi)]);
 }
 
 function renderLiteratureEvidence(evidence: ASTRAEvidence): any[] {
   const nodes: any[] = [];
   const doi = evidence.doi!;
-  const page = evidence.location?.page;
 
-  // Citation line
-  nodes.push(paragraph(formatDOICitation(doi, page)));
-
-  // Quote
+  // Citation + quote as attributed blockquote
   if (evidence.quote) {
-    nodes.push(blockquote([paragraph([text(evidence.quote.exact)])]));
+    nodes.push(blockquote([
+      paragraph([text(evidence.quote.exact)]),
+    ]));
+    nodes.push(paragraph([text('\u2014 '), formatCiteNode(doi)]));
+  } else {
+    nodes.push(paragraph([formatCiteNode(doi)]));
   }
 
   // Figure/table references
@@ -94,13 +94,13 @@ function renderLiteratureEvidence(evidence: ASTRAEvidence): any[] {
     nodes.push(
       paragraph([
         emphasis([text(`See ${evidence.figure.label}`)]),
-        ...(evidence.figure.caption ? [text(` — ${evidence.figure.caption}`)] : []),
+        ...(evidence.figure.caption ? [text(` \u2014 ${evidence.figure.caption}`)] : []),
       ]),
     );
   }
   if (evidence.table) {
     const tableParts: any[] = [emphasis([text(`See ${evidence.table.label}`)])];
-    if (evidence.table.caption) tableParts.push(text(` — ${evidence.table.caption}`));
+    if (evidence.table.caption) tableParts.push(text(` \u2014 ${evidence.table.caption}`));
     if (evidence.table.region) tableParts.push(text(` (${evidence.table.region})`));
     nodes.push(paragraph(tableParts));
   }
@@ -125,10 +125,14 @@ function renderArtifactEvidence(
 
       nodes.push(
         container('figure', [
-          image(`/static/${artifactId}.${ext}`, figureLabel),
-          caption([paragraph([text(captionText)])]),
+          image(`/static/${artifactId}.${ext}`, figureLabel, '100%'),
+          caption([paragraph(parseInlineMarkdown(captionText))]),
         ], `fig-${artifactId}`),
       );
+    } else if (ext === 'json') {
+      nodes.push(...renderJSONTable(resultPath, artifactId, evidence));
+    } else if (ext === 'csv') {
+      nodes.push(...renderCSVTable(resultPath, artifactId, evidence));
     } else {
       const refParts: any[] = [
         text('Output: '),
@@ -156,10 +160,145 @@ function renderArtifactEvidence(
 }
 
 /**
- * Render all evidence from an insight (used by render-methods for option evidence).
- * Uses rich DOI formatting when available.
+ * Render a JSON result file as a table inside a collapsible details element.
+ * Supports nested object structures: outer keys → rows, inner keys → columns.
  */
-export function renderInsightEvidence(
+function renderJSONTable(
+  filePath: string,
+  artifactId: string,
+  evidence: ASTRAEvidence,
+): any[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return [paragraph([text(`Could not parse ${artifactId}.json`)])];
+  }
+
+  const tableLabel = evidence.table?.label ?? evidence.figure?.label ?? artifactId;
+
+  // Handle nested object: { key: { col1: val, col2: val }, ... }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const entries = Object.entries(data as Record<string, unknown>);
+    if (entries.length === 0) return [];
+
+    // Collect all inner keys across all entries for column headers
+    const colSet = new Set<string>();
+    for (const [, value] of entries) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        for (const k of Object.keys(value as Record<string, unknown>)) {
+          colSet.add(k);
+        }
+      }
+    }
+    const columns = Array.from(colSet);
+
+    if (columns.length === 0) {
+      // Flat object: { key: value, ... } → two-column table
+      const headerRow = tableRow(
+        [tableCell([text('Key')], true), tableCell([text('Value')], true)],
+        true,
+      );
+      const rows = entries.map(([k, v]) =>
+        tableRow([tableCell([text(k)]), tableCell([text(formatValue(v))])]),
+      );
+      return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
+    }
+
+    // Nested object → multi-column table
+    const headerRow = tableRow(
+      [tableCell([text('')], true), ...columns.map((c) => tableCell([text(c)], true))],
+      true,
+    );
+    const rows = entries.map(([key, value]) => {
+      const record = (value && typeof value === 'object' && !Array.isArray(value))
+        ? value as Record<string, unknown>
+        : {};
+      return tableRow([
+        tableCell([strong([text(key)])]),
+        ...columns.map((col) => tableCell([text(formatValue(record[col]))])),
+      ]);
+    });
+
+    return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
+  }
+
+  // Handle array of objects: [{ col1: val, col2: val }, ...]
+  if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+    const columns = Object.keys(data[0] as Record<string, unknown>);
+    const headerRow = tableRow(
+      columns.map((c) => tableCell([text(c)], true)),
+      true,
+    );
+    const rows = data.map((item: Record<string, unknown>) =>
+      tableRow(columns.map((col) => tableCell([text(formatValue(item[col]))]))),
+    );
+    return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
+  }
+
+  return [paragraph([text(`Output: `), inlineCode(artifactId)])];
+}
+
+/**
+ * Render a CSV result file as a table inside a collapsible details element.
+ */
+function renderCSVTable(
+  filePath: string,
+  artifactId: string,
+  evidence: ASTRAEvidence,
+): any[] {
+  let csvText: string;
+  try {
+    csvText = readFileSync(filePath, 'utf-8');
+  } catch {
+    return [paragraph([text(`Could not read ${artifactId}.csv`)])];
+  }
+
+  // Dynamic import would be cleaner but we need sync; papaparse supports sync parse
+  const Papa = require('papaparse');
+  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+
+  if (!result.data || result.data.length === 0) {
+    return [paragraph([text(`Empty CSV: ${artifactId}`)])];
+  }
+
+  const tableLabel = evidence.table?.label ?? artifactId;
+  const columns = result.meta.fields as string[];
+  const headerRow = tableRow(
+    columns.map((c: string) => tableCell([text(c)], true)),
+    true,
+  );
+  const rows = (result.data as Record<string, string>[]).map((row) =>
+    tableRow(columns.map((col: string) => tableCell([text(row[col] ?? '')]))),
+  );
+
+  return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
+}
+
+function formatValue(val: unknown): string {
+  if (val === null || val === undefined) return '\u2014';
+  if (typeof val === 'number') {
+    if (Number.isNaN(val)) return 'NaN';
+    return Number.isInteger(val) ? val.toString() : val.toPrecision(6);
+  }
+  if (Array.isArray(val)) {
+    return val.map((v) => formatValue(v)).join(', ');
+  }
+  if (typeof val === 'object') return JSON.stringify(val);
+  return String(val);
+}
+
+/**
+ * Render a single insight as a claim supported by evidence.
+ *
+ * Structure:
+ *   **Insight claim text**
+ *   > "quoted text from paper"
+ *   — Author et al. (Year)        ← cite node with hover preview
+ *   > "another quote"
+ *   — Author2 et al. (Year)
+ */
+export function renderInsight(
   insightId: string,
   allInsights: Record<string, { claim: string; evidence: ASTRAEvidence[] }>,
 ): any[] {
@@ -168,26 +307,28 @@ export function renderInsightEvidence(
 
   const nodes: any[] = [];
 
+  // Insight claim as bold headline
+  nodes.push(paragraph([strong([text(insight.claim)])]));
+
+  // Each piece of evidence: attributed quote from a source
   for (const ev of insight.evidence) {
     if (ev.doi) {
-      const page = ev.location?.page;
-
-      // Rich citation line
-      nodes.push(paragraph(formatDOICitation(ev.doi, page)));
-
       if (ev.quote) {
-        nodes.push(blockquote([paragraph([text(ev.quote.exact)])]));
-      }
-      if (ev.figure) {
-        nodes.push(paragraph([emphasis([text(`See ${ev.figure.label}`)])]));
-      }
-      if (ev.table) {
-        nodes.push(paragraph([emphasis([text(`See ${ev.table.label}`)])]));
+        // Quote → attribution pattern
+        nodes.push(blockquote([
+          paragraph([text(ev.quote.exact)]),
+        ]));
+        nodes.push(paragraph([text('\u2014 '), formatCiteNode(ev.doi)]));
+      } else {
+        // No quote, just cite the source
+        nodes.push(paragraph([formatCiteNode(ev.doi)]));
       }
     } else if (ev.artifact) {
-      nodes.push(paragraph([text('From output: '), inlineCode(ev.artifact)]));
       if (ev.quote) {
         nodes.push(blockquote([paragraph([text(ev.quote.exact)])]));
+        nodes.push(paragraph([text('\u2014 '), inlineCode(ev.artifact)]));
+      } else {
+        nodes.push(paragraph([text('From output: '), inlineCode(ev.artifact)]));
       }
     }
   }

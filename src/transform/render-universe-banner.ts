@@ -1,30 +1,26 @@
 /**
  * Renders the universe banner showing which analysis path is active.
+ * Collapsible details with a table of decision → selected option.
  */
 
 import type { ASTRAUniverse, ASTRADecision } from '../types/astra.js';
 import {
-  admonition,
-  admonitionTitle,
-  paragraph,
-  text,
+  details,
+  summary,
+  crossReference,
   strong,
+  text,
+  table,
+  tableRow,
+  tableCell,
 } from './ast-helpers.js';
 
 export function renderUniverseBanner(
   universe: ASTRAUniverse,
   decisions: Record<string, ASTRADecision>,
 ): any {
-  const children: any[] = [
-    admonitionTitle([text(`Universe: ${universe.id}`)]),
-  ];
+  const rows: any[] = [];
 
-  if (universe.description) {
-    children.push(paragraph([text(universe.description)]));
-  }
-
-  // Build a compact summary of decision selections
-  const selections: any[] = [];
   for (const [decisionId, selectedOptionId] of Object.entries(universe.decisions)) {
     const decision = decisions[decisionId];
     if (!decision?.options) continue;
@@ -33,16 +29,27 @@ export function renderUniverseBanner(
     const option = decision.options[selectedOptionId];
     const optionLabel = option?.label ?? selectedOptionId;
 
-    if (selections.length > 0) {
-      selections.push(text(' · '));
-    }
-    selections.push(strong([text(decisionLabel)]));
-    selections.push(text(`: ${optionLabel}`));
+    rows.push(
+      tableRow([
+        tableCell([crossReference(decisionId, [strong([text(decisionLabel)])])]),
+        tableCell([text(optionLabel)]),
+      ]),
+    );
   }
 
-  if (selections.length > 0) {
-    children.push(paragraph(selections));
-  }
+  const headerRow = tableRow(
+    [
+      tableCell([text('Decision')], true),
+      tableCell([text('Selected')], true),
+    ],
+    true,
+  );
 
-  return admonition('tip', children);
+  return details(
+    [
+      summary([text('Universe: '), strong([text(universe.id)])]),
+      ...(rows.length > 0 ? [table([headerRow, ...rows])] : []),
+    ],
+    true,
+  );
 }

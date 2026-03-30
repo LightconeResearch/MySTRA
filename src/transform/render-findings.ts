@@ -16,6 +16,7 @@ import {
   crossReference,
   thematicBreak,
 } from './ast-helpers.js';
+import { parseInlineMarkdown } from './inline-parser.js';
 import { renderEvidenceBlock } from './render-evidence.js';
 import { TAG_TO_SECTION } from './tag-sections.js';
 import { toSlug } from '../utils/slug.js';
@@ -59,9 +60,9 @@ function renderFinding(
   // Finding heading
   nodes.push(heading(3, [text(`${index}. ${finding.claim}`)], identifier));
 
-  // Notes as narrative paragraph
+  // Notes as narrative paragraph (with inline markdown formatting)
   if (finding.notes) {
-    nodes.push(paragraph([text(finding.notes)]));
+    nodes.push(paragraph(parseInlineMarkdown(finding.notes)));
   }
 
   // Scope

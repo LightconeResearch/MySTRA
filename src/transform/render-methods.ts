@@ -12,14 +12,14 @@ import {
   text,
   strong,
   emphasis,
-  admonition,
-  admonitionTitle,
+  details,
+  summary,
   tabSet,
   tabItem,
   thematicBreak,
 } from './ast-helpers.js';
 import { groupDecisionsByTag } from './tag-sections.js';
-import { renderInsightEvidence } from './render-evidence.js';
+import { renderInsight } from './render-evidence.js';
 
 export function renderMethodsSections(
   decisions: Record<string, ASTRADecision>,
@@ -83,31 +83,40 @@ function renderDecision(
   // h4 heading for the decision
   nodes.push(heading(4, [text(decisionLabel)], id));
 
-  // Dropdown containing rationale + option tabs
-  const dropdownChildren: any[] = [
-    admonitionTitle([
+  // Build option tabs, tracking which is selected for reordering
+  const tabs: any[] = [];
+  let selectedIndex = -1;
+  const optionEntries = Object.entries(options);
+  for (let i = 0; i < optionEntries.length; i++) {
+    const [optionId, option] = optionEntries[i];
+    const isSelected = optionId === selectedOptionId;
+    if (isSelected) selectedIndex = i;
+    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights));
+  }
+
+  // Move selected tab to first position (book-theme defaults to first tab)
+  if (selectedIndex > 0) {
+    const [selected] = tabs.splice(selectedIndex, 1);
+    tabs.unshift(selected);
+  }
+
+  // Build details/summary dropdown (neutral styling, not admonition)
+  const detailsChildren: any[] = [
+    summary([
       strong([text(decisionLabel)]),
       text(` — selected: ${selectedLabel}`),
     ]),
   ];
 
-  // Rationale
   if (decision.rationale) {
-    dropdownChildren.push(paragraph([text(decision.rationale)]));
-  }
-
-  // Tab set of options
-  const tabs: any[] = [];
-  for (const [optionId, option] of Object.entries(options)) {
-    const isSelected = optionId === selectedOptionId;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights));
+    detailsChildren.push(paragraph([text(decision.rationale)]));
   }
 
   if (tabs.length > 0) {
-    dropdownChildren.push(tabSet(tabs));
+    detailsChildren.push(tabSet(tabs));
   }
 
-  nodes.push(admonition('note', dropdownChildren, { open: false, class: 'dropdown' }));
+  nodes.push(details(detailsChildren, false));
 
   return nodes;
 }
@@ -149,20 +158,20 @@ function renderOptionTab(
     );
   }
 
-  // Evidence from linked insights — collapsible dropdown
+  // Supporting insights — collapsible dropdown
   if (option.insights && option.insights.length > 0) {
-    const evidenceNodes: any[] = [
-      admonitionTitle([text('Evidence')]),
-    ];
+    const insightNodes: any[] = [];
 
     for (const insightId of option.insights) {
-      evidenceNodes.push(...renderInsightEvidence(insightId, priorInsights));
+      insightNodes.push(...renderInsight(insightId, priorInsights));
     }
 
-    children.push(admonition('note', evidenceNodes, { open: false, class: 'dropdown' }));
+    const count = option.insights.length;
+    const label = count === 1 ? 'Supporting insight' : `Supporting insights (${count})`;
+    children.push(details([summary([text(label)]), ...insightNodes], false));
   }
 
-  return tabItem(title, children);
+  return tabItem(title, children, isSelected);
 }
 
 /**
