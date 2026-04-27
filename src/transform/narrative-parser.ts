@@ -218,7 +218,57 @@ function subAnalysisUrl(
   hostSlug: string,
 ): { url: string } {
   const base = hostSlug === 'index' ? `/${subId}` : `/${hostSlug}/${subId}`;
-  return rest.length === 0 ? { url: base } : { url: `${base}#${rest.join('.')}` };
+  if (rest.length === 0) return { url: base };
+  // Translate ASTRA tree-path grammar (`outputs.features`,
+  // `decisions.scaling`) to the local mdast id convention
+  // (`output-features`, `decision-scaling`) before stitching the
+  // URL fragment, so cross-page anchors resolve to real ids on
+  // the destination page.
+  const fragment = astraPathToFragment(rest);
+  return fragment ? { url: `${base}#${fragment}` } : { url: base };
+}
+
+/**
+ * `[category, id]` → `<kind>-<id>` (matching the local in-page
+ * identifier convention). Multi-segment paths beyond `[category, id]`
+ * (e.g. `decisions.<id>.options.<opt>`) collapse to the parent
+ * decision identifier — option-level anchors don't yet exist in
+ * MySTRA's xref scheme, identical to the in-page resolver branch.
+ *
+ * `narrative.<section>` and `analyses.<id>...` are not handled here
+ * because the caller has already stripped the head category; this
+ * helper only sees the remainder of a sub-analysis traversal.
+ */
+const CATEGORY_TO_KIND: Record<string, string> = {
+  findings: 'finding',
+  decisions: 'decision',
+  prior_insights: 'prior_insight',
+  inputs: 'input',
+  outputs: 'output',
+  analyses: 'analysis',
+};
+
+function astraPathToFragment(segments: string[]): string {
+  if (segments.length === 0) return '';
+  const [head, ...rest] = segments;
+
+  // narrative.<section> stays as-is — the carrier id is
+  // `narrative-<section>` on the destination page.
+  if (head === 'narrative' && rest.length === 1) {
+    return `narrative-${rest[0]}`;
+  }
+
+  const kind = CATEGORY_TO_KIND[head];
+  if (kind && rest.length >= 1) {
+    // `decisions.<id>.options.<opt>` collapses to the parent
+    // decision; same fallback as the in-scope resolver.
+    return `${kind}-${rest[0]}`;
+  }
+
+  // Unrecognised path — fall back to dot-joined raw segments so
+  // the URL still points at *something*; the destination renderer
+  // can decide whether to treat it as a real id.
+  return segments.join('.');
 }
 
 /**

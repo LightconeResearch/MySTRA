@@ -248,10 +248,41 @@ describe('resolveAnchorPath', () => {
     });
   });
 
-  it('appends sub-analysis path to the URL hash', () => {
+  it('appends sub-analysis path to the URL hash, translating ASTRA grammar to mdast ids', () => {
+    // `outputs.features` on the destination page renders as
+    // `output-features` (the structural-element id convention), so
+    // the cross-page URL fragment must use that form to land on a
+    // real anchor — not the raw ASTRA tree path.
     expect(
       resolveAnchorPath('#analyses.preprocessing.outputs.features', a, 'index'),
-    ).toEqual({ url: '/preprocessing#outputs.features' });
+    ).toEqual({ url: '/preprocessing#output-features' });
+  });
+
+  it('translates other ASTRA categories to <kind>-<id> in cross-page URLs', () => {
+    expect(
+      resolveAnchorPath('#analyses.preprocessing.decisions.scaling', a, 'index'),
+    ).toEqual({ url: '/preprocessing#decision-scaling' });
+    expect(
+      resolveAnchorPath('#analyses.preprocessing.findings.best_model', a, 'index'),
+    ).toEqual({ url: '/preprocessing#finding-best_model' });
+    expect(
+      resolveAnchorPath('#analyses.preprocessing.inputs.iris_data', a, 'index'),
+    ).toEqual({ url: '/preprocessing#input-iris_data' });
+    expect(
+      resolveAnchorPath('#analyses.preprocessing.prior_insights.compute_scaling', a, 'index'),
+    ).toEqual({ url: '/preprocessing#prior_insight-compute_scaling' });
+  });
+
+  it('routes #narrative.<section> on a sub-analysis to the destination narrative carrier', () => {
+    expect(
+      resolveAnchorPath('#analyses.preprocessing.narrative.summary', a, 'index'),
+    ).toEqual({ url: '/preprocessing#narrative-summary' });
+  });
+
+  it('collapses #analyses.<sub>.decisions.<id>.options.<opt> to the parent decision', () => {
+    expect(
+      resolveAnchorPath('#analyses.preprocessing.decisions.scaling.options.standard', a, 'index'),
+    ).toEqual({ url: '/preprocessing#decision-scaling' });
   });
 
   it('falls back for ../ parent escapes (parent context unavailable)', () => {
@@ -262,10 +293,11 @@ describe('resolveAnchorPath', () => {
 
   it('treats a leading sub-analysis id as #analyses.<id> shorthand', () => {
     // `#preprocessing.outputs.features` — sub-analysis ID at the head
-    // is the shorthand documented in the spec example block.
+    // is the shorthand documented in the spec example block; same
+    // grammar translation applies as the explicit form.
     expect(
       resolveAnchorPath('#preprocessing.outputs.features', a, 'index'),
-    ).toEqual({ url: '/preprocessing#outputs.features' });
+    ).toEqual({ url: '/preprocessing#output-features' });
   });
 
   it('resolves #narrative.<section> to the narrative chunk identifier', () => {
