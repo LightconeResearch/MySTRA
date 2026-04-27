@@ -44,14 +44,15 @@ The MyST book-theme doesn't care where its AST comes from. MySTRA replaces the c
 
 ## Features
 
-- **Findings** with inline figures, result data tables, and methodology cross-references
-- **Method decisions** as collapsible dropdowns with tabbed option comparisons (selected option marked with **●**)
-- **Insights** supporting each option, with attributed quotes and citation hover previews
-- **Universe banner** summarizing active decision selections with links to each decision
-- **Verification table** tracking success criteria against produced outputs
-- **Live reload** — edits to `astra.yaml`, `universes/*.yaml`, or `results/**/*` trigger an automatic page refresh
-- **DOI resolution** with disk-cached citation metadata and formatted bibliography
-- **Recursive sub-analyses** rendered as separate pages with their own universe scoping
+- **Flat addressable elements** — every finding, decision, prior-insight, input, output, and narrative chunk is emitted as a top-level block with a stable `<kind>-<id>` identifier. Themes and downstream renderers compose layout from those carriers; MySTRA imposes no section structure of its own.
+- **Findings** as h3 blocks with author notes, scope, and evidence (figures, tables, citations).
+- **Decisions** as collapsible dropdowns with tabbed option comparisons (selected option marked with **●**).
+- **Prior insights** as flat blocks; option tabs cross-reference them rather than expanding inline.
+- **Universe banner** summarising active decision selections with links to each decision.
+- **Narrative anchor grammar** — `[text](#path.to.element)` resolves to a `crossReference` everywhere prose appears (narrative sections, claims, rationales, descriptions, captions, excluded reasons).
+- **Live reload** — edits to `astra.yaml`, `universes/*.yaml`, or `results/**/*` trigger an automatic page refresh.
+- **DOI resolution** with disk-cached citation metadata and formatted bibliography.
+- **Recursive sub-analyses** rendered as separate pages with their own universe scoping.
 
 ## Usage
 
@@ -73,10 +74,12 @@ src/
 ├── transform/               ASTRA → MyST AST conversion
 │   ├── index.ts             Main orchestrator + page builder
 │   ├── ast-helpers.ts       Pure AST node constructors
-│   ├── inline-parser.ts     Inline markdown → AST (bold, italic, code, links)
-│   ├── render-findings.ts   Findings section with evidence + methodology links
+│   ├── narrative-parser.ts  myst-parser wrapper + anchor grammar resolver
+│   ├── render-narrative.ts  Narrative chunks (summary/findings/methods/inputs/outputs)
+│   ├── render-findings.ts   Findings as flat per-finding blocks
+│   ├── render-prior-insights.ts  Prior insights as flat per-insight blocks
 │   ├── render-methods.ts    Decisions as details/summary + tabbed options
-│   ├── render-evidence.ts   Figures, JSON/CSV tables, cite nodes, quotes
+│   ├── render-evidence.ts   Artifact rendering driven by Output.type; cites + quotes
 │   ├── render-universe-banner.ts  Collapsible decision summary table
 │   ├── render-data-sources.ts     Inputs and outputs tables
 │   └── render-sub-analyses.ts     Sub-analysis cards
@@ -84,7 +87,7 @@ src/
 ├── server/                  Express content server + WebSocket live reload
 ├── doi/                     DOI resolution, caching, citation formatting
 ├── theme/                   MyST book-theme launcher
-├── types/                   TypeScript interfaces (ASTRA, MyST AST, API)
+├── types/                   TypeScript interfaces (ASTRA, content-server API)
 └── cli.ts                   CLI entry point
 ```
 

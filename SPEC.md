@@ -95,60 +95,59 @@ DOI auto-resolution (which MyST's markdown parser provides for free) is handled 
 
 | ASTRA Concept | MyST AST Node(s) |
 |---|---|
-| Analysis (root) | `root` + `heading` (h1) |
-| Analysis narrative (summary section) | `paragraph` |
-| Narrative anchor `[t](#path.to.element)` | `crossReference` (resolved) or `link` (unresolved) |
-| Universe banner | `admonition` (kind: tip) |
-| Finding claim | `heading` (h3) + `paragraph` |
-| Finding evidence (figure) | `container` (kind: figure) + `image` + `caption` |
-| Finding evidence (table) | `table` + `tableRow` + `tableCell` |
-| Finding → method link | `admonition` (kind: seealso) + `crossReference` |
-| Decision group heading | `heading` (h3) |
-| Decision | `heading` (h4) + `details` + `summary` |
+| Analysis (root) | `root` + flat children carrying `<kind>-<id>` identifiers |
+| Narrative section (summary, findings, methods, inputs, outputs) | block-level mdast carrying `narrative-<section>` on its first child |
+| Narrative anchor `[t](#path.to.element)` | `crossReference` (resolved) or `link` (unresolved / parent-escape) |
+| Universe banner | `details` + `summary` + decision-summary `table` |
+| Finding | `heading` (h3) carrying `finding-<id>` + author notes + evidence |
+| Finding evidence (DOI) | `blockquote` + `paragraph` with `cite` (or plain `link` fallback) |
+| Finding evidence (artifact, Output.type=figure) | `container` (kind: figure) + `image` + `caption` (caption parses Output.description) |
+| Finding evidence (artifact, Output.type=table) | `details` + `summary` + `table` (JSON / CSV body) |
+| Finding evidence (artifact, Output.type=metric/data/report) | inline labelled reference + optional quote |
+| Prior insight | `heading` (h3) carrying `prior_insight-<id>` + scope + evidence body |
+| Decision | `heading` (h4) carrying `decision-<id>` + `details` + `summary` |
 | Decision options | `tabSet` + `tabItem` per option |
-| Option description | `paragraph` inside tab |
-| Option evidence | Nested `details` (collapsible) |
+| Option supporting insights | `crossReference` to `prior_insight-<id>` (no inline expansion) |
 | Insight quote | `blockquote` + `paragraph` |
-| DOI reference | `link` (url: `https://doi.org/...`) |
-| Input | `tableRow` |
-| Output (produced) | `image` or `table` |
-| Output (pending) | `admonition` (kind: warning) |
-| Sub-analysis | Separate page + `card` link in parent |
+| DOI reference | `cite` / `citeGroup` (or `link` fallback when uncached) |
+| Input | `tableRow` carrying `input-<id>` |
+| Output | `tableRow` carrying `output-<id>` |
+| Sub-analysis | Separate page + `card` (carrying `analysis-<id>`) in parent |
 
 ### Document structure
 
-The transform produces this document structure for each analysis page:
+The transform produces a **flat sequence of addressable blocks** for
+each analysis page. There are no programmatic h2 section headings
+("Findings", "Methods", "Data Sources", "Sub-Analyses"); narrative
+sections, structural elements, and sub-analysis cards all sit at the
+same depth. Themes and downstream renderers (paper view, dashboard,
+DAG, …) compose layouts however they like by looking up
+`identifier` attributes — MySTRA imposes no narrative around the
+data.
+
+Block-emission order is the spec-declared default:
 
 ```
 Root
-├── Abstract (paragraphs from narrative.summary)
-├── Universe banner (admonition: tip)
-├── Findings (h2)
-│   ├── Finding 1 (h3)
-│   │   ├── Narrative (paragraph)
-│   │   ├── Evidence figure/table (container/table)
-│   │   ├── Supporting data (dropdown with table)
-│   │   └── Methodology callout (admonition: seealso → cross-refs to Methods)
-│   ├── Finding 2 (h3)
-│   │   └── ...
-│   └── ...
-├── Methods (h2)
-│   ├── Section by concern, e.g. "Reddening & Extinction" (h3)
-│   │   ├── Decision: "R_V for SMC" (h4 + details/summary)
-│   │   │   ├── Rationale (paragraph)
-│   │   │   └── Options (tabSet)
-│   │   │       ├── Tab: "R_V = 2.7 ●" with evidence dropdown
-│   │   │       └── Tab: "R_V = 3.3 ○" with evidence dropdown
-│   │   └── Decision: "Reddening cut" (h4 + details/summary)
-│   │       └── ...
-│   ├── "Sample Construction" (h3)
-│   │   └── ...
-│   └── ...
-├── Data Sources (h2)
-│   └── Inputs table
-└── Sub-Analyses (h2, if any)
-    └── Cards linking to child pages
+├── narrative.summary        block-level mdast, first child id=narrative-summary
+├── narrative.findings       block-level mdast, first child id=narrative-findings
+├── narrative.methods        …
+├── narrative.inputs         …
+├── narrative.outputs        …
+├── Universe banner          details/summary + decision-summary table
+├── Findings (flat)          one h3 per finding; tags ride on heading.data.tags
+├── Prior insights (flat)    one h3 per prior_insight (xref carrier for option-tab refs)
+├── Decisions (flat)         one h4 + details + tabSet per rendered decision
+├── Inputs table             one row per input, carrying input-<id>
+├── Outputs table            one row per output, carrying output-<id>
+└── Sub-analysis cards       one card per nested analysis, carrying analysis-<id>
 ```
+
+A decision drops out of the page (and the xref index) if it's a bare
+`from`-reference or its `when` predicate is unmet under the active
+universe. The xref contract is "every published id has a real
+carrier in the rendered AST"; collectIdentifiers and the renderers
+agree on which ids are live.
 
 ### AST examples
 
@@ -160,7 +159,12 @@ Root
     "type": "heading",
     "depth": 3,
     "identifier": "finding-1",
-    "children": [{ "type": "text", "value": "1. B-sequence SARGs are the best TRGB standard candles" }]
+    "label": "finding-1",
+    "data": { "tags": ["trgb", "magnitude"] },
+    "children": [
+      { "type": "text", "value": "1. " },
+      { "type": "text", "value": "B-sequence SARGs are the best TRGB standard candles" }
+    ]
   },
   {
     "type": "paragraph",
@@ -169,36 +173,35 @@ Root
   {
     "type": "container",
     "kind": "figure",
-    "identifier": "fig-hierarchy",
     "children": [
-      { "type": "image", "url": "results/trgb_hierarchy_figure.png" },
+      { "type": "image", "url": "/static/trgb_hierarchy_figure.png", "alt": "TRGB hierarchy" },
       {
         "type": "caption",
         "children": [
-          { "type": "strong", "children": [{ "type": "text", "value": "Figure 13" }] },
-          { "type": "text", "value": " — M_I vs mean (V-I)_0 for all samples in LMC and SMC." }
-        ]
-      }
-    ]
-  },
-  {
-    "type": "admonition",
-    "kind": "seealso",
-    "children": [
-      { "type": "admonitionTitle", "children": [{ "type": "text", "value": "Methodology" }] },
-      {
-        "type": "paragraph",
-        "children": [
-          { "type": "text", "value": "This finding depends on: " },
-          { "type": "crossReference", "identifier": "sample-construction", "children": [{ "type": "text", "value": "Sample Construction" }] },
-          { "type": "text", "value": " and " },
-          { "type": "crossReference", "identifier": "trgb-detection", "children": [{ "type": "text", "value": "TRGB Detection" }] }
+          {
+            "type": "paragraph",
+            "children": [
+              { "type": "text", "value": "M_I vs mean (V-I)_0 for all samples in " },
+              { "type": "crossReference", "identifier": "input-lmc",
+                "children": [{ "type": "text", "value": "LMC" }] },
+              { "type": "text", "value": " and SMC." }
+            ]
+          }
         ]
       }
     ]
   }
 ]
 ```
+
+The figure caption parses through myst-parser with the v0.0.6
+narrative anchor grammar — `[LMC](#inputs.lmc)` becomes a
+`crossReference`, not glued text. The figure container itself
+carries no `identifier`; the structural `output-<id>` carrier
+lives on the per-output row in the outputs table. Renderer-imposed
+"Methodology" admonitions and "This finding depends on…" glue are
+gone; explicit relations route through anchor grammar in the
+author's notes / claim / methods narrative.
 
 **A decision as a collapsible dropdown with option tabs:**
 
@@ -254,43 +257,79 @@ Root
 
 ```typescript
 interface ASTRASource {
-  analysis: ASTRAFile           // parsed astra.yaml
-  universe: Universe            // active universe selections
+  analysis: ASTRAAnalysis       // parsed astra.yaml
+  universe: ASTRAUniverse       // active universe selections
   results: Map<string, string>  // output_id → file path (if produced)
+  projectDir: string            // root of the ASTRA project (DOI cache lives here)
+  slug: string                  // the host page's slug (anchor resolution context)
 }
 
 function astraToMystAST(source: ASTRASource): Root {
-  const { analysis, universe, results } = source
+  const { analysis, universe, results, projectDir, slug } = source
+
+  // Bound once per page: prose parser threads anchor resolution
+  // into every render-* helper; tabItem factory mints stable keys
+  // per transform pass; doiCacheDir replaces the prior module-
+  // global; outputsById feeds artifact-evidence dispatch.
+  const prose = makeProseParser({ analysis, slug })
+  const tabItem = makeTabItem()
+  const doiCacheDir = join(projectDir, '.mystra-cache', 'doi')
+  const outputsById = new Map((analysis.outputs ?? []).map(o => [o.id, o]))
 
   return {
     type: 'root',
     children: [
-      ...renderAbstract(analysis),
-      renderUniverseBanner(universe),
+      blockBreak(),
 
-      sectionHeading(2, 'Findings', 'findings'),
-      ...Object.values(analysis.findings).flatMap((finding, i) =>
-        renderFinding(finding, i + 1, results, analysis.decisions)
-      ),
+      // Narrative chunks — each section is an addressable block at
+      // narrative-<section>; first child of the parsed mdast carries
+      // the identifier. Spec-declared order (summary → outputs).
+      ...renderNarrativeChunks(analysis, slug).flatMap(c => c.mdast),
 
-      sectionHeading(2, 'Methods', 'methods'),
-      ...renderMethodsSections(analysis.decisions, analysis.prior_insights, universe),
+      // Universe banner — orientation for the active selections.
+      renderUniverseBanner(universe, analysis.decisions, prose),
 
-      sectionHeading(2, 'Data Sources', 'data-sources'),
-      renderInputsTable(analysis.inputs),
-
-      ...(analysis.analyses
-        ? [sectionHeading(2, 'Sub-Analyses', 'sub-analyses'),
-           ...renderSubAnalysisCards(analysis.analyses)]
-        : []),
+      // Flat structural elements — no surrounding section headings.
+      ...renderFindings(analysis.findings, results, outputsById, prose, doiCacheDir),
+      ...renderPriorInsights(analysis.prior_insights, prose, doiCacheDir),
+      ...renderMethodsSections(analysis.decisions, analysis.prior_insights,
+                               universe, prose, tabItem, doiCacheDir),
+      ...(analysis.inputs?.length ? [renderInputsTable(analysis.inputs, prose)] : []),
+      ...(analysis.outputs?.length ? [renderOutputsTable(analysis.outputs, prose)] : []),
+      ...(analysis.analyses ? renderSubAnalysisCards(analysis.analyses, slug) : []),
     ]
   }
 }
 ```
 
-**`renderFinding`** — produces heading, narrative, evidence (inline figure/table from results if available, or a "pending" admonition if not), and bare cross-references to tag-overlapping decisions. No wrapping prose ("This finding depends on…") or admonition box — presentation belongs to themes/composers.
+**`renderFindings`** — flat per-finding blocks. Each finding gets an
+h3 heading carrying `finding-<id>` (with tags on `data.tags`),
+notes prose parsed via myst-parser, scope, and evidence blocks.
+No tag-overlap-derived crossReferences and no "depends on" glue;
+explicit relations are the author's job through narrative anchors.
 
-**`renderMethodsSections`** — emits a flat sequence of per-decision blocks. Each decision renders as an h4 heading (carrying `decision-<id>`) followed by a `<details>` dropdown with rationale and a `<tabSet>` of options. The selected option (from the active universe) is marked with ●. Decision tags survive on the heading's `data.tags` slot for downstream consumers; MySTRA imposes no grouping or section headings of its own.
+**`renderEvidenceBlock`** — for DOI evidence, emits citation +
+optional quote. For artifact evidence, looks up the referenced
+output by id and dispatches on `Output.type`: `figure` →
+image+caption (caption parses Output.description with anchor
+resolution); `table` → JSON/CSV table render; metric/data/report →
+labelled inline reference. Broken artifact references emit a
+`console.warn`.
+
+**`renderPriorInsights`** — flat per-insight blocks parallel to
+findings. Each prior_insight gets an h3 carrier identified by
+`prior_insight-<id>` so it's addressable from anywhere on the
+page (option tabs cross-reference back to it instead of expanding
+inline).
+
+**`renderMethodsSections`** — flat per-decision blocks. Each
+decision renders as an h4 heading (carrying `decision-<id>`)
+followed by a `details` dropdown with rationale and a `tabSet` of
+options. The selected option (from the active universe) is marked
+with ●. Option supporting-insight references emit
+`crossReference` nodes pointing at the prior_insight flat-block
+carrier, not inline expansions. Decision tags survive on the
+heading's `data.tags` slot.
 
 ## 4. Content server
 
@@ -331,9 +370,9 @@ WS   /socket                Live reload notifications
   "mdast": { "type": "root", "children": [...] },
   "frontmatter": {
     "title": "Analysis Name",
-    "subtitle": "ASTRA Analysis",
     "authors": [{ "name": "Author Name" }],
-    "tags": ["tag1", "tag2"]
+    "tags": ["tag1", "tag2"],
+    "description": "First paragraph of narrative.summary, plain text."
   },
   "references": {},
   "dependencies": ["results/figure.png"]
