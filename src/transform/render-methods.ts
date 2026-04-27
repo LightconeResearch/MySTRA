@@ -60,6 +60,7 @@ export function renderMethodsSections(
   universe: ASTRAUniverse,
   prose: ProseParser,
   tabItem: TabItemFn,
+  doiCacheDir: string | null,
 ): any[] {
   const nodes: any[] = [];
   const entries = Object.entries(decisions).filter(([, d]) =>
@@ -68,7 +69,7 @@ export function renderMethodsSections(
 
   for (let i = 0; i < entries.length; i++) {
     const [id, decision] = entries[i];
-    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose, tabItem));
+    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose, tabItem, doiCacheDir));
     // Thematic break between decisions (not after the last one).
     if (i < entries.length - 1) {
       nodes.push(thematicBreak());
@@ -85,6 +86,7 @@ function renderDecision(
   universe: ASTRAUniverse,
   prose: ProseParser,
   tabItem: TabItemFn,
+  doiCacheDir: string | null,
 ): any[] {
   const options = decision.options!;
   const selectedOptionId = universe.decisions[id] ?? decision.default;
@@ -112,7 +114,7 @@ function renderDecision(
     const [optionId, option] = optionEntries[i];
     const isSelected = optionId === selectedOptionId;
     if (isSelected) selectedIndex = i;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem));
+    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem, doiCacheDir));
   }
 
   // Move selected tab to first position (book-theme defaults to first tab)
@@ -158,6 +160,7 @@ function renderOptionTab(
   priorInsights: Record<string, ASTRAInsight>,
   prose: ProseParser,
   tabItem: TabItemFn,
+  doiCacheDir: string | null,
 ): any {
   // Tab title with selection marker
   let marker: string;
@@ -193,7 +196,7 @@ function renderOptionTab(
     const insightNodes: any[] = [];
 
     for (const insightId of option.insights) {
-      insightNodes.push(...renderInsight(insightId, priorInsights, prose));
+      insightNodes.push(...renderInsight(insightId, priorInsights, prose, doiCacheDir));
     }
 
     const count = option.insights.length;

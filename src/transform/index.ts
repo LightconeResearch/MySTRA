@@ -15,7 +15,6 @@ import { renderFindings } from './render-findings.js';
 import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
-import { setDOICacheDir } from './render-evidence.js';
 import { makeProseParser } from './narrative-parser.js';
 
 export interface ASTRASource {
@@ -29,7 +28,7 @@ export interface ASTRASource {
 }
 
 export function astraToMystAST(source: ASTRASource): { type: 'root'; children: any[] } {
-  const { analysis, universe, results, slug } = source;
+  const { analysis, universe, results, projectDir, slug } = source;
   const decisions = analysis.decisions ?? {};
   const priorInsights = analysis.prior_insights ?? {};
   const findings = analysis.findings ?? {};
@@ -48,6 +47,11 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   // own counter so two consecutive transforms produce identical
   // `key`s for downstream AST diffing.
   const tabItem = makeTabItem();
+
+  // DOI cache dir threaded through every renderer that emits a cite
+  // node. Originates from `projectDir`; absent when no project dir
+  // is available (the cite node falls back to a plain DOI link).
+  const doiCacheDir = projectDir ? join(projectDir, '.mystra-cache', 'doi') : null;
 
   // Page layout: emit a flat sequence of named, addressable blocks
   // — narrative chunks AND structural elements at the same level.
@@ -71,8 +75,8 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     renderUniverseBanner(universe, decisions, prose),
 
     // Structural elements as a flat sequence of addressable blocks.
-    ...renderFindings(findings, results, decisions, outputs, prose),
-    ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem),
+    ...renderFindings(findings, results, decisions, outputs, prose, doiCacheDir),
+    ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem, doiCacheDir),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
     ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
@@ -97,10 +101,9 @@ export function buildAllPages(
   const pages: PageData[] = [];
   const slug = basePath || 'index';
 
-  // Set DOI cache dir so evidence rendering can look up citation metadata
-  setDOICacheDir(join(projectDir, '.mystra-cache', 'doi'));
-
-  // Build page for this analysis node
+  // Build page for this analysis node. astraToMystAST derives the
+  // DOI cache dir from `projectDir` and threads it into every
+  // renderer that emits a cite node — no module-global state.
   const ast = astraToMystAST({ analysis, universe, results, projectDir, slug });
 
   // PageFrontmatter.description feeds OpenGraph/SEO/list previews. ASTRA

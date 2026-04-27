@@ -27,6 +27,7 @@ export function renderFindings(
   decisions: Record<string, ASTRADecision>,
   outputs: ASTRAOutput[],
   prose: ProseParser,
+  doiCacheDir: string | null,
 ): any[] {
   const findingEntries = Object.entries(findings);
   // Empty findings → no output. The page no longer wraps findings in
@@ -41,7 +42,7 @@ export function renderFindings(
     if (index > 1) {
       nodes.push(thematicBreak());
     }
-    nodes.push(...renderFinding(finding, index, findingId, results, decisions, prose));
+    nodes.push(...renderFinding(finding, index, findingId, results, decisions, prose, doiCacheDir));
     index++;
   }
 
@@ -55,6 +56,7 @@ function renderFinding(
   results: Map<string, string>,
   decisions: Record<string, ASTRADecision>,
   prose: ProseParser,
+  doiCacheDir: string | null,
 ): any[] {
   const nodes: any[] = [];
   const identifier = `finding-${findingId}`;
@@ -77,7 +79,7 @@ function renderFinding(
 
   // Evidence blocks (figures, tables, artifact references)
   for (const evidence of finding.evidence) {
-    nodes.push(...renderEvidenceBlock(evidence, results, prose));
+    nodes.push(...renderEvidenceBlock(evidence, results, prose, doiCacheDir));
   }
 
   // Methodology cross-references — emit the crossReference nodes

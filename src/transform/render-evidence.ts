@@ -33,23 +33,21 @@ import { readFileSync } from 'node:fs';
 import { getCachedMetadata } from '../doi/resolver.js';
 import type { ProseParser } from './narrative-parser.js';
 
-/** DOI cache dir, set by the transform entry point */
-let _doiCacheDir: string | null = null;
-
-export function setDOICacheDir(dir: string) {
-  _doiCacheDir = dir;
-}
-
 /**
  * Render a single evidence item as AST nodes.
+ *
+ * `doiCacheDir` is the on-disk cache used by `formatCiteNode` for
+ * hover-preview metadata. It originates from `projectDir` and is
+ * threaded through the transform context (no module-global).
  */
 export function renderEvidenceBlock(
   evidence: ASTRAEvidence,
   results: Map<string, string>,
   prose: ProseParser,
+  doiCacheDir: string | null,
 ): any[] {
   if (evidence.doi) {
-    return renderLiteratureEvidence(evidence, prose);
+    return renderLiteratureEvidence(evidence, prose, doiCacheDir);
   }
   if (evidence.artifact) {
     return renderArtifactEvidence(evidence, results, prose);
@@ -63,8 +61,8 @@ export function renderEvidenceBlock(
  * with a hover tooltip showing the full citation.
  * Falls back to a plain DOI link if not resolved.
  */
-function formatCiteNode(doi: string): any {
-  const meta = _doiCacheDir ? getCachedMetadata(doi, _doiCacheDir) : null;
+function formatCiteNode(doi: string, doiCacheDir: string | null): any {
+  const meta = doiCacheDir ? getCachedMetadata(doi, doiCacheDir) : null;
 
   if (meta && meta.authorShort) {
     let authorYear = meta.authorShort;
@@ -79,6 +77,7 @@ function formatCiteNode(doi: string): any {
 function renderLiteratureEvidence(
   evidence: ASTRAEvidence,
   prose: ProseParser,
+  doiCacheDir: string | null,
 ): any[] {
   const nodes: any[] = [];
   const doi = evidence.doi!;
@@ -88,9 +87,9 @@ function renderLiteratureEvidence(
     nodes.push(blockquote([
       paragraph([text(evidence.quote.exact)]),
     ]));
-    nodes.push(paragraph([text('\u2014 '), formatCiteNode(doi)]));
+    nodes.push(paragraph([text('\u2014 '), formatCiteNode(doi, doiCacheDir)]));
   } else {
-    nodes.push(paragraph([formatCiteNode(doi)]));
+    nodes.push(paragraph([formatCiteNode(doi, doiCacheDir)]));
   }
 
   // Figure/table references. The label ("Fig. 3", "Table 2") is a
@@ -319,6 +318,7 @@ export function renderInsight(
   insightId: string,
   allInsights: Record<string, { claim: string; evidence: ASTRAEvidence[] }>,
   prose: ProseParser,
+  doiCacheDir: string | null,
   kind: 'prior_insight' | 'finding' = 'prior_insight',
 ): any[] {
   const insight = allInsights[insightId];
@@ -344,10 +344,10 @@ export function renderInsight(
         nodes.push(blockquote([
           paragraph([text(ev.quote.exact)]),
         ]));
-        nodes.push(paragraph([text('\u2014 '), formatCiteNode(ev.doi)]));
+        nodes.push(paragraph([text('\u2014 '), formatCiteNode(ev.doi, doiCacheDir)]));
       } else {
         // No quote, just cite the source
-        nodes.push(paragraph([formatCiteNode(ev.doi)]));
+        nodes.push(paragraph([formatCiteNode(ev.doi, doiCacheDir)]));
       }
     } else if (ev.artifact) {
       if (ev.quote) {
