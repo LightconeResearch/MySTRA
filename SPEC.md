@@ -525,33 +525,26 @@ MySTRA starts two processes:
 
 It watches the project directory for changes and keeps the document live.
 
-## 9. Implementation plan
+## 9. Implementation
 
-### Phase 1: Transform
+**Transform flow.** `loadASTRASource(projectDir)` parses `astra.yaml`, picks an active universe from `universes/`, and scans `results/<universeId>/` for produced artifacts. `buildAllPages` walks the analysis tree recursively — one MyST page per node — and `astraToMystAST(source)` produces each page's `root`. The root's `children` are emitted as a flat sequence of addressable blocks: narrative chunks first (in spec-declared order summary → findings → methods → inputs → outputs), then the universe banner, then findings, prior_insights, decisions, the inputs/outputs tables, and sub-analysis cards. There are no programmatic h2 section headings — every structural element sits at the same depth, identified by `<kind>-<id>` so themes and downstream renderers compose layout from carriers rather than from spatial position.
 
-Implement `astraToMystAST()` and all the render functions:
-- `renderAbstract`, `renderUniverseBanner`
-- `renderFinding` (heading, narrative, evidence figure/table, methodology callout)
-- `renderMethodsSections` (flat per-decision blocks, each a dropdown + tabs)
-- `renderInputsTable`, `renderSubAnalysisCards`
-- AST helper functions: `heading()`, `paragraph()`, `text()`, `strong()`, `link()`, `details()`, `summary()`, `tabSet()`, `tabItem()`, `admonition()`, `figure()`, `table()`, `crossReference()`, `blockquote()`, `separator()`
+**Render helpers.** Each ASTRA concept has one helper, all in `src/transform/`:
 
-Test with the TRGB analysis `astra.yaml`.
+- `renderNarrativeChunks` (`render-narrative.ts`) — parses each non-empty narrative section to mdast and attaches `narrative-<section>` to the section's first node.
+- `renderUniverseBanner` — `details`/`summary` over a decision-summary table; the universe id and description form the summary line.
+- `renderFindings` — flat per-finding blocks. Each finding gets an h3 heading carrying `finding-<id>` (with tags on `data.tags`), notes prose, scope, and evidence.
+- `renderPriorInsights` — flat per-insight `container` carriers (kind `prior-insight`, identifier `prior_insight-<id>`, structured `data`, children `[claim, …evidence]`). Minimal carriers — no heading, no separators — because how to surface prior_insights is a renderer's call.
+- `renderMethodsSections` — flat per-decision blocks. Each rendered decision is an h4 heading carrying `decision-<id>` followed by a `details` dropdown with rationale and a `tabSet` of options. The selected option (from the active universe) is marked ●; option supporting-insight references emit `crossReference` nodes pointing at the prior_insight carrier.
+- `renderInputsTable` / `renderOutputsTable` — one table each; every row carries `input-<id>` / `output-<id>` so anchors land regardless of evidence references.
+- `renderSubAnalysisCards` — one `card` per nested analysis carrying `analysis-<id>` and the sub-analysis's narrative summary.
+- `renderEvidenceBlock` (`render-evidence.ts`) — DOI evidence becomes a `cite` (or fallback `link`) with optional quote blockquote; artifact evidence dispatches on the referenced output's `Output.type` (figure → image+caption, table → JSON/CSV table, metric/data/report → labelled inline reference). Broken artifact references emit a `console.warn`.
 
-### Phase 2: Content server
+**Prose and anchor grammar.** All Markdown content (narrative sections, claims, rationales, descriptions, captions, excluded reasons, finding notes) flows through `myst-parser` via the `ProseParser` interface (`src/transform/narrative-parser.ts`). `parseProseBlocks` returns block-level mdast; `parseProseInline` extracts inline phrasing for table cells, captions, and headings. A `ProseParser` is bound once per page to `(analysis, slug)` and threaded into every render helper, so the v0.0.6 anchor grammar `[t](#path.to.element)` resolves everywhere prose appears: `resolveNarrativeAnchors` walks the parsed tree and rewrites in-scope `link` nodes with `#…` URLs into `crossReference` nodes against the corresponding `<kind>-<id>` carrier.
 
-- Express server implementing the 4 endpoints + static file serving
-- DOI enrichment: fetch citation metadata at startup, cache on disk
-- File watcher with WebSocket reload
-- Page cache with invalidation
-- Verify end-to-end with the MyST book-theme
+**Stable id-anchor convention.** Every structural element and narrative chunk gets a deterministic identifier: `decision-<id>`, `finding-<id>`, `prior_insight-<id>`, `input-<id>`, `output-<id>`, `analysis-<id>`, `narrative-<section>`. The same identifier is published in `myst.xref.json` and used by the resolver; cross-page anchors (`#analyses.<sub>.outputs.<o>`) translate to the destination page's URL with the corresponding fragment.
 
-### Phase 3: Sub-analyses and polish
-
-- Recursive page generation
-- Table of contents reflecting analysis tree
-- Sub-analysis cards in parent pages
-- CLI entry point (`mystra` command)
+**The xref contract.** Every identifier published by `collectIdentifiers` has a real carrier in the rendered AST, and vice versa. Decisions that drop out of the page (bare `from`-references, `when`-unmet under the active universe) are filtered with the same predicate the renderer uses; unreferenced prior_insights still get a carrier; outputs that no evidence cites still get a row. Anchors never land on nothing.
 
 ## 10. DOI enrichment and citations
 
