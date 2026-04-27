@@ -1,9 +1,14 @@
 /**
  * Renders sub-analysis cards linking to child pages.
+ *
+ * Card content is the sub-analysis's narrative summary — author
+ * prose. The renderer doesn't synthesise stat strings ("N decisions
+ * · M inputs · K outputs"); that's narrating structural data the
+ * destination page already exposes.
  */
 
 import type { ASTRAAnalysis } from '../types/astra.js';
-import { card, paragraph, text } from './ast-helpers.js';
+import { card } from './ast-helpers.js';
 import { renderNarrativeSection } from './render-narrative.js';
 
 export function renderSubAnalysisCards(
@@ -13,10 +18,6 @@ export function renderSubAnalysisCards(
   const nodes: any[] = [];
 
   for (const [id, sub] of Object.entries(analyses)) {
-    const decisionCount = Object.keys(sub.decisions ?? {}).length;
-    const inputCount = sub.inputs?.length ?? 0;
-    const outputCount = sub.outputs?.length ?? 0;
-
     // Sub-analysis preview comes from its own narrative summary;
     // anchors in that summary resolve relative to the sub-analysis,
     // not the parent — so use the sub's own slug for resolution.
@@ -27,12 +28,11 @@ export function renderSubAnalysisCards(
     // `/${id}`).
     const cardUrl = `/${subSlug}`;
 
-    const children: any[] = [
-      ...renderNarrativeSection(sub.narrative?.summary, sub, subSlug),
-      paragraph([
-        text(`${decisionCount} decisions · ${inputCount} inputs · ${outputCount} outputs`),
-      ]),
-    ];
+    const children: any[] = renderNarrativeSection(
+      sub.narrative?.summary,
+      sub,
+      subSlug,
+    );
 
     // Card carries `identifier: analysis-<id>` so a parent-page
     // anchor link to this card resolves; cross-page narrative refs

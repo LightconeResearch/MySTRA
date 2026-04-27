@@ -112,10 +112,11 @@ export function buildAllPages(
   // v0.0.6 dropped the free-form `description` slot in favour of a
   // structured narrative; the summary section is the closest analogue
   // (single-paragraph orientation for the analysis), so we surface its
-  // first paragraph as plain text.
+  // first paragraph as plain text. No renderer-imposed `subtitle` —
+  // astra-spec defines no analysis-level subtitle field; pinning one
+  // here would assert content type in metadata.
   const frontmatter: PageFrontmatter = {
     title: analysis.name ?? slug,
-    subtitle: 'ASTRA Analysis',
     authors: (analysis.authors ?? []).map((name) => ({ name })),
     tags: analysis.tags,
     description: firstParagraph(analysis.narrative?.summary),

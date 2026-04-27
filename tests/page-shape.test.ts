@@ -625,6 +625,50 @@ describe('structural-element identifiers (end-to-end)', () => {
     expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
   });
 
+  it('sub-analysis card omits the renderer-synthesised stats string', () => {
+    // "N decisions · M inputs · K outputs" was renderer-imposed
+    // narration of structural data the destination page already
+    // exposes. The card now contains only the sub-analysis's own
+    // narrative summary (author prose).
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      analyses: {
+        preprocessing: {
+          name: 'Pre',
+          decisions: { x: { label: 'X', options: { a: { label: 'A' } } } },
+          prior_insights: {},
+          findings: {},
+          inputs: [{ id: 'foo', type: 'data' }],
+          outputs: [{ id: 'bar', type: 'metric' }],
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const flat = JSON.stringify(ast);
+    expect(flat).not.toContain('decisions ·');
+    expect(flat).not.toContain('inputs ·');
+    expect(flat).not.toContain('outputs"');
+  });
+
+  it('does not pin renderer-imposed subtitle in page frontmatter', () => {
+    // "ASTRA Analysis" subtitle was the renderer asserting content
+    // type in metadata. astra-spec defines no analysis-level
+    // subtitle slot; pages don't carry one unless the data does.
+    const pages = buildAllPages(
+      fixture(),
+      { id: 'u', decisions: {} },
+      new Map(),
+      '/tmp',
+    );
+    expect(pages[0].frontmatter.subtitle).toBeUndefined();
+  });
+
   it('sub-analysis card URL respects the host slug for nested pages', () => {
     // Bug C: parent slug `foo` → sub `bar` lives at `/foo/bar`,
     // not `/bar`. The card URL must match the recursive page
