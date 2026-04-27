@@ -3,8 +3,6 @@
  * Every function returns a plain object — no side effects, no state.
  */
 
-import { toSlug } from '../utils/slug.js';
-
 // ── Inline nodes ──
 
 export function text(value: string) {
@@ -158,16 +156,6 @@ export function card(title: string, children: any[], url?: string) {
   };
 }
 
-// ── List nodes ──
-
-export function list(children: any[], ordered = false) {
-  return { type: 'list' as const, ordered, children };
-}
-
-export function listItem(children: any[]) {
-  return { type: 'listItem' as const, children };
-}
-
 // ── Citation nodes ──
 
 export function cite(label: string, children: any[], kind?: 'narrative' | 'parenthetical') {
@@ -196,15 +184,4 @@ export function summary(children: any[]) {
 
 export function blockBreak(meta?: string) {
   return { type: 'blockBreak' as const, ...(meta ? { meta } : {}) };
-}
-
-// ── Convenience composites ──
-
-export function sectionHeading(depth: 1 | 2 | 3 | 4 | 5 | 6, label: string, identifier?: string) {
-  const id = identifier ?? toSlug(label);
-  return heading(depth, [text(label)], id, label);
-}
-
-export function doiLink(doi: string) {
-  return link(`https://doi.org/${doi}`, [text(doi)]);
 }
