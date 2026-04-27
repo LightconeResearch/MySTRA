@@ -1,6 +1,16 @@
 /**
  * TypeScript interfaces for the ASTRA data model.
+ *
  * Mirrors the canonical Pydantic models in extern/ASTRA/models/.
+ * Tracks astra-spec v0.0.6 (commit 1d948cf):
+ *   - Analysis.description replaced by Analysis.narrative (structured prose,
+ *     five Markdown sections: summary, findings, methods, inputs, outputs)
+ *   - container + container_build unified into a single string `container`
+ *   - Input/Output/Insight gained an optional `label`
+ *   - YAML field is `from` (LinkML alias of the python-keyword-shy from_ref)
+ *   - IDs may not be one of the reserved category keywords (inputs, outputs,
+ *     decisions, findings, prior_insights, analyses, options, content,
+ *     narrative); enforcement is upstream in `astra validate`.
  */
 
 // ── W3C Web Annotation Selectors ──
@@ -69,6 +79,8 @@ export interface ASTRAEvidence {
 
 export interface ASTRAInsight {
   id: string;
+  /** Short human-readable handle for compact rendering; falls back to id. */
+  label?: string;
   claim: string;
   created_at: string;
   evidence: ASTRAEvidence[];
@@ -82,6 +94,8 @@ export interface ASTRAInsight {
 
 export interface ASTRAInput {
   id: string;
+  /** Short human-readable handle for compact rendering; falls back to id. */
+  label?: string;
   type: 'data' | 'analysis';
   description?: string;
 
@@ -94,7 +108,7 @@ export interface ASTRAInput {
   ref_version?: string;
   use_outputs?: string[];
 
-  // Sub-analysis wiring
+  // Sub-analysis wiring (YAML key: `from`)
   from?: string;
 }
 
@@ -107,16 +121,16 @@ export interface ASTRAResources {
   time_limit?: string;
 }
 
-export interface ASTRAContainerBuildSpec {
-  build: string;
-  context?: string;
-  args?: Record<string, string>;
-}
-
 export interface ASTRARecipe {
   command: string;
   inputs?: string[];
-  container?: string | ASTRAContainerBuildSpec;
+  /**
+   * Container reference. Either an image name (pulled at runtime, e.g.
+   * `python:3.9`, `ghcr.io/org/img:latest`) or a path to a Containerfile
+   * (built from source, e.g. `Containerfile`, `containers/Dockerfile`).
+   * Disambiguation is the runtime's job, not the schema's.
+   */
+  container?: string;
   resources?: ASTRAResources;
 }
 
@@ -124,8 +138,11 @@ export interface ASTRARecipe {
 
 export interface ASTRAOutput {
   id: string;
+  /** Short human-readable handle for compact rendering; falls back to id. */
+  label?: string;
   type: 'metric' | 'figure' | 'table' | 'data' | 'report';
   description?: string;
+  /** Sub-analysis output that produces this (YAML key: `from`). */
   from?: string;
   when?: string | string[];
   recipe?: ASTRARecipe;
@@ -166,22 +183,43 @@ export interface ASTRASuccessCriterion {
   condition?: string;
 }
 
+// ── Narrative (structured prose for an Analysis) ──
+
+/**
+ * Free-form Markdown prose describing an Analysis, organized into five
+ * optional sections. Each section may contain anchor links of the form
+ * `[text](#path.to.element)` (tree-path-first, e.g. `#findings.foo` or
+ * `#analyses.preprocessing.outputs.features`); `astra validate` enforces
+ * a conditional requirement that a section be present whenever the
+ * corresponding structured data exists on the Analysis node.
+ */
+export interface ASTRANarrative {
+  summary?: string;
+  findings?: string;
+  methods?: string;
+  inputs?: string;
+  outputs?: string;
+}
+
 // ── Analysis (self-similar, recursive) ──
 
 export interface ASTRAAnalysis {
   $schema?: string;
+  id?: string;
   version?: string;
   name?: string;
   authors?: string[];
   tags?: string[];
-  description?: string;
+  /** Replaces the v0.0.5 free-form `description` field. */
+  narrative?: ASTRANarrative;
   success_criteria?: ASTRASuccessCriterion[];
   inputs?: ASTRAInput[];
   outputs?: ASTRAOutput[];
   decisions: Record<string, ASTRADecision>;
   prior_insights: Record<string, ASTRAInsight>;
   findings: Record<string, ASTRAInsight>;
-  container?: string | ASTRAContainerBuildSpec;
+  /** Image name to pull, or path to a Containerfile to build. */
+  container?: string;
   path?: string;
   analyses?: Record<string, ASTRAAnalysis>;
 }

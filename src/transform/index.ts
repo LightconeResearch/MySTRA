@@ -9,7 +9,7 @@ import type { ASTRAAnalysis, ASTRAUniverse, ASTRAUniverseNode } from '../types/a
 import type { PageData, PageFrontmatter, XRefEntry } from '../types/content-server.js';
 import { join } from 'node:path';
 import { sectionHeading, text, heading, blockBreak } from './ast-helpers.js';
-import { renderAbstract } from './render-abstract.js';
+import { renderAbstract } from './render-narrative.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
 import { renderMethodsSections } from './render-methods.js';
@@ -97,12 +97,17 @@ export function buildAllPages(
   // Build page for this analysis node
   const ast = astraToMystAST({ analysis, universe, results, projectDir });
 
+  // PageFrontmatter.description feeds OpenGraph/SEO/list previews. ASTRA
+  // v0.0.6 dropped the free-form `description` slot in favour of a
+  // structured narrative; the summary section is the closest analogue
+  // (single-paragraph orientation for the analysis), so we surface its
+  // first paragraph as plain text.
   const frontmatter: PageFrontmatter = {
     title: analysis.name ?? slug,
     subtitle: 'ASTRA Analysis',
     authors: (analysis.authors ?? []).map((name) => ({ name })),
     tags: analysis.tags,
-    description: analysis.description,
+    description: firstParagraph(analysis.narrative?.summary),
   };
 
   // Collect identifiers for cross-references
@@ -206,6 +211,22 @@ function collectDependencies(results: Map<string, string>): string[] {
     }
   }
   return deps;
+}
+
+/**
+ * Plain-text first paragraph of a markdown string, with simple inline
+ * markdown stripped — suitable for OpenGraph/SEO descriptions.
+ */
+function firstParagraph(md: string | undefined): string | undefined {
+  if (!md) return undefined;
+  const first = md.split(/\n{2,}/, 1)[0]?.trim();
+  if (!first) return undefined;
+  return first
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ');
 }
 
 function collectDOIs(analysis: ASTRAAnalysis): string[] {
