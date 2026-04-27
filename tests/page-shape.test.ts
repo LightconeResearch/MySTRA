@@ -238,4 +238,65 @@ describe('structural-element identifiers (end-to-end)', () => {
     for (const n of ast.children) walk(n);
     expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
   });
+
+  it('end-to-end: anchor in Option.description resolves into the page output', () => {
+    // Option descriptions are non-narrative prose. With the
+    // resolution context threaded through every render-* helper,
+    // the narrative grammar works here too.
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          options: {
+            standard: {
+              label: 'Standard',
+              description: 'Scales features; supports the [SVM finding](#findings.best_model).',
+            },
+          },
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const xrefs: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') xrefs.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(xrefs.some((x) => x.identifier === 'finding-best_model')).toBe(true);
+  });
+
+  it('end-to-end: anchor in Decision.rationale resolves into the page output', () => {
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          rationale: 'Driven by the [iris dataset](#inputs.iris_data) characteristics.',
+          options: { standard: { label: 'Standard' } },
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const xrefs: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') xrefs.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
+  });
 });

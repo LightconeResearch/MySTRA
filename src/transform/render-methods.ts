@@ -20,12 +20,13 @@ import {
 } from './ast-helpers.js';
 import { groupDecisionsByTag } from './tag-sections.js';
 import { renderInsight } from './render-evidence.js';
-import { parseProseBlocks } from './narrative-parser.js';
+import type { ProseParser } from './narrative-parser.js';
 
 export function renderMethodsSections(
   decisions: Record<string, ASTRADecision>,
   priorInsights: Record<string, ASTRAInsight>,
   universe: ASTRAUniverse,
+  prose: ProseParser,
 ): any[] {
   const groups = groupDecisionsByTag(decisions);
   const nodes: any[] = [];
@@ -48,7 +49,7 @@ export function renderMethodsSections(
     // Each decision in this group
     for (let i = 0; i < group.decisions.length; i++) {
       const { id, decision } = group.decisions[i];
-      nodes.push(...renderDecision(id, decision, priorInsights, universe));
+      nodes.push(...renderDecision(id, decision, priorInsights, universe, prose));
 
       // Thematic break between decisions (not after the last one)
       if (i < group.decisions.length - 1) {
@@ -65,6 +66,7 @@ function renderDecision(
   decision: ASTRADecision,
   priorInsights: Record<string, ASTRAInsight>,
   universe: ASTRAUniverse,
+  prose: ProseParser,
 ): any[] {
   // Skip if conditional and condition not met
   if (!isConditionMet(decision.when, universe)) {
@@ -93,7 +95,7 @@ function renderDecision(
     const [optionId, option] = optionEntries[i];
     const isSelected = optionId === selectedOptionId;
     if (isSelected) selectedIndex = i;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights));
+    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose));
   }
 
   // Move selected tab to first position (book-theme defaults to first tab)
@@ -111,9 +113,10 @@ function renderDecision(
   ];
 
   if (decision.rationale) {
-    // Rationale parses as full Markdown — multiple paragraphs and
-    // inline emphasis/links/code render through myst-parser.
-    detailsChildren.push(...parseProseBlocks(decision.rationale));
+    // Rationale parses as full Markdown with anchor resolution —
+    // narrative-grammar links inside rationales resolve to
+    // crossReferences against the host analysis.
+    detailsChildren.push(...prose.blocks(decision.rationale));
   }
 
   if (tabs.length > 0) {
@@ -136,6 +139,7 @@ function renderOptionTab(
   },
   isSelected: boolean,
   priorInsights: Record<string, ASTRAInsight>,
+  prose: ProseParser,
 ): any {
   // Tab title with selection marker
   let marker: string;
@@ -150,9 +154,9 @@ function renderOptionTab(
 
   const children: any[] = [];
 
-  // Description as full Markdown.
+  // Description as full Markdown with anchor resolution.
   if (option.description) {
-    children.push(...parseProseBlocks(option.description));
+    children.push(...prose.blocks(option.description));
   }
 
   // Excluded reason
@@ -167,7 +171,7 @@ function renderOptionTab(
     const insightNodes: any[] = [];
 
     for (const insightId of option.insights) {
-      insightNodes.push(...renderInsight(insightId, priorInsights));
+      insightNodes.push(...renderInsight(insightId, priorInsights, prose));
     }
 
     const count = option.insights.length;

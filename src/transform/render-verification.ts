@@ -11,11 +11,12 @@ import {
   text,
   inlineCode,
 } from './ast-helpers.js';
-import { parseProseInline } from './narrative-parser.js';
+import type { ProseParser } from './narrative-parser.js';
 
 export function renderVerification(
   criteria: ASTRASuccessCriterion[],
   results: Map<string, string>,
+  prose: ProseParser,
 ): any {
   // Caller filters out the empty case so the page doesn't render a
   // stray "no criteria" sentence without a section heading.
@@ -36,7 +37,7 @@ export function renderVerification(
     const produced = criterion.output ? results.has(criterion.output) : false;
     const status = produced ? '✅' : '⏳';
 
-    const claimCell = parseProseInline(criterion.claim);
+    const claimCell = prose.inline(criterion.claim);
     const id = criterion.output ?? String(i);
     const row: any = tableRow([
       tableCell([text(status)]),

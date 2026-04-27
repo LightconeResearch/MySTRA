@@ -123,6 +123,52 @@ describe('parseProseInline', () => {
   });
 });
 
+describe('parseProseBlocks/Inline with context (anchor resolution)', () => {
+  // The same anchor-resolver post-pass that runs on narrative
+  // sections runs on every prose call site when a context is
+  // provided — so authors can cite from rationales, descriptions,
+  // claims, etc., not just narrative.
+  const a = fixtureAnalysis();
+
+  it('Option.description: resolves [see finding](#findings.<id>) to a crossReference', () => {
+    const md = 'See [the finding](#findings.best_model) for context.';
+    const out = parseProseBlocks(md, { analysis: a, slug: 'index' });
+    const inline = out[0].children as any[];
+    const xrefs = inline.filter((c) => c.type === 'crossReference');
+    expect(xrefs).toHaveLength(1);
+    expect(xrefs[0].identifier).toBe('finding-best_model');
+  });
+
+  it('Decision.rationale: resolves [input](#inputs.<id>) to a crossReference', () => {
+    const md = 'Driven by the [iris dataset](#inputs.iris_data).';
+    const out = parseProseBlocks(md, { analysis: a, slug: 'index' });
+    const inline = out[0].children as any[];
+    const xrefs = inline.filter((c) => c.type === 'crossReference');
+    expect(xrefs).toHaveLength(1);
+    expect(xrefs[0].identifier).toBe('input-iris_data');
+  });
+
+  it('Insight.claim (inline): leaves [parent](#../decisions.<id>) as a plain link (parent escape)', () => {
+    const md = 'Echoes the [parent decision](#../decisions.method).';
+    const out = parseProseInline(md, { analysis: a, slug: 'index' });
+    const xrefs = out.filter((c: any) => c.type === 'crossReference');
+    const links = out.filter((c: any) => c.type === 'link');
+    expect(xrefs).toHaveLength(0);
+    expect(links).toHaveLength(1);
+    // ../ escapes preserve the original href; cross-scope
+    // resolution is left to the consumer.
+    expect(links[0].url).toBe('#../decisions.method');
+  });
+
+  it('without context: anchors remain plain links (back-compat)', () => {
+    const md = 'See [it](#findings.best_model).';
+    const out = parseProseBlocks(md);
+    const inline = out[0].children as any[];
+    expect(inline.filter((c) => c.type === 'crossReference')).toHaveLength(0);
+    expect(inline.filter((c) => c.type === 'link')).toHaveLength(1);
+  });
+});
+
 describe('resolveAnchorPath', () => {
   const a = fixtureAnalysis();
 

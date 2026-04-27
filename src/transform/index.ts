@@ -17,6 +17,7 @@ import { renderInputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { renderVerification } from './render-verification.js';
 import { setDOICacheDir } from './render-evidence.js';
+import { makeProseParser } from './narrative-parser.js';
 import { toSlug } from '../utils/slug.js';
 
 export interface ASTRASource {
@@ -38,6 +39,14 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   const outputs = analysis.outputs ?? [];
   const successCriteria = analysis.success_criteria ?? [];
 
+  // The prose parser is bound once to `(analysis, slug)` and threaded
+  // into every render-* helper that touches Markdown. This makes the
+  // narrative anchor grammar `[t](#path.to.element)` work in every
+  // prose surface, not just narrative sections — anchors in
+  // rationales, descriptions, claims, captions, and criterion claims
+  // all resolve to crossReferences against the host analysis.
+  const prose = makeProseParser({ analysis, slug });
+
   // Page layout: emit a flat sequence of named, addressable blocks
   // — narrative chunks AND structural elements at the same level.
   // No top-level section h2s, no narrative wrapper. mdast position
@@ -55,14 +64,15 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     ...narrativeChunks.flatMap((c) => c.mdast),
 
     // Universe banner — orientation for which decision selections
-    // are active in this rendering.
-    renderUniverseBanner(universe, decisions),
+    // are active in this rendering. Includes universe.description
+    // as prose so any anchor links inside it resolve too.
+    renderUniverseBanner(universe, decisions, prose),
 
     // Structural elements as a flat sequence of addressable blocks.
-    ...renderFindings(findings, results, decisions, outputs),
-    ...renderMethodsSections(decisions, priorInsights, universe),
-    ...(inputs.length > 0 ? [renderInputsTable(inputs)] : []),
-    ...(successCriteria.length > 0 ? [renderVerification(successCriteria, results)] : []),
+    ...renderFindings(findings, results, decisions, outputs, prose),
+    ...renderMethodsSections(decisions, priorInsights, universe, prose),
+    ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
+    ...(successCriteria.length > 0 ? [renderVerification(successCriteria, results, prose)] : []),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
       ? renderSubAnalysisCards(analysis.analyses, slug)
       : []),

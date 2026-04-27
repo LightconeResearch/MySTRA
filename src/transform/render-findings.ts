@@ -16,7 +16,7 @@ import {
   crossReference,
   thematicBreak,
 } from './ast-helpers.js';
-import { parseProseBlocks, parseProseInline } from './narrative-parser.js';
+import type { ProseParser } from './narrative-parser.js';
 import { renderEvidenceBlock } from './render-evidence.js';
 import { TAG_TO_SECTION } from './tag-sections.js';
 import { toSlug } from '../utils/slug.js';
@@ -26,6 +26,7 @@ export function renderFindings(
   results: Map<string, string>,
   decisions: Record<string, ASTRADecision>,
   outputs: ASTRAOutput[],
+  prose: ProseParser,
 ): any[] {
   const findingEntries = Object.entries(findings);
   // Empty findings → no output. The page no longer wraps findings in
@@ -40,7 +41,7 @@ export function renderFindings(
     if (index > 1) {
       nodes.push(thematicBreak());
     }
-    nodes.push(...renderFinding(finding, index, findingId, results, decisions));
+    nodes.push(...renderFinding(finding, index, findingId, results, decisions, prose));
     index++;
   }
 
@@ -53,18 +54,20 @@ function renderFinding(
   findingId: string,
   results: Map<string, string>,
   decisions: Record<string, ASTRADecision>,
+  prose: ProseParser,
 ): any[] {
   const nodes: any[] = [];
   const identifier = `finding-${findingId}`;
 
   // Finding heading: claim parsed as inline Markdown so emphasis and
-  // code spans render. Numeric prefix stays as plain text.
-  nodes.push(heading(3, [text(`${index}. `), ...parseProseInline(finding.claim)], identifier));
+  // code spans render, and any anchor links resolve. Numeric prefix
+  // stays as plain text.
+  nodes.push(heading(3, [text(`${index}. `), ...prose.inline(finding.claim)], identifier));
 
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
   if (finding.notes) {
-    nodes.push(...parseProseBlocks(finding.notes));
+    nodes.push(...prose.blocks(finding.notes));
   }
 
   // Scope
@@ -74,7 +77,7 @@ function renderFinding(
 
   // Evidence blocks (figures, tables, artifact references)
   for (const evidence of finding.evidence) {
-    nodes.push(...renderEvidenceBlock(evidence, results));
+    nodes.push(...renderEvidenceBlock(evidence, results, prose));
   }
 
   // Methodology callout with cross-references to relevant method sections

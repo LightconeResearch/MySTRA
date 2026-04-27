@@ -10,9 +10,9 @@ import {
   text,
   strong,
 } from './ast-helpers.js';
-import { parseProseInline } from './narrative-parser.js';
+import type { ProseParser } from './narrative-parser.js';
 
-export function renderInputsTable(inputs: ASTRAInput[]): any {
+export function renderInputsTable(inputs: ASTRAInput[], prose: ProseParser): any {
   // Caller filters out the empty case so the page doesn't render a
   // stray "no inputs" sentence without a section heading to anchor it.
 
@@ -35,7 +35,7 @@ export function renderInputsTable(inputs: ASTRAInput[]): any {
   // node tolerates extra fields and the xref index keys off
   // `identifier` regardless of node type.
   const dataRows = inputs.map((input) => {
-    const descCell = parseProseInline(input.description);
+    const descCell = prose.inline(input.description);
     const row: any = tableRow([
       tableCell([strong([text(input.label ?? input.id)])]),
       tableCell([text(input.type)]),

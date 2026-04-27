@@ -28,11 +28,23 @@ import { crossReference, link } from './ast-helpers.js';
  * Parse a Markdown string into mdast block nodes (paragraphs,
  * headings, lists, …). Use this for narrative sections and other
  * fields where block-level structure is meaningful.
+ *
+ * When `context` is provided, the v0.0.6 narrative anchor grammar
+ * (`[t](#path.to.element)`) is resolved as a post-pass so anchors
+ * become `crossReference` nodes pointing at the corresponding
+ * structural element. Without context, anchor links survive as
+ * plain `link` nodes.
  */
-export function parseProseBlocks(md: string | undefined): any[] {
+export function parseProseBlocks(
+  md: string | undefined,
+  context?: ProseContext,
+): any[] {
   if (!md) return [];
   const tree = mystParse(md);
-  return (tree.children ?? []).map(stripPositions);
+  const blocks = (tree.children ?? []).map(stripPositions);
+  return context
+    ? resolveNarrativeAnchors(blocks, context.analysis, context.slug)
+    : blocks;
 }
 
 /**
@@ -43,25 +55,60 @@ export function parseProseBlocks(md: string | undefined): any[] {
  * If the input parses to a single paragraph we unwrap its children;
  * otherwise we flatten across paragraphs (separating with a space)
  * since the host context can't accept block-level children.
+ *
+ * `context` enables anchor resolution; see `parseProseBlocks`.
  */
-export function parseProseInline(md: string | undefined): any[] {
+export function parseProseInline(
+  md: string | undefined,
+  context?: ProseContext,
+): any[] {
   if (!md) return [];
   const tree = mystParse(md);
   const blocks = tree.children ?? [];
   if (blocks.length === 0) return [];
+  let inline: any[];
   if (blocks.length === 1 && blocks[0].type === 'paragraph') {
-    return (blocks[0].children ?? []).map(stripPositions);
-  }
-  // Multi-block input where only inline is allowed: flatten.
-  const out: any[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (b.type === 'paragraph' && Array.isArray(b.children)) {
-      if (i > 0) out.push({ type: 'text', value: ' ' });
-      for (const c of b.children) out.push(stripPositions(c));
+    inline = (blocks[0].children ?? []).map(stripPositions);
+  } else {
+    // Multi-block input where only inline is allowed: flatten.
+    inline = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.type === 'paragraph' && Array.isArray(b.children)) {
+        if (i > 0) inline.push({ type: 'text', value: ' ' });
+        for (const c of b.children) inline.push(stripPositions(c));
+      }
     }
   }
-  return out;
+  return context
+    ? resolveNarrativeAnchors(inline, context.analysis, context.slug)
+    : inline;
+}
+
+/**
+ * Resolution context carried through every render-* helper that
+ * touches prose. Created once per page in `astraToMystAST` and
+ * threaded into the renderers via the `ProseParser` factory.
+ */
+export interface ProseContext {
+  analysis: ASTRAAnalysis;
+  slug: string;
+}
+
+/**
+ * Pre-bound parser pair — convenient when one render helper makes
+ * many parse calls. Equivalent to passing `context` on each call.
+ */
+export interface ProseParser {
+  blocks(md: string | undefined): any[];
+  inline(md: string | undefined): any[];
+}
+
+export function makeProseParser(context: ProseContext): ProseParser {
+  return {
+    blocks: (md) => parseProseBlocks(md, context),
+    inline: (md) => parseProseInline(md, context),
+  };
 }
 
 /**

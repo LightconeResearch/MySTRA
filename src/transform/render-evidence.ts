@@ -31,7 +31,7 @@ import {
 import { parse as parsePath } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { getCachedMetadata } from '../doi/resolver.js';
-import { parseProseInline } from './narrative-parser.js';
+import type { ProseParser } from './narrative-parser.js';
 
 /** DOI cache dir, set by the transform entry point */
 let _doiCacheDir: string | null = null;
@@ -46,12 +46,13 @@ export function setDOICacheDir(dir: string) {
 export function renderEvidenceBlock(
   evidence: ASTRAEvidence,
   results: Map<string, string>,
+  prose: ProseParser,
 ): any[] {
   if (evidence.doi) {
     return renderLiteratureEvidence(evidence);
   }
   if (evidence.artifact) {
-    return renderArtifactEvidence(evidence, results);
+    return renderArtifactEvidence(evidence, results, prose);
   }
   return [];
 }
@@ -111,6 +112,7 @@ function renderLiteratureEvidence(evidence: ASTRAEvidence): any[] {
 function renderArtifactEvidence(
   evidence: ASTRAEvidence,
   results: Map<string, string>,
+  prose: ProseParser,
 ): any[] {
   const nodes: any[] = [];
   const artifactId = evidence.artifact!;
@@ -128,7 +130,7 @@ function renderArtifactEvidence(
       nodes.push(
         container('figure', [
           image(`/static/${artifactId}.${ext}`, figureLabel, '100%'),
-          caption([paragraph(parseProseInline(captionText))]),
+          caption([paragraph(prose.inline(captionText))]),
         ], `output-${artifactId}`),
       );
     } else if (ext === 'json') {
@@ -303,6 +305,7 @@ function formatValue(val: unknown): string {
 export function renderInsight(
   insightId: string,
   allInsights: Record<string, { claim: string; evidence: ASTRAEvidence[] }>,
+  prose: ProseParser,
   kind: 'prior_insight' | 'finding' = 'prior_insight',
 ): any[] {
   const insight = allInsights[insightId];
@@ -311,11 +314,11 @@ export function renderInsight(
   const nodes: any[] = [];
 
   // Insight claim as bold headline; parsed as inline Markdown so
-  // emphasis/code/etc. inside claims render correctly. The
-  // identifier on the headline paragraph makes the insight
+  // emphasis/code/anchor links inside claims render and resolve.
+  // The identifier on the headline paragraph makes the insight
   // addressable as `<kind>-<id>` (prior_insight-<id> by default,
   // finding-<id> when called from the findings renderer).
-  const headline: any = paragraph([strong(parseProseInline(insight.claim))]);
+  const headline: any = paragraph([strong(prose.inline(insight.claim))]);
   headline.identifier = `${kind}-${insightId}`;
   headline.label = headline.identifier;
   nodes.push(headline);
