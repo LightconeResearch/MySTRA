@@ -30,6 +30,7 @@ import {
 } from './ast-helpers.js';
 import { parse as parsePath } from 'node:path';
 import { readFileSync } from 'node:fs';
+import Papa from 'papaparse';
 import { getCachedMetadata } from '../doi/resolver.js';
 import type { ProseParser } from './narrative-parser.js';
 
@@ -270,8 +271,8 @@ function renderCSVTable(
     return [paragraph([text(`Could not read ${artifactId}.csv`)])];
   }
 
-  // Dynamic import would be cleaner but we need sync; papaparse supports sync parse
-  const Papa = require('papaparse');
+  // papaparse provides a sync parse; the package is the same one
+  // listed in package.json — imported at top of file as ESM.
   const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
 
   if (!result.data || result.data.length === 0) {

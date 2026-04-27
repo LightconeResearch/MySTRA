@@ -36,9 +36,13 @@ export function createContentServer(options: ServerOptions): ContentServer {
   let references: References = {};
   let doiMetadata: Map<string, DOIMetadata> = new Map();
   let wsManager: WebSocketManager;
+  // Captured during the initial reload so /static can mount on the
+  // active universe's results dir without re-running loadASTRASource.
+  let activeUniverseId = '';
 
   function reload() {
     const source = loadASTRASource(projectDir, universeName);
+    activeUniverseId = source.universe.id;
     pages = buildAllPages(
       source.analysis,
       source.universe,
@@ -96,9 +100,10 @@ export function createContentServer(options: ServerOptions): ContentServer {
     }
   });
 
-  // Static file serving for result images
-  const source = loadASTRASource(projectDir, universeName);
-  const staticDir = join(projectDir, 'results', source.universe.id);
+  // Static file serving for result images. The universe id is the
+  // one captured during the initial reload — no need to re-parse
+  // the source just to learn it.
+  const staticDir = join(projectDir, 'results', activeUniverseId);
   app.use('/static', express.static(staticDir));
 
   // HTTP server
