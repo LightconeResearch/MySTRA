@@ -10,13 +10,13 @@
  *
  * Section content is Markdown with anchor links of the form
  * `[text](#path.to.element)` per the v0.0.6 narrative grammar; both
- * Markdown parsing and anchor → crossReference resolution live in
- * `narrative-parser.ts`.
+ * Markdown parsing (via myst-parser) and anchor → crossReference
+ * resolution live in `narrative-parser.ts`.
  */
 
 import type { ASTRAAnalysis } from '../types/astra.js';
 import {
-  parseNarrativeMarkdown,
+  parseProseBlocks,
   resolveNarrativeAnchors,
 } from './narrative-parser.js';
 
@@ -37,5 +37,5 @@ export function renderNarrativeSection(
   slug: string,
 ): any[] {
   if (!md) return [];
-  return resolveNarrativeAnchors(parseNarrativeMarkdown(md), analysis, slug);
+  return resolveNarrativeAnchors(parseProseBlocks(md), analysis, slug);
 }

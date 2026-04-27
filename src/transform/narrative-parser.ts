@@ -1,38 +1,84 @@
 /**
- * Narrative-aware Markdown parser + anchor resolver.
+ * MyST Markdown parsing for ASTRA prose fields, plus the v0.0.6
+ * narrative anchor resolver.
  *
- * Parses an `Analysis.narrative` section (a Markdown string) into MyST
- * mdast block nodes. Inline subset matches the rest of MySTRA: text,
- * **strong**, *emphasis*, `code`, [link](url). Block layer splits on
- * blank lines into paragraphs.
+ * All Markdown content (narrative sections, Insight.claim, Decision
+ * .rationale, Option/Input/Output.description, captions, finding
+ * notes, …) flows through `myst-parser` so MySTRA stays MyST-native;
+ * the bespoke inline parser was retired. Output is `mdast` — the
+ * same node shape MyST themes consume directly.
  *
  * Anchor links of the form `[text](#path.to.element)` use the ASTRA
  * tree-path grammar described in the Narrative class (astra-spec
- * v0.0.6, src/astra/schema/analysis.yaml). They become MyST
- * `crossReference` nodes pointing at the corresponding ASTRA element
- * within the host analysis. Anchors that cannot be resolved
- * (sub-analysis traversal, parent escape via `../`, prior_insights
- * which don't yet have page identifiers) fall back to ordinary `link`
- * nodes with the original `#path.to.element` URL — the AST stays
- * valid and the theme renders them as inert anchors.
- *
- * Why a hand-rolled parser? We don't pull `myst-parser` as a runtime
- * dep — narratives are short and the inline grammar we need is the
- * same subset already supported by `inline-parser.ts`. The block
- * layer (paragraphs) is a one-liner.
+ * v0.0.6, src/astra/schema/analysis.yaml). They are emitted by
+ * myst-parser as ordinary `link` nodes; `resolveNarrativeAnchors`
+ * walks the tree post-parse and rewrites in-scope anchors into MyST
+ * `crossReference` nodes pointing at the corresponding ASTRA
+ * element. Anchors that escape the host scope (`../` parent
+ * traversal) fall back to plain link nodes with the original URL.
  */
 
+import { mystParse } from 'myst-parser';
 import type { ASTRAAnalysis } from '../types/astra.js';
-import { paragraph, crossReference, link } from './ast-helpers.js';
-import { parseInlineMarkdown } from './inline-parser.js';
+import { crossReference, link } from './ast-helpers.js';
 
-export function parseNarrativeMarkdown(md: string): any[] {
-  return md
-    .split(/\n{2,}/)
-    .map((p) => p.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .map((p) => paragraph(parseInlineMarkdown(p)));
+// ── Parsing ───────────────────────────────────────────────────────
+
+/**
+ * Parse a Markdown string into mdast block nodes (paragraphs,
+ * headings, lists, …). Use this for narrative sections and other
+ * fields where block-level structure is meaningful.
+ */
+export function parseProseBlocks(md: string | undefined): any[] {
+  if (!md) return [];
+  const tree = mystParse(md);
+  return (tree.children ?? []).map(stripPositions);
 }
+
+/**
+ * Parse a Markdown string and return only the inline phrasing
+ * content. Used for fields that must be inline (table cells,
+ * captions, headings, blockquote attribution, single-line claims).
+ *
+ * If the input parses to a single paragraph we unwrap its children;
+ * otherwise we flatten across paragraphs (separating with a space)
+ * since the host context can't accept block-level children.
+ */
+export function parseProseInline(md: string | undefined): any[] {
+  if (!md) return [];
+  const tree = mystParse(md);
+  const blocks = tree.children ?? [];
+  if (blocks.length === 0) return [];
+  if (blocks.length === 1 && blocks[0].type === 'paragraph') {
+    return (blocks[0].children ?? []).map(stripPositions);
+  }
+  // Multi-block input where only inline is allowed: flatten.
+  const out: any[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (b.type === 'paragraph' && Array.isArray(b.children)) {
+      if (i > 0) out.push({ type: 'text', value: ' ' });
+      for (const c of b.children) out.push(stripPositions(c));
+    }
+  }
+  return out;
+}
+
+/**
+ * Recursively strip the `position` field that markdown-it injects.
+ * The book-theme ignores it, but it bloats the JSON payload and
+ * makes test snapshots noisy.
+ */
+function stripPositions(node: any): any {
+  if (!node || typeof node !== 'object') return node;
+  const { position, ...rest } = node;
+  if (Array.isArray(rest.children)) {
+    rest.children = rest.children.map(stripPositions);
+  }
+  return rest;
+}
+
+// ── Anchor resolution ─────────────────────────────────────────────
 
 /**
  * Tree-path anchor resolution. Returns either an `identifier` (for an

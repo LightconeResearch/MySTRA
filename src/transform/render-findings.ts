@@ -16,7 +16,7 @@ import {
   crossReference,
   thematicBreak,
 } from './ast-helpers.js';
-import { parseInlineMarkdown } from './inline-parser.js';
+import { parseProseBlocks, parseProseInline } from './narrative-parser.js';
 import { renderEvidenceBlock } from './render-evidence.js';
 import { TAG_TO_SECTION } from './tag-sections.js';
 import { toSlug } from '../utils/slug.js';
@@ -57,12 +57,14 @@ function renderFinding(
   const nodes: any[] = [];
   const identifier = `finding-${findingId}`;
 
-  // Finding heading
-  nodes.push(heading(3, [text(`${index}. ${finding.claim}`)], identifier));
+  // Finding heading: claim parsed as inline Markdown so emphasis and
+  // code spans render. Numeric prefix stays as plain text.
+  nodes.push(heading(3, [text(`${index}. `), ...parseProseInline(finding.claim)], identifier));
 
-  // Notes as narrative paragraph (with inline markdown formatting)
+  // Notes parse as full Markdown — block-level structure (multiple
+  // paragraphs, lists, code blocks) is intentionally allowed.
   if (finding.notes) {
-    nodes.push(paragraph(parseInlineMarkdown(finding.notes)));
+    nodes.push(...parseProseBlocks(finding.notes));
   }
 
   // Scope

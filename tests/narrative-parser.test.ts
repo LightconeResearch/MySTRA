@@ -6,7 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ASTRAAnalysis } from '../src/types/astra.js';
 import {
-  parseNarrativeMarkdown,
+  parseProseBlocks,
+  parseProseInline,
   resolveNarrativeAnchors,
   resolveAnchorPath,
 } from '../src/transform/narrative-parser.js';
@@ -40,16 +41,16 @@ function fixtureAnalysis(): ASTRAAnalysis {
   };
 }
 
-describe('parseNarrativeMarkdown', () => {
+describe('parseProseBlocks (via myst-parser)', () => {
   it('splits paragraphs on blank lines', () => {
-    const out = parseNarrativeMarkdown('First paragraph.\n\nSecond paragraph.');
+    const out = parseProseBlocks('First paragraph.\n\nSecond paragraph.');
     expect(out).toHaveLength(2);
     expect(out[0].type).toBe('paragraph');
     expect(out[1].type).toBe('paragraph');
   });
 
   it('preserves anchor links as link nodes pre-resolution', () => {
-    const out = parseNarrativeMarkdown(
+    const out = parseProseBlocks(
       'See the [scaling decision](#decisions.scaling) for details.',
     );
     const links = (out[0].children as any[]).filter((c) => c.type === 'link');
@@ -58,13 +59,67 @@ describe('parseNarrativeMarkdown', () => {
   });
 
   it('parses inline strong/emphasis/code alongside anchors', () => {
-    const out = parseNarrativeMarkdown(
-      'Run **fast** with `python` and see [finding](#findings.best_model).',
+    const out = parseProseBlocks(
+      'Run **fast** _slow_ with `python` and see [finding](#findings.best_model).',
     );
     const types = (out[0].children as any[]).map((c) => c.type);
     expect(types).toContain('strong');
+    expect(types).toContain('emphasis');
     expect(types).toContain('inlineCode');
     expect(types).toContain('link');
+  });
+
+  it('emits myst-parser-shaped mdast (not the legacy approximation)', () => {
+    // The bespoke inline-parser used a single regex and produced
+    // shallow nodes without round-tripping nested formatting. This
+    // test pins down the mdast shape we now get from myst-parser:
+    // strong wraps text directly, links carry url + children, and
+    // inline code is `inlineCode` with a `value` (no children).
+    const out = parseProseBlocks('A **bold _nested_ word** in `code`.');
+    const inline = out[0].children as any[];
+    const strong = inline.find((c) => c.type === 'strong')!;
+    expect(strong.children[0].type).toBe('text');
+    // Nested emphasis should survive inside strong — the bespoke
+    // parser flattened nested patterns.
+    expect(strong.children.some((c: any) => c.type === 'emphasis')).toBe(true);
+    const code = inline.find((c) => c.type === 'inlineCode')!;
+    expect(code.value).toBe('code');
+    expect(code.children).toBeUndefined();
+  });
+
+  it('parses block-level structures (lists, code blocks, headings)', () => {
+    const md = '# Heading\n\nA paragraph.\n\n- one\n- two\n\n```python\nx = 1\n```';
+    const out = parseProseBlocks(md);
+    const types = out.map((n) => n.type);
+    expect(types).toContain('heading');
+    expect(types).toContain('paragraph');
+    expect(types).toContain('list');
+    expect(types).toContain('code');
+  });
+
+  it('strips position fields from output (no markdown-it noise)', () => {
+    const out = parseProseBlocks('hello');
+    const stack: any[] = [...out];
+    while (stack.length) {
+      const n = stack.pop();
+      expect(n.position).toBeUndefined();
+      if (Array.isArray(n.children)) stack.push(...n.children);
+    }
+  });
+});
+
+describe('parseProseInline', () => {
+  it('unwraps a single paragraph to its inline children', () => {
+    const out = parseProseInline('A **bold** claim.');
+    // No paragraph wrapper, just the inline phrasing nodes.
+    expect(out.every((n: any) => n.type !== 'paragraph')).toBe(true);
+    const types = out.map((n: any) => n.type);
+    expect(types).toContain('strong');
+  });
+
+  it('handles undefined and empty strings', () => {
+    expect(parseProseInline(undefined)).toEqual([]);
+    expect(parseProseInline('')).toEqual([]);
   });
 });
 
@@ -131,7 +186,7 @@ describe('resolveNarrativeAnchors', () => {
   it('rewrites in-scope anchor links to crossReference nodes', () => {
     const a = fixtureAnalysis();
     const md = 'See [the finding](#findings.best_model) and [scaling](#decisions.scaling).';
-    const resolved = resolveNarrativeAnchors(parseNarrativeMarkdown(md), a, 'index');
+    const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
 
     const inline = resolved[0].children as any[];
     const xrefs = inline.filter((c) => c.type === 'crossReference');
@@ -146,7 +201,7 @@ describe('resolveNarrativeAnchors', () => {
   it('leaves unresolvable anchors as plain link nodes', () => {
     const a = fixtureAnalysis();
     const md = 'See [missing](#findings.does_not_exist).';
-    const resolved = resolveNarrativeAnchors(parseNarrativeMarkdown(md), a, 'index');
+    const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
     const inline = resolved[0].children as any[];
     const links = inline.filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
@@ -156,7 +211,7 @@ describe('resolveNarrativeAnchors', () => {
   it('routes sub-analysis references to relative page URLs (link nodes)', () => {
     const a = fixtureAnalysis();
     const md = 'See [pre](#analyses.preprocessing).';
-    const resolved = resolveNarrativeAnchors(parseNarrativeMarkdown(md), a, 'index');
+    const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
     const inline = resolved[0].children as any[];
     const links = inline.filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);

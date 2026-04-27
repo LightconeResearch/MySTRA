@@ -31,7 +31,7 @@ import {
 import { parse as parsePath } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { getCachedMetadata } from '../doi/resolver.js';
-import { parseInlineMarkdown } from './inline-parser.js';
+import { parseProseInline } from './narrative-parser.js';
 
 /** DOI cache dir, set by the transform entry point */
 let _doiCacheDir: string | null = null;
@@ -126,7 +126,7 @@ function renderArtifactEvidence(
       nodes.push(
         container('figure', [
           image(`/static/${artifactId}.${ext}`, figureLabel, '100%'),
-          caption([paragraph(parseInlineMarkdown(captionText))]),
+          caption([paragraph(parseProseInline(captionText))]),
         ], `fig-${artifactId}`),
       );
     } else if (ext === 'json') {
@@ -307,8 +307,9 @@ export function renderInsight(
 
   const nodes: any[] = [];
 
-  // Insight claim as bold headline
-  nodes.push(paragraph([strong([text(insight.claim)])]));
+  // Insight claim as bold headline; parsed as inline Markdown so
+  // emphasis/code/etc. inside claims render correctly.
+  nodes.push(paragraph([strong(parseProseInline(insight.claim))]));
 
   // Each piece of evidence: attributed quote from a source
   for (const ev of insight.evidence) {

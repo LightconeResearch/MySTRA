@@ -12,6 +12,7 @@ import {
   paragraph,
   emphasis,
 } from './ast-helpers.js';
+import { parseProseInline } from './narrative-parser.js';
 
 export function renderInputsTable(inputs: ASTRAInput[]): any {
   if (inputs.length === 0) {
@@ -28,13 +29,16 @@ export function renderInputsTable(inputs: ASTRAInput[]): any {
   );
 
   // Compact handle: prefer label, fall back to id (added in v0.0.6).
-  const dataRows = inputs.map((input) =>
-    tableRow([
+  // Description parses as inline Markdown so emphasis/links/code
+  // render inside the table cell.
+  const dataRows = inputs.map((input) => {
+    const descCell = parseProseInline(input.description);
+    return tableRow([
       tableCell([strong([text(input.label ?? input.id)])]),
       tableCell([text(input.type)]),
-      tableCell([text(input.description ?? '')]),
-    ]),
-  );
+      tableCell(descCell.length > 0 ? descCell : [text('')]),
+    ]);
+  });
 
   return table([headerRow, ...dataRows]);
 }

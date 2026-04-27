@@ -13,6 +13,7 @@ import {
   paragraph,
   emphasis,
 } from './ast-helpers.js';
+import { parseProseInline } from './narrative-parser.js';
 
 export function renderVerification(
   criteria: ASTRASuccessCriterion[],
@@ -35,9 +36,10 @@ export function renderVerification(
     const produced = criterion.output ? results.has(criterion.output) : false;
     const status = produced ? '\u2705' : '\u23F3';
 
+    const claimCell = parseProseInline(criterion.claim);
     return tableRow([
       tableCell([text(status)]),
-      tableCell([text(criterion.claim)]),
+      tableCell(claimCell.length > 0 ? claimCell : [text('')]),
       tableCell(criterion.output ? [inlineCode(criterion.output)] : [text('\u2014')]),
     ]);
   });

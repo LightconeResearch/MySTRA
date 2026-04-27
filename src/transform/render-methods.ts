@@ -20,6 +20,7 @@ import {
 } from './ast-helpers.js';
 import { groupDecisionsByTag } from './tag-sections.js';
 import { renderInsight } from './render-evidence.js';
+import { parseProseBlocks } from './narrative-parser.js';
 
 export function renderMethodsSections(
   decisions: Record<string, ASTRADecision>,
@@ -109,7 +110,9 @@ function renderDecision(
   ];
 
   if (decision.rationale) {
-    detailsChildren.push(paragraph([text(decision.rationale)]));
+    // Rationale parses as full Markdown — multiple paragraphs and
+    // inline emphasis/links/code render through myst-parser.
+    detailsChildren.push(...parseProseBlocks(decision.rationale));
   }
 
   if (tabs.length > 0) {
@@ -146,9 +149,9 @@ function renderOptionTab(
 
   const children: any[] = [];
 
-  // Description
+  // Description as full Markdown.
   if (option.description) {
-    children.push(paragraph([text(option.description)]));
+    children.push(...parseProseBlocks(option.description));
   }
 
   // Excluded reason
