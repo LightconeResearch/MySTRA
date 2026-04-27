@@ -797,3 +797,159 @@ describe('structural-element identifiers (end-to-end)', () => {
     expect(flat).toContain('Performance versus the');
   });
 });
+
+describe('prior_insights as flat addressable blocks', () => {
+  // Every published `prior_insight-<id>` xref must have a rendered
+  // carrier on the page (xref contract). The carrier is a flat
+  // h3-keyed block — analogous to findings — so unreferenced prior
+  // insights still resolve, and option-tab references can be plain
+  // crossReferences pointing at the carrier rather than inline
+  // expansions.
+
+  function withPriors(): ASTRAAnalysis {
+    return {
+      name: 'WithPriors',
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          options: {
+            standard: {
+              label: 'Standard',
+              insights: ['scaling_helps'],
+            },
+            minmax: {
+              label: 'MinMax',
+              insights: ['ghost_insight'],
+            },
+          },
+        },
+      },
+      prior_insights: {
+        scaling_helps: {
+          id: 'scaling_helps',
+          label: 'Scaling helps',
+          claim: 'Standardization improves SVM convergence.',
+          created_at: '2024-01-01',
+          evidence: [],
+        },
+        unreferenced_prior: {
+          id: 'unreferenced_prior',
+          claim: 'Unrelated background knowledge.',
+          created_at: '2024-01-01',
+          evidence: [],
+        },
+      },
+      findings: {},
+    };
+  }
+
+  it('emits an h3 carrier for every declared prior_insight', () => {
+    const ast = astraToMystAST({
+      analysis: withPriors(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const headings: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'heading' && n.identifier?.startsWith('prior_insight-')) {
+        headings.push(n);
+      }
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    const ids = headings.map((h) => h.identifier).sort();
+    expect(ids).toEqual(['prior_insight-scaling_helps', 'prior_insight-unreferenced_prior']);
+  });
+
+  it('an unreferenced prior_insight has a rendered carrier (xref contract)', () => {
+    const a = withPriors();
+    const pages = buildAllPages(a, { id: 'u', decisions: {} }, new Map(), '/tmp');
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids).toContain('prior_insight-unreferenced_prior');
+    // Sanity: the carrier truly exists in the AST, not just in the index.
+    const ast = pages[0].ast;
+    const found = JSON.stringify(ast).includes('"prior_insight-unreferenced_prior"');
+    expect(found).toBe(true);
+  });
+
+  it('option.insights renders as crossReference, not inline expansion', () => {
+    const ast = astraToMystAST({
+      analysis: withPriors(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    // The option tab for standard cites "scaling_helps" — that
+    // should appear as a crossReference inside the tabSet, NOT as
+    // a duplicated paragraph carrying the same identifier.
+    const xrefs: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') xrefs.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(xrefs.some((x) => x.identifier === 'prior_insight-scaling_helps')).toBe(true);
+
+    // Only one heading carrier per insight (no inline expansion
+    // duplicating the identifier inside the option tab).
+    const carriers: any[] = [];
+    function walkCarrier(n: any) {
+      if (
+        n.type === 'heading' &&
+        n.identifier === 'prior_insight-scaling_helps'
+      ) {
+        carriers.push(n);
+      }
+      for (const c of n.children ?? []) walkCarrier(c);
+    }
+    for (const n of ast.children) walkCarrier(n);
+    expect(carriers).toHaveLength(1);
+  });
+
+  it('broken option.insights reference emits a console.warn (no silent drop)', () => {
+    // The `ghost_insight` ref on the minmax option points at no
+    // declared prior_insight — log a visible warning and skip the
+    // crossReference rather than silently dropping.
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (msg: any) => { warns.push(String(msg)); };
+    try {
+      astraToMystAST({
+        analysis: withPriors(),
+        universe: emptyUniverse(),
+        results: new Map(),
+        projectDir: '/tmp',
+        slug: 'index',
+      });
+    } finally {
+      console.warn = orig;
+    }
+    expect(warns.some((w) => w.includes('ghost_insight'))).toBe(true);
+  });
+
+  it('option-tab crossReference resolves to the flat block carrier id', () => {
+    // End-to-end: a click on the supporting-insight ref should land
+    // on the prior_insight heading rendered earlier on the page.
+    const ast = astraToMystAST({
+      analysis: withPriors(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    // The xref identifier and the carrier identifier are the same string.
+    const ids = new Set<string>();
+    const refs = new Set<string>();
+    function walk(n: any) {
+      if (n.identifier) ids.add(n.identifier);
+      if (n.type === 'crossReference') refs.add(n.identifier);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(ids.has('prior_insight-scaling_helps')).toBe(true);
+    expect(refs.has('prior_insight-scaling_helps')).toBe(true);
+  });
+});

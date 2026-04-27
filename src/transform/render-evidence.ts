@@ -305,38 +305,27 @@ function formatValue(val: unknown): string {
 }
 
 /**
- * Render a single insight as a claim supported by evidence.
+ * Render the evidence body of an insight (caller has already
+ * emitted the heading carrying the `<kind>-<id>` identifier). Each
+ * piece of evidence is either an attributed quote-with-citation or
+ * a bare citation / artifact reference, depending on populated fields.
  *
- * Structure:
- *   **Insight claim text**
  *   > "quoted text from paper"
  *   — Author et al. (Year)        ← cite node with hover preview
  *   > "another quote"
  *   — Author2 et al. (Year)
+ *
+ * Used by both render-findings.ts and render-prior-insights.ts;
+ * each provides its own carrier heading. Cross-references from
+ * option tabs / decisions / narrative point at those carrier ids,
+ * not at the body returned here.
  */
-export function renderInsight(
-  insightId: string,
-  allInsights: Record<string, { claim: string; evidence: ASTRAEvidence[] }>,
-  prose: ProseParser,
+export function renderInsightEvidence(
+  insight: { evidence: ASTRAEvidence[] },
   doiCacheDir: string | null,
-  kind: 'prior_insight' | 'finding' = 'prior_insight',
 ): any[] {
-  const insight = allInsights[insightId];
-  if (!insight) return [];
-
   const nodes: any[] = [];
 
-  // Insight claim as bold headline; parsed as inline Markdown so
-  // emphasis/code/anchor links inside claims render and resolve.
-  // The identifier on the headline paragraph makes the insight
-  // addressable as `<kind>-<id>` (prior_insight-<id> by default,
-  // finding-<id> when called from the findings renderer).
-  const headline: any = paragraph([strong(prose.inline(insight.claim))]);
-  headline.identifier = `${kind}-${insightId}`;
-  headline.label = headline.identifier;
-  nodes.push(headline);
-
-  // Each piece of evidence: attributed quote from a source
   for (const ev of insight.evidence) {
     if (ev.doi) {
       if (ev.quote) {

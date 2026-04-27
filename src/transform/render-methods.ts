@@ -21,8 +21,8 @@ import {
   summary,
   tabSet,
   thematicBreak,
+  crossReference,
 } from './ast-helpers.js';
-import { renderInsight } from './render-evidence.js';
 import type { ProseParser } from './narrative-parser.js';
 
 /**
@@ -191,17 +191,34 @@ function renderOptionTab(
     );
   }
 
-  // Supporting insights — collapsible dropdown
+  // Supporting insights — emit crossReferences to the flat
+  // prior_insight blocks rendered elsewhere on the page. The flat
+  // block is the source of truth; the option tab only points at it
+  // (no inline expansion). Broken references emit a console.warn
+  // so unresolved insight ids don't silently disappear.
   if (option.insights && option.insights.length > 0) {
-    const insightNodes: any[] = [];
-
+    const refs: any[] = [];
     for (const insightId of option.insights) {
-      insightNodes.push(...renderInsight(insightId, priorInsights, prose, doiCacheDir));
+      const insight = priorInsights[insightId];
+      if (!insight) {
+        console.warn(
+          `[mystra] Option references unknown prior_insight id "${insightId}" — broken reference dropped from output.`,
+        );
+        continue;
+      }
+      const linkText = insight.label ?? insight.claim ?? insightId;
+      refs.push(crossReference(`prior_insight-${insightId}`, [text(linkText)]));
     }
-
-    const count = option.insights.length;
-    const label = count === 1 ? 'Supporting insight' : `Supporting insights (${count})`;
-    children.push(details([summary([text(label)]), ...insightNodes], false));
+    if (refs.length > 0) {
+      const count = refs.length;
+      const label = count === 1 ? 'Supporting insight: ' : 'Supporting insights: ';
+      const para: any[] = [text(label)];
+      for (let i = 0; i < refs.length; i++) {
+        if (i > 0) para.push(text(', '));
+        para.push(refs[i]);
+      }
+      children.push(paragraph(para));
+    }
   }
 
   return tabItem(title, children, isSelected);

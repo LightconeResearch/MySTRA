@@ -12,6 +12,7 @@ import { blockBreak, makeTabItem } from './ast-helpers.js';
 import { renderNarrativeChunks } from './render-narrative.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
+import { renderPriorInsights } from './render-prior-insights.js';
 import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
@@ -76,6 +77,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
 
     // Structural elements as a flat sequence of addressable blocks.
     ...renderFindings(findings, results, decisions, outputs, prose, doiCacheDir),
+    ...renderPriorInsights(priorInsights, prose, doiCacheDir),
     ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem, doiCacheDir),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
     ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
