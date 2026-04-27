@@ -233,6 +233,57 @@ describe('structural-element identifiers (end-to-end)', () => {
     expect(ids).toContain('input-iris_data');
   });
 
+  it('attaches an output-<id> identifier to each output table row (no evidence)', () => {
+    // Bug A: every declared output must have a carrier, even with
+    // no evidence pointing at it from a finding.
+    const ast = astraToMystAST({
+      analysis: fixture(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const ids: string[] = [];
+    function walk(n: any) {
+      if (n.type === 'tableRow' && n.identifier) ids.push(n.identifier);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(ids).toContain('output-accuracy');
+  });
+
+  it('emits output-<id> carrier for non-image artifacts (CSV, JSON, plain)', () => {
+    // Bug A: previously only image artifact evidence carried
+    // `output-<id>`; JSON/CSV/plain artifacts (and outputs without
+    // evidence) had no carrier and broke xrefs.
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      outputs: [
+        { id: 'metrics_json', type: 'data' },
+        { id: 'sample_csv', type: 'table' },
+        { id: 'plain_blob', type: 'data' },
+        { id: 'no_evidence', type: 'metric' },
+      ],
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const ids: string[] = [];
+    function walk(n: any) {
+      if (n.type === 'tableRow' && n.identifier) ids.push(n.identifier);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(ids).toContain('output-metrics_json');
+    expect(ids).toContain('output-sample_csv');
+    expect(ids).toContain('output-plain_blob');
+    expect(ids).toContain('output-no_evidence');
+  });
+
   it('end-to-end: narrative anchor #inputs.<id> resolves to a crossReference on the input identifier', () => {
     const a: ASTRAAnalysis = {
       ...fixture(),

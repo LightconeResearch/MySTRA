@@ -1,8 +1,14 @@
 /**
- * Renders the Data Sources section as an inputs table.
+ * Renders the inputs and outputs of an analysis as parallel tables.
+ *
+ * Inputs and outputs are both first-class structural elements; each
+ * row is the page's carrier for the corresponding `<kind>-<id>`
+ * identifier. Evidence rendering (figures, JSON/CSV tables, pending
+ * admonitions) is composed by callers — the per-output carrier
+ * exists whether or not any evidence references the output.
  */
 
-import type { ASTRAInput } from '../types/astra.js';
+import type { ASTRAInput, ASTRAOutput } from '../types/astra.js';
 import {
   table,
   tableRow,
@@ -42,6 +48,41 @@ export function renderInputsTable(inputs: ASTRAInput[], prose: ProseParser): any
       tableCell(descCell.length > 0 ? descCell : [text('')]),
     ]);
     row.identifier = `input-${input.id}`;
+    row.label = row.identifier;
+    return row;
+  });
+
+  return table([headerRow, ...dataRows]);
+}
+
+/**
+ * Per-output carrier table. Every declared output gets exactly one
+ * row keyed by `output-<id>`, regardless of whether the artifact
+ * has been produced or any finding references it via evidence.
+ *
+ * This is the xref contract: anything `collectIdentifiers`
+ * publishes must have a rendered carrier. Image/JSON/CSV evidence
+ * still appears wherever it's structurally referenced (typically
+ * under a finding); the row here is the stable anchor target.
+ */
+export function renderOutputsTable(outputs: ASTRAOutput[], prose: ProseParser): any {
+  const headerRow = tableRow(
+    [
+      tableCell([text('Output')], true),
+      tableCell([text('Type')], true),
+      tableCell([text('Description')], true),
+    ],
+    true,
+  );
+
+  const dataRows = outputs.map((output) => {
+    const descCell = prose.inline(output.description);
+    const row: any = tableRow([
+      tableCell([strong([text(output.label ?? output.id)])]),
+      tableCell([text(output.type)]),
+      tableCell(descCell.length > 0 ? descCell : [text('')]),
+    ]);
+    row.identifier = `output-${output.id}`;
     row.label = row.identifier;
     return row;
   });

@@ -13,7 +13,7 @@ import { renderNarrativeChunks } from './render-narrative.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
 import { renderMethodsSections } from './render-methods.js';
-import { renderInputsTable } from './render-data-sources.js';
+import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { renderVerification } from './render-verification.js';
 import { setDOICacheDir } from './render-evidence.js';
@@ -72,6 +72,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     ...renderFindings(findings, results, decisions, outputs, prose),
     ...renderMethodsSections(decisions, priorInsights, universe, prose),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
+    ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
     ...(successCriteria.length > 0 ? [renderVerification(successCriteria, results, prose)] : []),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
       ? renderSubAnalysisCards(analysis.analyses, slug)

@@ -135,13 +135,16 @@ function renderArtifactEvidence(
       const figureLabel = evidence.figure?.label ?? artifactId;
       const captionText = evidence.figure?.caption ?? evidence.quote?.exact ?? artifactId;
 
-      // Identifier follows the structural-element scheme so
-      // `#outputs.<id>` resolves to the materialized figure.
+      // The `output-<id>` xref carrier lives on the per-output row
+      // (renderOutputsTable). The figure container is the visual
+      // rendering of the artifact wherever it's referenced as
+      // evidence; a single output may be cited by multiple findings,
+      // so the figure no longer carries the structural identifier.
       nodes.push(
         container('figure', [
           image(`/static/${artifactId}.${ext}`, figureLabel, '100%'),
           caption([paragraph(prose.inline(captionText))]),
-        ], `output-${artifactId}`),
+        ]),
       );
     } else if (ext === 'json') {
       nodes.push(...renderJSONTable(resultPath, artifactId, evidence));
