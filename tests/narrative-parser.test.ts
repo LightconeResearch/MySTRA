@@ -132,9 +132,9 @@ describe('resolveAnchorPath', () => {
     });
   });
 
-  it('resolves #decisions.<id> to the decision identifier', () => {
+  it('resolves #decisions.<id> to a decision-<id> identifier', () => {
     expect(resolveAnchorPath('#decisions.scaling', a, 'index')).toEqual({
-      identifier: 'scaling',
+      identifier: 'decision-scaling',
     });
   });
 
@@ -143,7 +143,48 @@ describe('resolveAnchorPath', () => {
     // so option anchors fall back to the parent decision heading.
     expect(
       resolveAnchorPath('#decisions.scaling.options.standard', a, 'index'),
-    ).toEqual({ identifier: 'scaling' });
+    ).toEqual({ identifier: 'decision-scaling' });
+  });
+
+  it('resolves #inputs.<id> to an input-<id> identifier', () => {
+    expect(resolveAnchorPath('#inputs.iris_data', a, 'index')).toEqual({
+      identifier: 'input-iris_data',
+    });
+  });
+
+  it('resolves #outputs.<id> to an output-<id> identifier', () => {
+    expect(resolveAnchorPath('#outputs.accuracy', a, 'index')).toEqual({
+      identifier: 'output-accuracy',
+    });
+  });
+
+  it('resolves #prior_insights.<id> to a prior_insight-<id> identifier', () => {
+    const aWithPrior: ASTRAAnalysis = {
+      ...a,
+      prior_insights: {
+        compute_scaling: {
+          id: 'compute_scaling',
+          claim: 'Scaling matters',
+          created_at: '2024-01-01',
+          evidence: [],
+        },
+      },
+    };
+    expect(resolveAnchorPath('#prior_insights.compute_scaling', aWithPrior, 'index')).toEqual({
+      identifier: 'prior_insight-compute_scaling',
+    });
+  });
+
+  it('falls back when #inputs.<id>/#outputs.<id>/#prior_insights.<id> targets are unknown', () => {
+    expect(resolveAnchorPath('#inputs.unknown', a, 'index')).toEqual({
+      url: '#inputs.unknown',
+    });
+    expect(resolveAnchorPath('#outputs.unknown', a, 'index')).toEqual({
+      url: '#outputs.unknown',
+    });
+    expect(resolveAnchorPath('#prior_insights.unknown', a, 'index')).toEqual({
+      url: '#prior_insights.unknown',
+    });
   });
 
   it('falls back to a link URL for missing finding ids', () => {
@@ -212,7 +253,7 @@ describe('resolveNarrativeAnchors', () => {
     const xrefs = inline.filter((c) => c.type === 'crossReference');
     expect(xrefs).toHaveLength(2);
     expect(xrefs.map((x) => x.identifier).sort()).toEqual(
-      ['finding-best_model', 'scaling'],
+      ['decision-scaling', 'finding-best_model'],
     );
     // Children (the link text) survive the rewrite.
     expect(xrefs[0].children[0].value).toBe('the finding');

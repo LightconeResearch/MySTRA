@@ -81,8 +81,9 @@ function renderDecision(
 
   const nodes: any[] = [];
 
-  // h4 heading for the decision
-  nodes.push(heading(4, [text(decisionLabel)], id));
+  // h4 heading for the decision; identifier follows the
+  // structural-element scheme `<kind>-<id>`.
+  nodes.push(heading(4, [text(decisionLabel)], `decision-${id}`));
 
   // Build option tabs, tracking which is selected for reordering
   const tabs: any[] = [];

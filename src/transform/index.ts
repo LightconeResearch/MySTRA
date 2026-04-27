@@ -154,50 +154,40 @@ function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] 
   const dataPath = `/content/${slug}.json`;
   const url = slug === 'index' ? '/' : `/${slug}`;
 
+  const push = (identifier: string) =>
+    entries.push({ identifier, kind: 'heading', data: dataPath, url, implicit: true });
+
   // Narrative-chunk identifiers: each non-empty section is an
   // addressable block at `narrative-<section>`.
   for (const section of ['summary', 'findings', 'methods', 'inputs', 'outputs'] as const) {
-    if (analysis.narrative?.[section]) {
-      entries.push({
-        identifier: `narrative-${section}`,
-        kind: 'heading',
-        data: dataPath,
-        url,
-        implicit: true,
-      });
-    }
+    if (analysis.narrative?.[section]) push(`narrative-${section}`);
   }
 
-  // Finding identifiers — every structural element gets its own
-  // addressable anchor; section-level identifiers (findings,
-  // methods, …) are no longer published since MySTRA stopped
-  // wrapping the document in section headings.
-  for (const findingId of Object.keys(analysis.findings ?? {})) {
-    entries.push({
-      identifier: `finding-${findingId}`,
-      kind: 'heading',
-      data: dataPath,
-      url,
-      implicit: true,
-    });
+  // Per-element identifiers (`<kind>-<id>`) for every structural
+  // element. Page-level section identifiers (findings, methods, …)
+  // are no longer published — those h2 wrappers no longer exist.
+  for (const id of Object.keys(analysis.findings ?? {})) push(`finding-${id}`);
+  for (const id of Object.keys(analysis.prior_insights ?? {})) push(`prior_insight-${id}`);
+  for (const id of Object.keys(analysis.decisions ?? {})) push(`decision-${id}`);
+  for (const input of analysis.inputs ?? []) push(`input-${input.id}`);
+  for (const output of analysis.outputs ?? []) push(`output-${output.id}`);
+  for (const id of Object.keys(analysis.analyses ?? {})) push(`analysis-${id}`);
+  // Verification rows are keyed by their referenced output (or
+  // index when none); we publish the output-keyed ones since those
+  // are stable across re-orderings.
+  for (const c of analysis.success_criteria ?? []) {
+    if (c.output) push(`verification-${c.output}`);
   }
 
-  // Decision group identifiers (the h3 above each tag-group of
-  // decisions) — kept; these are real headings emitted by
-  // renderMethodsSections, not page-level structural wrappers.
+  // Decision tag-group h3 identifiers — real headings emitted by
+  // renderMethodsSections, kept as in-page anchors.
   const seenSections = new Set<string>();
   for (const decision of Object.values(analysis.decisions ?? {})) {
     if (decision.from || !decision.tags?.[0]) continue;
     const sectionId = toSlug(decision.tags[0]);
     if (!seenSections.has(sectionId)) {
       seenSections.add(sectionId);
-      entries.push({
-        identifier: sectionId,
-        kind: 'heading',
-        data: dataPath,
-        url,
-        implicit: true,
-      });
+      push(sectionId);
     }
   }
 

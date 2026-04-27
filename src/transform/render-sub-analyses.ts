@@ -29,7 +29,14 @@ export function renderSubAnalysisCards(
       ]),
     ];
 
-    nodes.push(card(sub.name ?? id, children, `/${id}`));
+    // Card carries `identifier: analysis-<id>` so a parent-page
+    // anchor link to this card resolves; cross-page narrative refs
+    // (`#analyses.<id>`) still resolve to the sub-analysis URL via
+    // the resolver, since pages can also be addressed by route.
+    const cardNode: any = card(sub.name ?? id, children, `/${id}`);
+    cardNode.identifier = `analysis-${id}`;
+    cardNode.label = cardNode.identifier;
+    nodes.push(cardNode);
   }
 
   return nodes;

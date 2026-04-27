@@ -28,13 +28,22 @@ export function renderInputsTable(inputs: ASTRAInput[]): any {
   // Compact handle: prefer label, fall back to id (added in v0.0.6).
   // Description parses as inline Markdown so emphasis/links/code
   // render inside the table cell.
+  //
+  // Each row carries a stable `identifier: input-<id>` so the
+  // narrative grammar `[text](#inputs.<id>)` resolves to it. mdast's
+  // `tableRow` doesn't formally have an identifier slot, but the
+  // node tolerates extra fields and the xref index keys off
+  // `identifier` regardless of node type.
   const dataRows = inputs.map((input) => {
     const descCell = parseProseInline(input.description);
-    return tableRow([
+    const row: any = tableRow([
       tableCell([strong([text(input.label ?? input.id)])]),
       tableCell([text(input.type)]),
       tableCell(descCell.length > 0 ? descCell : [text('')]),
     ]);
+    row.identifier = `input-${input.id}`;
+    row.label = row.identifier;
+    return row;
   });
 
   return table([headerRow, ...dataRows]);

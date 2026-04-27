@@ -85,6 +85,18 @@ function stripPositions(node: any): any {
  * in-page crossReference) or a `url` (for an off-page or unresolvable
  * link). The host analysis is needed to know which IDs exist locally;
  * the slug for the analysis is needed to build sub-analysis links.
+ *
+ * Identifier scheme (every structural element + narrative chunk gets
+ * a stable id anchor — `<kind>-<id>`):
+ *
+ *   decisions       → `decision-<id>`
+ *   findings        → `finding-<id>`
+ *   prior_insights  → `prior_insight-<id>`
+ *   inputs          → `input-<id>`
+ *   outputs         → `output-<id>`
+ *   narrative       → `narrative-<section>`
+ *   sub-analyses    → cross-page URL (separate pages, not in-page anchors)
+ *   parent (`../`)  → inert link (cross-scope resolution is its own thing)
  */
 export function resolveAnchorPath(
   path: string,
@@ -122,7 +134,19 @@ export function resolveAnchorPath(
       // to the decision heading; option-level identifiers don't yet
       // exist in MySTRA's xref scheme.
       return rest.length >= 1 && rest[0] in (analysis.decisions ?? {})
-        ? { identifier: rest[0] }
+        ? { identifier: `decision-${rest[0]}` }
+        : { url: `#${ref}` };
+    case 'prior_insights':
+      return rest.length === 1 && rest[0] in (analysis.prior_insights ?? {})
+        ? { identifier: `prior_insight-${rest[0]}` }
+        : { url: `#${ref}` };
+    case 'inputs':
+      return rest.length === 1 && (analysis.inputs ?? []).some((i) => i.id === rest[0])
+        ? { identifier: `input-${rest[0]}` }
+        : { url: `#${ref}` };
+    case 'outputs':
+      return rest.length === 1 && (analysis.outputs ?? []).some((o) => o.id === rest[0])
+        ? { identifier: `output-${rest[0]}` }
         : { url: `#${ref}` };
     // Narrative chunks: `#narrative.<section>` resolves to the
     // chunk identifier published by render-narrative.
@@ -135,12 +159,6 @@ export function resolveAnchorPath(
       ) {
         return { identifier: `narrative-${rest[0]}` };
       }
-      return { url: `#${ref}` };
-    // No identifiers for these yet — keep as inert links so the
-    // anchor grammar round-trips visibly without breaking the AST.
-    case 'prior_insights':
-    case 'inputs':
-    case 'outputs':
       return { url: `#${ref}` };
     default:
       return { url: `#${ref}` };

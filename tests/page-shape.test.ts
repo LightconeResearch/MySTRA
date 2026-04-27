@@ -156,6 +156,86 @@ describe('astraToMystAST page shape', () => {
       for (const c of n.children ?? []) walk(c);
     }
     for (const n of ast.children) walk(n);
-    expect(xrefs.some((x) => x.identifier === 'scaling')).toBe(true);
+    expect(xrefs.some((x) => x.identifier === 'decision-scaling')).toBe(true);
+  });
+});
+
+describe('structural-element identifiers (end-to-end)', () => {
+  it('emits a finding-<id> heading for each finding', () => {
+    const ast = astraToMystAST({
+      analysis: fixture(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    function find(predicate: (n: any) => boolean): any | undefined {
+      const stack: any[] = [...ast.children];
+      while (stack.length) {
+        const n = stack.pop();
+        if (predicate(n)) return n;
+        if (Array.isArray(n.children)) stack.push(...n.children);
+      }
+    }
+    expect(find((n) => n.type === 'heading' && n.identifier === 'finding-best_model')).toBeTruthy();
+  });
+
+  it('emits a decision-<id> heading for each decision', () => {
+    const ast = astraToMystAST({
+      analysis: fixture(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    function find(predicate: (n: any) => boolean): any | undefined {
+      const stack: any[] = [...ast.children];
+      while (stack.length) {
+        const n = stack.pop();
+        if (predicate(n)) return n;
+        if (Array.isArray(n.children)) stack.push(...n.children);
+      }
+    }
+    expect(find((n) => n.type === 'heading' && n.identifier === 'decision-scaling')).toBeTruthy();
+  });
+
+  it('attaches an input-<id> identifier to each input table row', () => {
+    const ast = astraToMystAST({
+      analysis: fixture(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const ids: string[] = [];
+    function walk(n: any) {
+      if (n.type === 'tableRow' && n.identifier) ids.push(n.identifier);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(ids).toContain('input-iris_data');
+  });
+
+  it('end-to-end: narrative anchor #inputs.<id> resolves to a crossReference on the input identifier', () => {
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      narrative: {
+        methods: 'Use the [iris dataset](#inputs.iris_data) directly.',
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const xrefs: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') xrefs.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
   });
 });

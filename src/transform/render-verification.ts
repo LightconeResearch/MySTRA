@@ -29,16 +29,23 @@ export function renderVerification(
     true,
   );
 
-  const dataRows = criteria.map((criterion) => {
+  // Success criteria don't have IDs in the spec; key by referenced
+  // output if any, else by index. Each row carries
+  // `identifier: verification-<id>` for cross-references.
+  const dataRows = criteria.map((criterion, i) => {
     const produced = criterion.output ? results.has(criterion.output) : false;
-    const status = produced ? '\u2705' : '\u23F3';
+    const status = produced ? '✅' : '⏳';
 
     const claimCell = parseProseInline(criterion.claim);
-    return tableRow([
+    const id = criterion.output ?? String(i);
+    const row: any = tableRow([
       tableCell([text(status)]),
       tableCell(claimCell.length > 0 ? claimCell : [text('')]),
-      tableCell(criterion.output ? [inlineCode(criterion.output)] : [text('\u2014')]),
+      tableCell(criterion.output ? [inlineCode(criterion.output)] : [text('—')]),
     ]);
+    row.identifier = `verification-${id}`;
+    row.label = row.identifier;
+    return row;
   });
 
   return table([headerRow, ...dataRows]);

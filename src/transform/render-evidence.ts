@@ -123,11 +123,13 @@ function renderArtifactEvidence(
       const figureLabel = evidence.figure?.label ?? artifactId;
       const captionText = evidence.figure?.caption ?? evidence.quote?.exact ?? artifactId;
 
+      // Identifier follows the structural-element scheme so
+      // `#outputs.<id>` resolves to the materialized figure.
       nodes.push(
         container('figure', [
           image(`/static/${artifactId}.${ext}`, figureLabel, '100%'),
           caption([paragraph(parseProseInline(captionText))]),
-        ], `fig-${artifactId}`),
+        ], `output-${artifactId}`),
       );
     } else if (ext === 'json') {
       nodes.push(...renderJSONTable(resultPath, artifactId, evidence));
@@ -301,6 +303,7 @@ function formatValue(val: unknown): string {
 export function renderInsight(
   insightId: string,
   allInsights: Record<string, { claim: string; evidence: ASTRAEvidence[] }>,
+  kind: 'prior_insight' | 'finding' = 'prior_insight',
 ): any[] {
   const insight = allInsights[insightId];
   if (!insight) return [];
@@ -308,8 +311,14 @@ export function renderInsight(
   const nodes: any[] = [];
 
   // Insight claim as bold headline; parsed as inline Markdown so
-  // emphasis/code/etc. inside claims render correctly.
-  nodes.push(paragraph([strong(parseProseInline(insight.claim))]));
+  // emphasis/code/etc. inside claims render correctly. The
+  // identifier on the headline paragraph makes the insight
+  // addressable as `<kind>-<id>` (prior_insight-<id> by default,
+  // finding-<id> when called from the findings renderer).
+  const headline: any = paragraph([strong(parseProseInline(insight.claim))]);
+  headline.identifier = `${kind}-${insightId}`;
+  headline.label = headline.identifier;
+  nodes.push(headline);
 
   // Each piece of evidence: attributed quote from a source
   for (const ev of insight.evidence) {

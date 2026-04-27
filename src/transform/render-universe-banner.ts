@@ -31,7 +31,7 @@ export function renderUniverseBanner(
 
     rows.push(
       tableRow([
-        tableCell([crossReference(decisionId, [strong([text(decisionLabel)])])]),
+        tableCell([crossReference(`decision-${decisionId}`, [strong([text(decisionLabel)])])]),
         tableCell([text(optionLabel)]),
       ]),
     );
