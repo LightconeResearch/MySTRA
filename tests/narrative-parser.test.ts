@@ -121,6 +121,28 @@ describe('parseProseInline', () => {
     expect(parseProseInline(undefined)).toEqual([]);
     expect(parseProseInline('')).toEqual([]);
   });
+
+  it('preserves text from non-paragraph blocks (lists, headings, code)', () => {
+    // Author input that overshoots inline shouldn't silently
+    // vanish. `parseProseInline` walks each block and pulls out
+    // its phrasing content; previously only paragraphs survived.
+    const md = '# heading\n\n- item one\n- item two\n\n```\nfenced code\n```';
+    const out = parseProseInline(md);
+    const flat = out.map((n: any) => (n.type === 'text' ? n.value : '')).join('');
+    expect(flat).toContain('heading');
+    expect(flat).toContain('item one');
+    expect(flat).toContain('item two');
+    expect(flat).toContain('fenced code');
+  });
+
+  it('keeps inline anchor links when input is a heading (block context)', () => {
+    const md = '# See [the finding](#findings.best_model) for details';
+    const a = fixtureAnalysis();
+    const out = parseProseInline(md, { analysis: a, slug: 'index' });
+    const xrefs = out.filter((c: any) => c.type === 'crossReference');
+    expect(xrefs).toHaveLength(1);
+    expect(xrefs[0].identifier).toBe('finding-best_model');
+  });
 });
 
 describe('parseProseBlocks/Inline with context (anchor resolution)', () => {

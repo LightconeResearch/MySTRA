@@ -53,8 +53,12 @@ export function parseProseBlocks(
  * captions, headings, blockquote attribution, single-line claims).
  *
  * If the input parses to a single paragraph we unwrap its children;
- * otherwise we flatten across paragraphs (separating with a space)
- * since the host context can't accept block-level children.
+ * otherwise we flatten across blocks. Author input that
+ * accidentally contains block-level structure (a stray heading, a
+ * list, a code block) shouldn't silently vanish — extract the
+ * inline phrasing content from each block, separated by spaces, so
+ * captions and claims survive even if the author overshot what an
+ * inline context allows.
  *
  * `context` enables anchor resolution; see `parseProseBlocks`.
  */
@@ -70,19 +74,55 @@ export function parseProseInline(
   if (blocks.length === 1 && blocks[0].type === 'paragraph') {
     inline = (blocks[0].children ?? []).map(stripPositions);
   } else {
-    // Multi-block input where only inline is allowed: flatten.
+    // Multi-block input where only inline is allowed: extract
+    // phrasing from each block and concatenate. Paragraphs and
+    // headings expose `children` directly; lists / code blocks
+    // need a recursive walk to collect text.
     inline = [];
     for (let i = 0; i < blocks.length; i++) {
-      const b = blocks[i];
-      if (b.type === 'paragraph' && Array.isArray(b.children)) {
-        if (i > 0) inline.push({ type: 'text', value: ' ' });
-        for (const c of b.children) inline.push(stripPositions(c));
-      }
+      const phrasing = extractInline(blocks[i]);
+      if (phrasing.length === 0) continue;
+      if (inline.length > 0) inline.push({ type: 'text', value: ' ' });
+      inline.push(...phrasing);
     }
   }
   return context
     ? resolveNarrativeAnchors(inline, context.analysis, context.slug)
     : inline;
+}
+
+/**
+ * Pull inline phrasing content out of a single block-level mdast
+ * node, dropping the block wrapper. Paragraphs and headings expose
+ * inline children directly; lists / blockquotes recurse; code
+ * blocks surface their text as a single text node.
+ */
+function extractInline(node: any): any[] {
+  if (!node || typeof node !== 'object') return [];
+  switch (node.type) {
+    case 'paragraph':
+    case 'heading':
+      return Array.isArray(node.children)
+        ? node.children.map(stripPositions)
+        : [];
+    case 'code':
+      // Fenced/indented code in an inline context: surface as text
+      // so the content survives even if styling is lost.
+      return typeof node.value === 'string' ? [{ type: 'text', value: node.value }] : [];
+    case 'thematicBreak':
+      return [];
+    default:
+      // list, blockquote, table, container, … — flatten children.
+      if (!Array.isArray(node.children)) return [];
+      const out: any[] = [];
+      for (const child of node.children) {
+        const piece = extractInline(child);
+        if (piece.length === 0) continue;
+        if (out.length > 0) out.push({ type: 'text', value: ' ' });
+        out.push(...piece);
+      }
+      return out;
+  }
 }
 
 /**
