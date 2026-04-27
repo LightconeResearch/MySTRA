@@ -139,6 +139,56 @@ describe('astraToMystAST page shape', () => {
     expect(flat).not.toContain('No success criteria defined');
   });
 
+  it('does not emit "This finding depends on" glue or Methodology admonition', () => {
+    // Renderer-imposed narrative around the structural relation
+    // (this finding's tags overlap with these decisions') was
+    // composing presentation prose around data — themes' job.
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          tags: ['preprocessing'],
+          options: { standard: { label: 'Standard' } },
+        },
+      },
+      findings: {
+        best_model: {
+          id: 'best_model',
+          claim: 'SVM wins',
+          created_at: '2024-01-01',
+          tags: ['preprocessing'],
+          evidence: [],
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const flat = JSON.stringify(ast);
+    expect(flat).not.toContain('This finding depends on');
+    expect(flat).not.toContain('"Methodology"');
+    // No seealso admonition wrapping the crossReferences.
+    function findAll(predicate: (n: any) => boolean): any[] {
+      const out: any[] = [];
+      const stack: any[] = [...ast.children];
+      while (stack.length) {
+        const n = stack.pop();
+        if (predicate(n)) out.push(n);
+        if (Array.isArray(n.children)) stack.push(...n.children);
+      }
+      return out;
+    }
+    expect(findAll((n) => n.type === 'admonition' && n.kind === 'seealso')).toHaveLength(0);
+    // The structural crossReference itself survives.
+    const xrefs = findAll((n) => n.type === 'crossReference');
+    expect(xrefs.some((x) => x.identifier === 'decision-scaling')).toBe(true);
+  });
+
   it('does not emit a renderer-imposed methods intro paragraph', () => {
     const ast = astraToMystAST({
       analysis: fixture(),

@@ -288,7 +288,7 @@ function astraToMystAST(source: ASTRASource): Root {
 }
 ```
 
-**`renderFinding`** — produces heading, narrative, evidence (inline figure/table from results if available, or a "pending" admonition if not), and a methodology callout with cross-references to relevant method sections.
+**`renderFinding`** — produces heading, narrative, evidence (inline figure/table from results if available, or a "pending" admonition if not), and bare cross-references to tag-overlapping decisions. No wrapping prose ("This finding depends on…") or admonition box — presentation belongs to themes/composers.
 
 **`renderMethodsSections`** — emits a flat sequence of per-decision blocks. Each decision renders as an h4 heading (carrying `decision-<id>`) followed by a `<details>` dropdown with rationale and a `<tabSet>` of options. The selected option (from the active universe) is marked with ●. Decision tags survive on the heading's `data.tags` slot for downstream consumers; MySTRA imposes no grouping or section headings of its own.
 

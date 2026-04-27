@@ -1,8 +1,12 @@
 /**
- * Renders the Findings section of an analysis page.
+ * Renders findings as flat per-finding blocks: an h3 heading
+ * carrying `finding-<id>`, the author's notes prose, scope, evidence
+ * blocks, and bare crossReferences to tag-overlapping decisions.
  *
- * Matches the prototype style: heading, narrative, figure, result table
- * in dropdown, methodology callout, thematic breaks between findings.
+ * No renderer-imposed wrapping prose around the cross-references —
+ * presentation chrome ("This finding depends on: …", admonition
+ * boxes) belongs in themes / composers, not core. Structural
+ * relations stay; the narrative around them is the author's job.
  */
 
 import type { ASTRAInsight, ASTRADecision, ASTRAOutput } from '../types/astra.js';
@@ -11,8 +15,6 @@ import {
   paragraph,
   text,
   emphasis,
-  admonition,
-  admonitionTitle,
   crossReference,
   thematicBreak,
 } from './ast-helpers.js';
@@ -78,32 +80,16 @@ function renderFinding(
     nodes.push(...renderEvidenceBlock(evidence, results, prose));
   }
 
-  // Methodology callout with cross-references to tag-overlapping
-  // decisions. The wrapping prose ("depends on:") and admonition
-  // are renderer-imposed and slated for removal in a follow-up
-  // commit; the crossReferences themselves stay because they're
-  // genuine structural relations the author authored via tags.
+  // Methodology cross-references — emit the crossReference nodes
+  // bare. The "depends on:" glue and the Methodology admonition
+  // wrapper that previously enclosed them were renderer-imposed
+  // prose narrating structural data; that's a job for themes /
+  // composers, not core. The structural relation (this finding's
+  // tags overlap with these decisions') remains; consumers can
+  // present it however they like.
   const methodLinks = buildMethodologyLinks(finding, decisions);
-  if (methodLinks.length > 0) {
-    const linkParts: any[] = [text('This finding depends on: ')];
-    for (let i = 0; i < methodLinks.length; i++) {
-      if (i > 0 && i === methodLinks.length - 1) {
-        linkParts.push(text(', and '));
-      } else if (i > 0) {
-        linkParts.push(text(', '));
-      }
-      linkParts.push(
-        crossReference(methodLinks[i].identifier, [text(methodLinks[i].label)]),
-      );
-    }
-    linkParts.push(text('.'));
-
-    nodes.push(
-      admonition('seealso', [
-        admonitionTitle([text('Methodology')]),
-        paragraph(linkParts),
-      ]),
-    );
+  for (const { label, identifier } of methodLinks) {
+    nodes.push(crossReference(identifier, [text(label)]));
   }
 
   return nodes;
