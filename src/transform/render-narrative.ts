@@ -8,26 +8,34 @@
  * Data Sources, Outputs) elsewhere on the page, so re-printing them as
  * abstract prose would duplicate content.
  *
- * Section content is Markdown and may contain anchor links of the form
- * `[text](#path.to.element)`; full parsing with anchor → crossReference
- * resolution lands in a follow-up commit. For now we split on blank
- * lines and emit plain-text paragraphs.
+ * Section content is Markdown with anchor links of the form
+ * `[text](#path.to.element)` per the v0.0.6 narrative grammar; both
+ * Markdown parsing and anchor → crossReference resolution live in
+ * `narrative-parser.ts`.
  */
 
-import type { ASTRAAnalysis, ASTRANarrative } from '../types/astra.js';
-import { paragraph, text } from './ast-helpers.js';
+import type { ASTRAAnalysis } from '../types/astra.js';
+import {
+  parseNarrativeMarkdown,
+  resolveNarrativeAnchors,
+} from './narrative-parser.js';
 
-export function renderAbstract(analysis: ASTRAAnalysis): any[] {
-  return renderNarrativeSummary(analysis.narrative);
+export function renderAbstract(
+  analysis: ASTRAAnalysis,
+  slug: string,
+): any[] {
+  return renderNarrativeSection(analysis.narrative?.summary, analysis, slug);
 }
 
-export function renderNarrativeSummary(
-  narrative: ASTRANarrative | undefined,
+/**
+ * Render one narrative section (raw Markdown string) into mdast,
+ * resolving in-scope anchor links to crossReferences.
+ */
+export function renderNarrativeSection(
+  md: string | undefined,
+  analysis: ASTRAAnalysis,
+  slug: string,
 ): any[] {
-  if (!narrative?.summary) return [];
-  return narrative.summary
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => paragraph([text(p)]));
+  if (!md) return [];
+  return resolveNarrativeAnchors(parseNarrativeMarkdown(md), analysis, slug);
 }

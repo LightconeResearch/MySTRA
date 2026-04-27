@@ -24,10 +24,13 @@ export interface ASTRASource {
   universe: ASTRAUniverse;
   results: Map<string, string>;
   projectDir: string;
+  /** Slug of the host page; needed to build sub-analysis links from
+   * narrative anchors (e.g. `#analyses.feature_extraction`). */
+  slug: string;
 }
 
 export function astraToMystAST(source: ASTRASource): { type: 'root'; children: any[] } {
-  const { analysis, universe, results } = source;
+  const { analysis, universe, results, slug } = source;
   const decisions = analysis.decisions ?? {};
   const priorInsights = analysis.prior_insights ?? {};
   const findings = analysis.findings ?? {};
@@ -39,7 +42,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     blockBreak('{"class": ""}'),
 
     // Abstract
-    ...renderAbstract(analysis),
+    ...renderAbstract(analysis, slug),
 
     // Universe banner
     renderUniverseBanner(universe, decisions),
@@ -70,7 +73,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   if (analysis.analyses && Object.keys(analysis.analyses).length > 0) {
     children.push(
       sectionHeading(2, 'Sub-Analyses', 'sub-analyses'),
-      ...renderSubAnalysisCards(analysis.analyses),
+      ...renderSubAnalysisCards(analysis.analyses, slug),
     );
   }
 
@@ -95,7 +98,7 @@ export function buildAllPages(
   setDOICacheDir(join(projectDir, '.mystra-cache', 'doi'));
 
   // Build page for this analysis node
-  const ast = astraToMystAST({ analysis, universe, results, projectDir });
+  const ast = astraToMystAST({ analysis, universe, results, projectDir, slug });
 
   // PageFrontmatter.description feeds OpenGraph/SEO/list previews. ASTRA
   // v0.0.6 dropped the free-form `description` slot in favour of a

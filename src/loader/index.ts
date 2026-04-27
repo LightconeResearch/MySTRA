@@ -26,7 +26,9 @@ export function loadASTRASource(
 
   const results = scanResults(projectDir, universe.id);
 
-  return { analysis, universe, results, projectDir };
+  // Top-level analysis is the index page; sub-analyses get their own
+  // ASTRASource constructed inside buildAllPages with the correct slug.
+  return { analysis, universe, results, projectDir, slug: 'index' };
 }
 
 export { loadAnalysis } from './yaml-loader.js';

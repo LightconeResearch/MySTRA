@@ -4,10 +4,11 @@
 
 import type { ASTRAAnalysis } from '../types/astra.js';
 import { card, paragraph, text } from './ast-helpers.js';
-import { renderNarrativeSummary } from './render-narrative.js';
+import { renderNarrativeSection } from './render-narrative.js';
 
 export function renderSubAnalysisCards(
   analyses: Record<string, ASTRAAnalysis>,
+  hostSlug: string,
 ): any[] {
   const nodes: any[] = [];
 
@@ -16,9 +17,13 @@ export function renderSubAnalysisCards(
     const inputCount = sub.inputs?.length ?? 0;
     const outputCount = sub.outputs?.length ?? 0;
 
+    // Sub-analysis preview comes from its own narrative summary;
+    // anchors in that summary resolve relative to the sub-analysis,
+    // not the parent — so use the sub's own slug for resolution.
+    const subSlug = hostSlug === 'index' ? id : `${hostSlug}/${id}`;
+
     const children: any[] = [
-      // Sub-analysis preview comes from the narrative summary section.
-      ...renderNarrativeSummary(sub.narrative),
+      ...renderNarrativeSection(sub.narrative?.summary, sub, subSlug),
       paragraph([
         text(`${decisionCount} decisions · ${inputCount} inputs · ${outputCount} outputs`),
       ]),
