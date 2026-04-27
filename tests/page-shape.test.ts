@@ -307,6 +307,67 @@ describe('structural-element identifiers (end-to-end)', () => {
     expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
   });
 
+  it('sub-analysis card URL respects the host slug for nested pages', () => {
+    // Bug C: parent slug `foo` → sub `bar` lives at `/foo/bar`,
+    // not `/bar`. The card URL must match the recursive page
+    // builder's path.
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      analyses: {
+        preprocessing: {
+          name: 'Pre',
+          decisions: {},
+          prior_insights: {},
+          findings: {},
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'foo/bar',
+    });
+    const cards: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'card') cards.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].url).toBe('/foo/bar/preprocessing');
+  });
+
+  it('sub-analysis card URL on the index slug omits the host segment', () => {
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      analyses: {
+        preprocessing: {
+          name: 'Pre',
+          decisions: {},
+          prior_insights: {},
+          findings: {},
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const cards: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'card') cards.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].url).toBe('/preprocessing');
+  });
+
   it('end-to-end: anchor in Option.description resolves into the page output', () => {
     // Option descriptions are non-narrative prose. With the
     // resolution context threaded through every render-* helper,

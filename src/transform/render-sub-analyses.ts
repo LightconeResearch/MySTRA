@@ -21,6 +21,11 @@ export function renderSubAnalysisCards(
     // anchors in that summary resolve relative to the sub-analysis,
     // not the parent — so use the sub's own slug for resolution.
     const subSlug = hostSlug === 'index' ? id : `${hostSlug}/${id}`;
+    // Recursive page builder lives the sub-analysis at this URL,
+    // so the card link must agree — `/${id}` was wrong for any
+    // nested case (parent slug `foo` → sub at `/foo/${id}`, not
+    // `/${id}`).
+    const cardUrl = `/${subSlug}`;
 
     const children: any[] = [
       ...renderNarrativeSection(sub.narrative?.summary, sub, subSlug),
@@ -33,7 +38,7 @@ export function renderSubAnalysisCards(
     // anchor link to this card resolves; cross-page narrative refs
     // (`#analyses.<id>`) still resolve to the sub-analysis URL via
     // the resolver, since pages can also be addressed by route.
-    const cardNode: any = card(sub.name ?? id, children, `/${id}`);
+    const cardNode: any = card(sub.name ?? id, children, cardUrl);
     cardNode.identifier = `analysis-${id}`;
     cardNode.label = cardNode.identifier;
     nodes.push(cardNode);
