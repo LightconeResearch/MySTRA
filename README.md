@@ -78,7 +78,6 @@ src/
 │   ├── render-methods.ts    Decisions as details/summary + tabbed options
 │   ├── render-evidence.ts   Figures, JSON/CSV tables, cite nodes, quotes
 │   ├── render-universe-banner.ts  Collapsible decision summary table
-│   ├── render-verification.ts     Success criteria table
 │   ├── render-data-sources.ts     Inputs and outputs tables
 │   └── render-sub-analyses.ts     Sub-analysis cards
 ├── loader/                  ASTRA source loading (YAML, universes, results)

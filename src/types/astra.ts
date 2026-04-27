@@ -175,14 +175,6 @@ export interface ASTRADecision {
   options?: Record<string, ASTRAOption>;
 }
 
-// ── Success Criterion ──
-
-export interface ASTRASuccessCriterion {
-  claim: string;
-  output?: string;
-  condition?: string;
-}
-
 // ── Narrative (structured prose for an Analysis) ──
 
 /**
@@ -212,7 +204,6 @@ export interface ASTRAAnalysis {
   tags?: string[];
   /** Replaces the v0.0.5 free-form `description` field. */
   narrative?: ASTRANarrative;
-  success_criteria?: ASTRASuccessCriterion[];
   inputs?: ASTRAInput[];
   outputs?: ASTRAOutput[];
   decisions: Record<string, ASTRADecision>;

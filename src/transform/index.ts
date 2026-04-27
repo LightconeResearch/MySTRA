@@ -15,7 +15,6 @@ import { renderFindings } from './render-findings.js';
 import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
-import { renderVerification } from './render-verification.js';
 import { setDOICacheDir } from './render-evidence.js';
 import { makeProseParser } from './narrative-parser.js';
 
@@ -36,7 +35,6 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   const findings = analysis.findings ?? {};
   const inputs = analysis.inputs ?? [];
   const outputs = analysis.outputs ?? [];
-  const successCriteria = analysis.success_criteria ?? [];
 
   // The prose parser is bound once to `(analysis, slug)` and threaded
   // into every render-* helper that touches Markdown. This makes the
@@ -72,7 +70,6 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     ...renderMethodsSections(decisions, priorInsights, universe, prose),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
     ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
-    ...(successCriteria.length > 0 ? [renderVerification(successCriteria, results, prose)] : []),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
       ? renderSubAnalysisCards(analysis.analyses, slug)
       : []),
@@ -192,12 +189,6 @@ function collectIdentifiers(
   for (const input of analysis.inputs ?? []) push(`input-${input.id}`);
   for (const output of analysis.outputs ?? []) push(`output-${output.id}`);
   for (const id of Object.keys(analysis.analyses ?? {})) push(`analysis-${id}`);
-  // Verification rows are keyed by their referenced output (or
-  // index when none); we publish the output-keyed ones since those
-  // are stable across re-orderings.
-  for (const c of analysis.success_criteria ?? []) {
-    if (c.output) push(`verification-${c.output}`);
-  }
 
   return entries;
 }

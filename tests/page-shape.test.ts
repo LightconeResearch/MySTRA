@@ -297,6 +297,23 @@ describe('xref index (collectIdentifiers)', () => {
     expect(ids).not.toContain('decision-only_if_x');
   });
 
+  it('does not publish verification-* ids (success_criteria removed)', () => {
+    // success_criteria was a MySTRA-private extension carried over
+    // from earlier internal work; v0.0.6 doesn't define it. Ensure
+    // even an analysis carrying the field at runtime (extra
+    // properties tolerated) produces no verification-* xrefs.
+    const a: ASTRAAnalysis = {
+      name: 'WithStaleField',
+      decisions: {},
+      prior_insights: {},
+      findings: {},
+      ...({ success_criteria: [{ claim: 'x', output: 'foo' }] } as any),
+    };
+    const pages = buildAllPages(a, { id: 'u', decisions: {} }, new Map(), '/tmp');
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids.every((id) => !id.startsWith('verification-'))).toBe(true);
+  });
+
   it('publishes decision-<id> for when-met conditional decisions', () => {
     const a: ASTRAAnalysis = {
       name: 'Conditional',
