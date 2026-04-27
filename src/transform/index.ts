@@ -76,7 +76,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     renderUniverseBanner(universe, decisions, prose),
 
     // Structural elements as a flat sequence of addressable blocks.
-    ...renderFindings(findings, results, decisions, outputs, prose, doiCacheDir),
+    ...renderFindings(findings, results, prose, doiCacheDir),
     ...renderPriorInsights(priorInsights, prose, doiCacheDir),
     ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem, doiCacheDir),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),

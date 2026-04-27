@@ -1,21 +1,23 @@
 /**
  * Renders findings as flat per-finding blocks: an h3 heading
- * carrying `finding-<id>`, the author's notes prose, scope, evidence
- * blocks, and bare crossReferences to tag-overlapping decisions.
+ * carrying `finding-<id>`, the author's notes prose, scope, and
+ * evidence blocks. Tags ride along on the heading's mdast `data`
+ * slot for consumers that want to compose grouping or relations.
  *
- * No renderer-imposed wrapping prose around the cross-references —
- * presentation chrome ("This finding depends on: …", admonition
- * boxes) belongs in themes / composers, not core. Structural
- * relations stay; the narrative around them is the author's job.
+ * No implicit relational inference. Earlier versions emitted
+ * crossReferences to "tag-overlapping" decisions — same shape as
+ * the deleted TAG_TO_SECTION ontology, just inverted. The author
+ * narrates relations explicitly through the v0.0.6 anchor grammar
+ * (a methods narrative, a finding-claim link, an option
+ * description); the renderer doesn't synthesise them.
  */
 
-import type { ASTRAInsight, ASTRADecision, ASTRAOutput } from '../types/astra.js';
+import type { ASTRAInsight } from '../types/astra.js';
 import {
   heading,
   paragraph,
   text,
   emphasis,
-  crossReference,
   thematicBreak,
 } from './ast-helpers.js';
 import type { ProseParser } from './narrative-parser.js';
@@ -24,8 +26,6 @@ import { renderEvidenceBlock } from './render-evidence.js';
 export function renderFindings(
   findings: Record<string, ASTRAInsight>,
   results: Map<string, string>,
-  decisions: Record<string, ASTRADecision>,
-  outputs: ASTRAOutput[],
   prose: ProseParser,
   doiCacheDir: string | null,
 ): any[] {
@@ -42,7 +42,7 @@ export function renderFindings(
     if (index > 1) {
       nodes.push(thematicBreak());
     }
-    nodes.push(...renderFinding(finding, index, findingId, results, decisions, prose, doiCacheDir));
+    nodes.push(...renderFinding(finding, index, findingId, results, prose, doiCacheDir));
     index++;
   }
 
@@ -54,7 +54,6 @@ function renderFinding(
   index: number,
   findingId: string,
   results: Map<string, string>,
-  decisions: Record<string, ASTRADecision>,
   prose: ProseParser,
   doiCacheDir: string | null,
 ): any[] {
@@ -63,8 +62,18 @@ function renderFinding(
 
   // Finding heading: claim parsed as inline Markdown so emphasis and
   // code spans render, and any anchor links resolve. Numeric prefix
-  // stays as plain text.
-  nodes.push(heading(3, [text(`${index}. `), ...prose.inline(finding.claim)], identifier));
+  // stays as plain text. Tags survive on the mdast `data` slot —
+  // consumers that want grouping (paper view, dashboard) read them
+  // there; MySTRA imposes no grouping of its own.
+  const head: any = heading(
+    3,
+    [text(`${index}. `), ...prose.inline(finding.claim)],
+    identifier,
+  );
+  if (finding.tags && finding.tags.length > 0) {
+    head.data = { ...(head.data ?? {}), tags: finding.tags };
+  }
+  nodes.push(head);
 
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
@@ -82,44 +91,5 @@ function renderFinding(
     nodes.push(...renderEvidenceBlock(evidence, results, prose, doiCacheDir));
   }
 
-  // Methodology cross-references — emit the crossReference nodes
-  // bare. The "depends on:" glue and the Methodology admonition
-  // wrapper that previously enclosed them were renderer-imposed
-  // prose narrating structural data; that's a job for themes /
-  // composers, not core. The structural relation (this finding's
-  // tags overlap with these decisions') remains; consumers can
-  // present it however they like.
-  const methodLinks = buildMethodologyLinks(finding, decisions);
-  for (const { label, identifier } of methodLinks) {
-    nodes.push(crossReference(identifier, [text(label)]));
-  }
-
   return nodes;
-}
-
-/**
- * Decisions whose tags overlap with a finding's tags. Each yields a
- * crossReference to the decision's `decision-<id>` heading. No
- * grouping, no section labels — the caller composes whatever
- * presentation it wants. Decision label is the user-facing handle;
- * fall back to the id.
- */
-function buildMethodologyLinks(
-  finding: ASTRAInsight,
-  decisions: Record<string, ASTRADecision>,
-): Array<{ label: string; identifier: string }> {
-  if (!finding.tags || finding.tags.length === 0) return [];
-
-  const links: Array<{ label: string; identifier: string }> = [];
-
-  for (const [id, decision] of Object.entries(decisions)) {
-    if (decision.from || !decision.tags) continue;
-
-    const hasOverlap = decision.tags.some((dt) => finding.tags!.includes(dt));
-    if (!hasOverlap) continue;
-
-    links.push({ label: decision.label ?? id, identifier: `decision-${id}` });
-  }
-
-  return links;
 }

@@ -139,10 +139,13 @@ describe('astraToMystAST page shape', () => {
     expect(flat).not.toContain('No success criteria defined');
   });
 
-  it('does not emit "This finding depends on" glue or Methodology admonition', () => {
-    // Renderer-imposed narrative around the structural relation
-    // (this finding's tags overlap with these decisions') was
-    // composing presentation prose around data — themes' job.
+  it('does not infer finding↔decision relations from tag overlap', () => {
+    // Tag-overlap-as-link was the same shape as the deleted
+    // TAG_TO_SECTION ontology — implicit relational inference baked
+    // into the renderer. Tags survive on the heading's mdast `data`
+    // slot for consumers; the renderer no longer synthesises
+    // crossReferences from overlap. The "depends on:" glue and
+    // Methodology admonition wrapper are likewise gone.
     const a: ASTRAAnalysis = {
       ...fixture(),
       decisions: {
@@ -172,7 +175,7 @@ describe('astraToMystAST page shape', () => {
     const flat = JSON.stringify(ast);
     expect(flat).not.toContain('This finding depends on');
     expect(flat).not.toContain('"Methodology"');
-    // No seealso admonition wrapping the crossReferences.
+
     function findAll(predicate: (n: any) => boolean): any[] {
       const out: any[] = [];
       const stack: any[] = [...ast.children];
@@ -184,9 +187,41 @@ describe('astraToMystAST page shape', () => {
       return out;
     }
     expect(findAll((n) => n.type === 'admonition' && n.kind === 'seealso')).toHaveLength(0);
-    // The structural crossReference itself survives.
-    const xrefs = findAll((n) => n.type === 'crossReference');
-    expect(xrefs.some((x) => x.identifier === 'decision-scaling')).toBe(true);
+
+    // No tag-overlap-derived crossReference. The finding's heading
+    // is the only thing rendered for the finding; the decision
+    // heading still exists separately. The author wires explicit
+    // relations through narrative anchors, not tag overlap.
+    const findingHeading = findAll(
+      (n) => n.type === 'heading' && n.identifier === 'finding-best_model',
+    )[0];
+    expect(findingHeading).toBeTruthy();
+    expect(findingHeading.data?.tags).toEqual(['preprocessing']);
+
+    // Walk only finding-block siblings between finding heading and
+    // the next h3 / decision heading: there should be no crossRef
+    // whose identifier starts with `decision-` (the previous
+    // tag-overlap output).
+    const idx = ast.children.indexOf(findingHeading);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    const findingBlock: any[] = [];
+    for (let i = idx; i < ast.children.length; i++) {
+      const n = ast.children[i];
+      if (i > idx && n.type === 'heading') break;
+      findingBlock.push(n);
+    }
+    function collectXRefs(stack: any[]): any[] {
+      const out: any[] = [];
+      const queue = [...stack];
+      while (queue.length) {
+        const n = queue.pop();
+        if (n?.type === 'crossReference') out.push(n);
+        if (Array.isArray(n?.children)) queue.push(...n.children);
+      }
+      return out;
+    }
+    const xrefsInBlock = collectXRefs(findingBlock);
+    expect(xrefsInBlock.every((x) => !x.identifier?.startsWith('decision-'))).toBe(true);
   });
 
   it('does not emit a renderer-imposed methods intro paragraph', () => {
