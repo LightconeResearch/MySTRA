@@ -1,5 +1,13 @@
 # MySTRA — Live ASTRA Document Rendering via MyST
 
+> Tracks **astra-spec v0.0.6** (commit `1d948cf`). Notable v0.0.5→v0.0.6
+> deltas reflected in the transform: `Analysis.description` is replaced
+> by a structured `Analysis.narrative` with five Markdown sections and
+> tree-path anchor grammar; `container_build` is folded into a single
+> string `container` field; `Input.from_ref` is now `Input.from`;
+> `Input`/`Output`/`Insight` carry an optional `label` for compact
+> handles; reserved-keyword IDs are forbidden upstream.
+
 ## 1. Goal
 
 Render an ASTRA analysis (`astra.yaml` + `universes/` + `results/`) as a live, browsable structured document using MyST's rendering infrastructure. The document updates automatically when the spec, universe selections, or results change on disk (typically because an agent modified them).
@@ -88,7 +96,8 @@ DOI auto-resolution (which MyST's markdown parser provides for free) is handled 
 | ASTRA Concept | MyST AST Node(s) |
 |---|---|
 | Analysis (root) | `root` + `heading` (h1) |
-| Analysis description | `paragraph` |
+| Analysis narrative (summary section) | `paragraph` |
+| Narrative anchor `[t](#path.to.element)` | `crossReference` (resolved) or `link` (unresolved) |
 | Universe banner | `admonition` (kind: tip) |
 | Finding claim | `heading` (h3) + `paragraph` |
 | Finding evidence (figure) | `container` (kind: figure) + `image` + `caption` |
@@ -112,7 +121,7 @@ The transform produces this document structure for each analysis page:
 
 ```
 Root
-├── Abstract (paragraph)
+├── Abstract (paragraphs from narrative.summary)
 ├── Universe banner (admonition: tip)
 ├── Findings (h2)
 │   ├── Finding 1 (h3)
@@ -430,7 +439,7 @@ function buildPages(analysis: Analysis, universe: Universe, basePath = ''): Page
 }
 ```
 
-In the parent page, sub-analyses appear as clickable cards showing name, description, and counts (decisions, inputs, outputs).
+In the parent page, sub-analyses appear as clickable cards showing the sub-analysis name, the summary section of its narrative, and counts (decisions, inputs, outputs).
 
 ## 6. Live reload flow
 
