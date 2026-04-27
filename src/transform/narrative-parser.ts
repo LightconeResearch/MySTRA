@@ -124,6 +124,18 @@ export function resolveAnchorPath(
       return rest.length >= 1 && rest[0] in (analysis.decisions ?? {})
         ? { identifier: rest[0] }
         : { url: `#${ref}` };
+    // Narrative chunks: `#narrative.<section>` resolves to the
+    // chunk identifier published by render-narrative.
+    case 'narrative':
+      if (
+        rest.length === 1 &&
+        ['summary', 'findings', 'methods', 'inputs', 'outputs'].includes(rest[0]) &&
+        analysis.narrative &&
+        (analysis.narrative as any)[rest[0]]
+      ) {
+        return { identifier: `narrative-${rest[0]}` };
+      }
+      return { url: `#${ref}` };
     // No identifiers for these yet — keep as inert links so the
     // anchor grammar round-trips visibly without breaking the AST.
     case 'prior_insights':

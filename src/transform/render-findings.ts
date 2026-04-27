@@ -28,10 +28,10 @@ export function renderFindings(
   outputs: ASTRAOutput[],
 ): any[] {
   const findingEntries = Object.entries(findings);
-
-  if (findingEntries.length === 0) {
-    return [paragraph([emphasis([text('No findings recorded yet.')])])];
-  }
+  // Empty findings → no output. The page no longer wraps findings in
+  // a section heading, so an empty placeholder would be a stray
+  // sentence floating in the middle of the document.
+  if (findingEntries.length === 0) return [];
 
   const nodes: any[] = [];
   let index = 1;

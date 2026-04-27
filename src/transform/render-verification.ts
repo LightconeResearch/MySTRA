@@ -10,8 +10,6 @@ import {
   tableCell,
   text,
   inlineCode,
-  paragraph,
-  emphasis,
 } from './ast-helpers.js';
 import { parseProseInline } from './narrative-parser.js';
 
@@ -19,9 +17,8 @@ export function renderVerification(
   criteria: ASTRASuccessCriterion[],
   results: Map<string, string>,
 ): any {
-  if (criteria.length === 0) {
-    return paragraph([emphasis([text('No success criteria defined.')])]);
-  }
+  // Caller filters out the empty case so the page doesn't render a
+  // stray "no criteria" sentence without a section heading.
 
   const headerRow = tableRow(
     [

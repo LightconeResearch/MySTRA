@@ -180,6 +180,26 @@ describe('resolveAnchorPath', () => {
       resolveAnchorPath('#preprocessing.outputs.features', a, 'index'),
     ).toEqual({ url: '/preprocessing#outputs.features' });
   });
+
+  it('resolves #narrative.<section> to the narrative chunk identifier', () => {
+    const withNarrative: ASTRAAnalysis = {
+      ...a,
+      narrative: { findings: 'Some findings prose.', summary: 'Hi.' },
+    };
+    expect(
+      resolveAnchorPath('#narrative.findings', withNarrative, 'index'),
+    ).toEqual({ identifier: 'narrative-findings' });
+    expect(
+      resolveAnchorPath('#narrative.summary', withNarrative, 'index'),
+    ).toEqual({ identifier: 'narrative-summary' });
+  });
+
+  it('falls back when #narrative.<section> targets an empty section', () => {
+    const onlySummary: ASTRAAnalysis = { ...a, narrative: { summary: 'Hi.' } };
+    expect(
+      resolveAnchorPath('#narrative.findings', onlySummary, 'index'),
+    ).toEqual({ url: '#narrative.findings' });
+  });
 });
 
 describe('resolveNarrativeAnchors', () => {

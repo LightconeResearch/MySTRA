@@ -8,8 +8,8 @@
 import type { ASTRAAnalysis, ASTRAUniverse, ASTRAUniverseNode } from '../types/astra.js';
 import type { PageData, PageFrontmatter, XRefEntry } from '../types/content-server.js';
 import { join } from 'node:path';
-import { sectionHeading, text, heading, blockBreak } from './ast-helpers.js';
-import { renderAbstract } from './render-narrative.js';
+import { blockBreak } from './ast-helpers.js';
+import { renderNarrativeChunks } from './render-narrative.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
 import { renderMethodsSections } from './render-methods.js';
@@ -36,46 +36,37 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   const findings = analysis.findings ?? {};
   const inputs = analysis.inputs ?? [];
   const outputs = analysis.outputs ?? [];
+  const successCriteria = analysis.success_criteria ?? [];
 
+  // Page layout: emit a flat sequence of named, addressable blocks
+  // — narrative chunks AND structural elements at the same level.
+  // No top-level section h2s, no narrative wrapper. mdast position
+  // is the spec-declared default; downstream renderers (paper,
+  // dashboard, DAG) compose layouts however they like by looking
+  // up `identifier` attributes.
+  const narrativeChunks = renderNarrativeChunks(analysis, slug);
   const children: any[] = [
     // Block break separating frontmatter from content
     blockBreak('{"class": ""}'),
 
-    // Abstract
-    ...renderAbstract(analysis, slug),
+    // Narrative chunks: each section is an addressable block
+    // identified by `narrative-<section>`. Spec-declared order
+    // (summary → findings → methods → inputs → outputs).
+    ...narrativeChunks.flatMap((c) => c.mdast),
 
-    // Universe banner
+    // Universe banner — orientation for which decision selections
+    // are active in this rendering.
     renderUniverseBanner(universe, decisions),
 
-    // Findings section
-    sectionHeading(2, 'Findings', 'findings'),
+    // Structural elements as a flat sequence of addressable blocks.
     ...renderFindings(findings, results, decisions, outputs),
-
-    // Methods section
-    sectionHeading(2, 'Methods', 'methods'),
     ...renderMethodsSections(decisions, priorInsights, universe),
-
-    // Data Sources section
-    sectionHeading(2, 'Data Sources', 'data-sources'),
-    renderInputsTable(inputs),
+    ...(inputs.length > 0 ? [renderInputsTable(inputs)] : []),
+    ...(successCriteria.length > 0 ? [renderVerification(successCriteria, results)] : []),
+    ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
+      ? renderSubAnalysisCards(analysis.analyses, slug)
+      : []),
   ];
-
-  // Verification section (only if success criteria defined)
-  const successCriteria = analysis.success_criteria ?? [];
-  if (successCriteria.length > 0) {
-    children.push(
-      sectionHeading(2, 'Verification', 'verification'),
-      renderVerification(successCriteria, results),
-    );
-  }
-
-  // Sub-Analyses section (only if present)
-  if (analysis.analyses && Object.keys(analysis.analyses).length > 0) {
-    children.push(
-      sectionHeading(2, 'Sub-Analyses', 'sub-analyses'),
-      ...renderSubAnalysisCards(analysis.analyses, slug),
-    );
-  }
 
   return { type: 'root', children };
 }
@@ -163,7 +154,24 @@ function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] 
   const dataPath = `/content/${slug}.json`;
   const url = slug === 'index' ? '/' : `/${slug}`;
 
-  // Finding identifiers
+  // Narrative-chunk identifiers: each non-empty section is an
+  // addressable block at `narrative-<section>`.
+  for (const section of ['summary', 'findings', 'methods', 'inputs', 'outputs'] as const) {
+    if (analysis.narrative?.[section]) {
+      entries.push({
+        identifier: `narrative-${section}`,
+        kind: 'heading',
+        data: dataPath,
+        url,
+        implicit: true,
+      });
+    }
+  }
+
+  // Finding identifiers — every structural element gets its own
+  // addressable anchor; section-level identifiers (findings,
+  // methods, …) are no longer published since MySTRA stopped
+  // wrapping the document in section headings.
   for (const findingId of Object.keys(analysis.findings ?? {})) {
     entries.push({
       identifier: `finding-${findingId}`,
@@ -174,18 +182,9 @@ function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] 
     });
   }
 
-  // Section identifiers
-  for (const section of ['findings', 'methods', 'data-sources', 'verification', 'sub-analyses']) {
-    entries.push({
-      identifier: section,
-      kind: 'heading',
-      data: dataPath,
-      url,
-      implicit: true,
-    });
-  }
-
-  // Decision group section identifiers
+  // Decision group identifiers (the h3 above each tag-group of
+  // decisions) — kept; these are real headings emitted by
+  // renderMethodsSections, not page-level structural wrappers.
   const seenSections = new Set<string>();
   for (const decision of Object.values(analysis.decisions ?? {})) {
     if (decision.from || !decision.tags?.[0]) continue;

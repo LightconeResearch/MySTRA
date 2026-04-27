@@ -9,15 +9,12 @@ import {
   tableCell,
   text,
   strong,
-  paragraph,
-  emphasis,
 } from './ast-helpers.js';
 import { parseProseInline } from './narrative-parser.js';
 
 export function renderInputsTable(inputs: ASTRAInput[]): any {
-  if (inputs.length === 0) {
-    return paragraph([emphasis([text('No inputs declared.')])]);
-  }
+  // Caller filters out the empty case so the page doesn't render a
+  // stray "no inputs" sentence without a section heading to anchor it.
 
   const headerRow = tableRow(
     [
