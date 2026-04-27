@@ -998,13 +998,14 @@ describe('artifact evidence dispatches on Output.type', () => {
   });
 });
 
-describe('prior_insights as flat addressable blocks', () => {
-  // Every published `prior_insight-<id>` xref must have a rendered
-  // carrier on the page (xref contract). The carrier is a flat
-  // h3-keyed block — analogous to findings — so unreferenced prior
-  // insights still resolve, and option-tab references can be plain
-  // crossReferences pointing at the carrier rather than inline
-  // expansions.
+describe('prior_insights as minimal addressable carriers', () => {
+  // The xref contract just requires every published id to have a
+  // rendered carrier. Whether prior_insights surface as visible
+  // sections, sidebars, hovers, or hide entirely is downstream's
+  // call. Carrier shape: a single `container` with kind
+  // `prior-insight`, identifier `prior_insight-<id>`, and
+  // structured `data` — no heading, no thematic-break separators,
+  // no 'Scope:' label paragraph.
 
   function withPriors(): ASTRAAnalysis {
     return {
@@ -1030,6 +1031,8 @@ describe('prior_insights as flat addressable blocks', () => {
           label: 'Scaling helps',
           claim: 'Standardization improves SVM convergence.',
           created_at: '2024-01-01',
+          scope: 'feature_engineering',
+          tags: ['preprocessing', 'svm'],
           evidence: [],
         },
         unreferenced_prior: {
@@ -1043,7 +1046,7 @@ describe('prior_insights as flat addressable blocks', () => {
     };
   }
 
-  it('emits an h3 carrier for every declared prior_insight', () => {
+  it('emits a `prior-insight` container carrier for every declared prior_insight', () => {
     const ast = astraToMystAST({
       analysis: withPriors(),
       universe: emptyUniverse(),
@@ -1051,16 +1054,124 @@ describe('prior_insights as flat addressable blocks', () => {
       projectDir: '/tmp',
       slug: 'index',
     });
-    const headings: any[] = [];
+    const carriers: any[] = [];
     function walk(n: any) {
-      if (n.type === 'heading' && n.identifier?.startsWith('prior_insight-')) {
-        headings.push(n);
+      if (
+        n.type === 'container' &&
+        n.kind === 'prior-insight' &&
+        n.identifier?.startsWith('prior_insight-')
+      ) {
+        carriers.push(n);
       }
       for (const c of n.children ?? []) walk(c);
     }
     for (const n of ast.children) walk(n);
-    const ids = headings.map((h) => h.identifier).sort();
+    const ids = carriers.map((c) => c.identifier).sort();
     expect(ids).toEqual(['prior_insight-scaling_helps', 'prior_insight-unreferenced_prior']);
+  });
+
+  it('carrier holds no heading, no thematic-break separators, no `Scope:` paragraph', () => {
+    const ast = astraToMystAST({
+      analysis: withPriors(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carriers: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'container' && n.kind === 'prior-insight') carriers.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    // No heading inside any prior_insight carrier.
+    for (const c of carriers) {
+      const flat = JSON.stringify(c);
+      expect(flat).not.toContain('"type":"heading"');
+      expect(flat).not.toContain('"type":"thematicBreak"');
+      // The `Scope: …` rendered prefix is gone — scope rides on
+      // `data.scope` for renderers that want to surface it.
+      expect(flat).not.toContain('Scope:');
+    }
+    // No thematic-break sibling between the carriers either —
+    // separators are a layout opinion the transform shouldn't make.
+    const topLevel = ast.children.filter(
+      (n: any) => n.type === 'container' && n.kind === 'prior-insight',
+    );
+    const idx0 = ast.children.indexOf(topLevel[0]);
+    const idx1 = ast.children.indexOf(topLevel[1]);
+    for (let i = idx0 + 1; i < idx1; i++) {
+      expect(ast.children[i].type).not.toBe('thematicBreak');
+    }
+  });
+
+  it('carrier carries structured `data` (astraKind, id, label, scope, tags, derived)', () => {
+    const ast = astraToMystAST({
+      analysis: withPriors(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carriers = new Map<string, any>();
+    function walk(n: any) {
+      if (n.type === 'container' && n.kind === 'prior-insight') {
+        carriers.set(n.identifier, n);
+      }
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+
+    const scaled = carriers.get('prior_insight-scaling_helps');
+    expect(scaled).toBeTruthy();
+    expect(scaled.class).toBe('astra astra-prior-insight');
+    expect(scaled.data).toEqual({
+      astraKind: 'prior_insight',
+      id: 'scaling_helps',
+      label: 'Scaling helps',
+      scope: 'feature_engineering',
+      tags: ['preprocessing', 'svm'],
+      derived: false,
+    });
+
+    const unref = carriers.get('prior_insight-unreferenced_prior');
+    expect(unref).toBeTruthy();
+    // Optional fields collapse to `null` (not `undefined`) so the
+    // shape survives a JSON round-trip without keys disappearing.
+    expect(unref.data.label).toBeNull();
+    expect(unref.data.scope).toBeNull();
+    expect(unref.data.tags).toBeNull();
+    expect(unref.data.derived).toBe(false);
+  });
+
+  it('carrier children are [claim paragraph, …evidence body]', () => {
+    const ast = astraToMystAST({
+      analysis: withPriors(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    let scaled: any;
+    function walk(n: any) {
+      if (
+        n.type === 'container' &&
+        n.kind === 'prior-insight' &&
+        n.identifier === 'prior_insight-scaling_helps'
+      ) {
+        scaled = n;
+      }
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(scaled).toBeTruthy();
+    // First child is a paragraph wrapping the claim's inline phrasing.
+    expect(scaled.children[0].type).toBe('paragraph');
+    const claimText = JSON.stringify(scaled.children[0]);
+    expect(claimText).toContain('Standardization improves SVM convergence');
+    // Evidence body is empty for this fixture (evidence: []), so
+    // children length is exactly 1. Keeps the carrier minimal.
+    expect(scaled.children).toHaveLength(1);
   });
 
   it('an unreferenced prior_insight has a rendered carrier (xref contract)', () => {
@@ -1082,9 +1193,6 @@ describe('prior_insights as flat addressable blocks', () => {
       projectDir: '/tmp',
       slug: 'index',
     });
-    // The option tab for standard cites "scaling_helps" — that
-    // should appear as a crossReference inside the tabSet, NOT as
-    // a duplicated paragraph carrying the same identifier.
     const xrefs: any[] = [];
     function walk(n: any) {
       if (n.type === 'crossReference') xrefs.push(n);
@@ -1093,12 +1201,13 @@ describe('prior_insights as flat addressable blocks', () => {
     for (const n of ast.children) walk(n);
     expect(xrefs.some((x) => x.identifier === 'prior_insight-scaling_helps')).toBe(true);
 
-    // Only one heading carrier per insight (no inline expansion
+    // Only one container carrier per insight (no inline expansion
     // duplicating the identifier inside the option tab).
     const carriers: any[] = [];
     function walkCarrier(n: any) {
       if (
-        n.type === 'heading' &&
+        n.type === 'container' &&
+        n.kind === 'prior-insight' &&
         n.identifier === 'prior_insight-scaling_helps'
       ) {
         carriers.push(n);
@@ -1130,9 +1239,9 @@ describe('prior_insights as flat addressable blocks', () => {
     expect(warns.some((w) => w.includes('ghost_insight'))).toBe(true);
   });
 
-  it('option-tab crossReference resolves to the flat block carrier id', () => {
+  it('option-tab crossReference resolves to the carrier id (container, not heading)', () => {
     // End-to-end: a click on the supporting-insight ref should land
-    // on the prior_insight heading rendered earlier on the page.
+    // on the prior_insight container rendered elsewhere on the page.
     const ast = astraToMystAST({
       analysis: withPriors(),
       universe: emptyUniverse(),
@@ -1140,16 +1249,21 @@ describe('prior_insights as flat addressable blocks', () => {
       projectDir: '/tmp',
       slug: 'index',
     });
-    // The xref identifier and the carrier identifier are the same string.
-    const ids = new Set<string>();
+    const carrierIds = new Set<string>();
     const refs = new Set<string>();
     function walk(n: any) {
-      if (n.identifier) ids.add(n.identifier);
+      if (
+        n.type === 'container' &&
+        n.kind === 'prior-insight' &&
+        n.identifier
+      ) {
+        carrierIds.add(n.identifier);
+      }
       if (n.type === 'crossReference') refs.add(n.identifier);
       for (const c of n.children ?? []) walk(c);
     }
     for (const n of ast.children) walk(n);
-    expect(ids.has('prior_insight-scaling_helps')).toBe(true);
+    expect(carrierIds.has('prior_insight-scaling_helps')).toBe(true);
     expect(refs.has('prior_insight-scaling_helps')).toBe(true);
   });
 });

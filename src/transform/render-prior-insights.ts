@@ -1,31 +1,31 @@
 /**
- * Renders prior_insights as flat per-insight blocks: an h3 heading
- * carrying `prior_insight-<id>` (the xref-contract carrier), the
- * insight's claim parsed as prose, scope where present, and the
- * evidence body. Mirrors the shape of `render-findings.ts` — both
- * are addressable, flat, and described by Insight in astra-spec.
+ * Renders prior_insights as minimal addressable carriers.
  *
- * Why flat blocks (not inline-only-when-referenced):
- *   collectIdentifiers publishes `prior_insight-<id>` for every
- *   declared prior_insight. The xref contract is "every published id
- *   has a rendered carrier". When prior_insights only existed inline
- *   inside option tabs, references from outside any option tab
- *   landed on nothing — and prior_insights without any option-tab
- *   reference had no carrier at all. Flat blocks fix both.
+ * Each prior_insight emits as a single `container` node with kind
+ * `prior-insight`, identifier `prior_insight-<id>`, structured
+ * `data` for downstream renderers, and children = [claim paragraph,
+ * …evidence body]. No heading, no thematic-break separators, no
+ * `'Scope:'` label paragraph — surfacing prior_insights as a visible
+ * "section" is a renderer's call (sidebar, hover, hidden, h3, …),
+ * not the transform's. The transform's job is to publish a stable
+ * carrier so option-tab crossReferences and narrative anchors
+ * resolve to *something* on the page.
  *
- *   Option tabs now emit a crossReference back to this flat block
- *   instead of expanding the insight inline. The flat block is the
- *   source of truth.
+ * Asymmetric with findings on purpose: findings are paper-headline
+ * material by convention, so they keep their h3 + paragraph shape.
+ * Prior insights are typically supporting context; how to display
+ * them is downstream's call.
+ *
+ * Why `kind: 'prior-insight'` and not `'prior_insight'`: MyST AST
+ * `container.kind` is conventionally a kebab-case CSS-class-like
+ * identifier (`figure`, `seealso`, `tip`); the underscore form
+ * survives in the structural identifier (`prior_insight-<id>`),
+ * matching the rest of the v0.0.6 anchor grammar. The two
+ * conventions live next to each other on the same node.
  */
 
 import type { ASTRAInsight } from '../types/astra.js';
-import {
-  heading,
-  paragraph,
-  text,
-  emphasis,
-  thematicBreak,
-} from './ast-helpers.js';
+import { paragraph } from './ast-helpers.js';
 import { renderInsightEvidence } from './render-evidence.js';
 import type { ProseParser } from './narrative-parser.js';
 
@@ -34,19 +34,9 @@ export function renderPriorInsights(
   prose: ProseParser,
   doiCacheDir: string | null,
 ): any[] {
-  const entries = Object.entries(priorInsights);
-  if (entries.length === 0) return [];
-
-  const nodes: any[] = [];
-  let first = true;
-
-  for (const [insightId, insight] of entries) {
-    if (!first) nodes.push(thematicBreak());
-    first = false;
-    nodes.push(...renderPriorInsight(insightId, insight, prose, doiCacheDir));
-  }
-
-  return nodes;
+  return Object.entries(priorInsights).map(([id, insight]) =>
+    renderPriorInsight(id, insight, prose, doiCacheDir),
+  );
 }
 
 function renderPriorInsight(
@@ -54,25 +44,25 @@ function renderPriorInsight(
   insight: ASTRAInsight,
   prose: ProseParser,
   doiCacheDir: string | null,
-): any[] {
-  const nodes: any[] = [];
+): any {
   const identifier = `prior_insight-${insightId}`;
-
-  // h3 heading carrying the carrier identifier; claim parses as
-  // inline Markdown (emphasis/code/anchors all resolve).
-  const labelText = insight.label ? `${insight.label}: ` : '';
-  const headlineChildren = labelText
-    ? [text(labelText), ...prose.inline(insight.claim)]
-    : prose.inline(insight.claim);
-  nodes.push(heading(3, headlineChildren, identifier));
-
-  // Scope (mirrors findings' rendering of the same field).
-  if (insight.scope) {
-    nodes.push(paragraph([emphasis([text(`Scope: ${insight.scope}`)])]));
-  }
-
-  // Evidence body — quotes, citations, artifact references.
-  nodes.push(...renderInsightEvidence(insight, doiCacheDir));
-
-  return nodes;
+  return {
+    type: 'container',
+    kind: 'prior-insight',
+    identifier,
+    label: identifier,
+    class: 'astra astra-prior-insight',
+    data: {
+      astraKind: 'prior_insight',
+      id: insightId,
+      label: insight.label ?? null,
+      scope: insight.scope ?? null,
+      tags: insight.tags ?? null,
+      derived: insight.derived ?? false,
+    },
+    children: [
+      paragraph(prose.inline(insight.claim)),
+      ...renderInsightEvidence(insight, doiCacheDir),
+    ],
+  };
 }
