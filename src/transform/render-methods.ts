@@ -20,11 +20,17 @@ import {
   details,
   summary,
   tabSet,
-  tabItem,
   thematicBreak,
 } from './ast-helpers.js';
 import { renderInsight } from './render-evidence.js';
 import type { ProseParser } from './narrative-parser.js';
+
+/**
+ * tabItem factory bound to the current transform pass. Created once
+ * by astraToMystAST and threaded through to every renderer that
+ * mints tab keys, so the counter is per-transform, not global.
+ */
+export type TabItemFn = (title: string, children: any[], selected?: boolean) => any;
 
 /**
  * Will this decision produce a rendered block on the page?
@@ -53,6 +59,7 @@ export function renderMethodsSections(
   priorInsights: Record<string, ASTRAInsight>,
   universe: ASTRAUniverse,
   prose: ProseParser,
+  tabItem: TabItemFn,
 ): any[] {
   const nodes: any[] = [];
   const entries = Object.entries(decisions).filter(([, d]) =>
@@ -61,7 +68,7 @@ export function renderMethodsSections(
 
   for (let i = 0; i < entries.length; i++) {
     const [id, decision] = entries[i];
-    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose));
+    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose, tabItem));
     // Thematic break between decisions (not after the last one).
     if (i < entries.length - 1) {
       nodes.push(thematicBreak());
@@ -77,6 +84,7 @@ function renderDecision(
   priorInsights: Record<string, ASTRAInsight>,
   universe: ASTRAUniverse,
   prose: ProseParser,
+  tabItem: TabItemFn,
 ): any[] {
   const options = decision.options!;
   const selectedOptionId = universe.decisions[id] ?? decision.default;
@@ -104,7 +112,7 @@ function renderDecision(
     const [optionId, option] = optionEntries[i];
     const isSelected = optionId === selectedOptionId;
     if (isSelected) selectedIndex = i;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose));
+    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem));
   }
 
   // Move selected tab to first position (book-theme defaults to first tab)
@@ -149,6 +157,7 @@ function renderOptionTab(
   isSelected: boolean,
   priorInsights: Record<string, ASTRAInsight>,
   prose: ProseParser,
+  tabItem: TabItemFn,
 ): any {
   // Tab title with selection marker
   let marker: string;

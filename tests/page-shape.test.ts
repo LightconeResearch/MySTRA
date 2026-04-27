@@ -227,6 +227,53 @@ describe('astraToMystAST page shape', () => {
   });
 });
 
+describe('tab key stability (per-transform counter)', () => {
+  it('two consecutive transforms produce identical tabItem keys', () => {
+    // Module-global tabKeyCounter would mint different keys each
+    // call — downstream consumers diffing AST JSON saw spurious
+    // changes. Per-transform closure-scoped counter fixes that.
+    const a: ASTRAAnalysis = {
+      name: 'WithTabs',
+      decisions: {
+        scaling: {
+          label: 'Scaling',
+          options: { a: { label: 'A' }, b: { label: 'B' } },
+        },
+        normalization: {
+          label: 'Normalization',
+          options: { x: { label: 'X' }, y: { label: 'Y' } },
+        },
+      },
+      prior_insights: {},
+      findings: {},
+    };
+    const args = {
+      analysis: a,
+      universe: { id: 'u', decisions: {} } as ASTRAUniverse,
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    };
+    const ast1 = astraToMystAST(args);
+    const ast2 = astraToMystAST(args);
+
+    function collectKeys(root: any): string[] {
+      const out: string[] = [];
+      const stack: any[] = [...root.children];
+      while (stack.length) {
+        const n = stack.pop();
+        if (n.type === 'tabItem' && n.key) out.push(n.key);
+        if (Array.isArray(n.children)) stack.push(...n.children);
+      }
+      return out.sort();
+    }
+
+    expect(collectKeys(ast1)).toEqual(collectKeys(ast2));
+    // Sanity: tabs were actually emitted.
+    expect(collectKeys(ast1).length).toBeGreaterThan(0);
+  });
+});
+
 describe('xref index (collectIdentifiers)', () => {
   // collectIdentifiers' contract: every published id has a real
   // carrier in the rendered AST. These tests pin that contract for

@@ -8,7 +8,7 @@
 import type { ASTRAAnalysis, ASTRAUniverse, ASTRAUniverseNode } from '../types/astra.js';
 import type { PageData, PageFrontmatter, XRefEntry } from '../types/content-server.js';
 import { join } from 'node:path';
-import { blockBreak } from './ast-helpers.js';
+import { blockBreak, makeTabItem } from './ast-helpers.js';
 import { renderNarrativeChunks } from './render-narrative.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
@@ -44,6 +44,11 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   // all resolve to crossReferences against the host analysis.
   const prose = makeProseParser({ analysis, slug });
 
+  // Per-pass tabItem factory — each transform invocation gets its
+  // own counter so two consecutive transforms produce identical
+  // `key`s for downstream AST diffing.
+  const tabItem = makeTabItem();
+
   // Page layout: emit a flat sequence of named, addressable blocks
   // — narrative chunks AND structural elements at the same level.
   // No top-level section h2s, no narrative wrapper. mdast position
@@ -67,7 +72,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
 
     // Structural elements as a flat sequence of addressable blocks.
     ...renderFindings(findings, results, decisions, outputs, prose),
-    ...renderMethodsSections(decisions, priorInsights, universe, prose),
+    ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
     ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0

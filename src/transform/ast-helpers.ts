@@ -124,17 +124,28 @@ export function tabSet(children: any[]) {
   return { type: 'tabSet' as const, children };
 }
 
-let tabKeyCounter = 0;
-
-export function tabItem(title: string, children: any[], selected?: boolean) {
-  // The book-theme React renderer requires a unique `key` on each tabItem
-  const key = `tab-${(tabKeyCounter++).toString(36)}`;
-  return {
-    type: 'tabItem' as const,
-    title,
-    key,
-    ...(selected ? { selected: true } : {}),
-    children,
+/**
+ * Per-transform tabItem factory. The book-theme React renderer
+ * requires a unique `key` per tabItem; we mint one with a closure-
+ * scoped counter so two consecutive transform passes produce the
+ * same keys (downstream consumers diffing AST JSON shouldn't see
+ * spurious `key` changes from a module-global counter).
+ */
+export function makeTabItem(): (
+  title: string,
+  children: any[],
+  selected?: boolean,
+) => any {
+  let counter = 0;
+  return function tabItem(title, children, selected) {
+    const key = `tab-${(counter++).toString(36)}`;
+    return {
+      type: 'tabItem' as const,
+      title,
+      key,
+      ...(selected ? { selected: true } : {}),
+      children,
+    };
   };
 }
 
