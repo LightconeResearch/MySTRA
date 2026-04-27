@@ -1,8 +1,13 @@
 /**
- * Renders the Methods section: decisions grouped by tag, each with
- * an h4 heading and collapsible dropdown containing option tabs.
+ * Renders each decision as a flat block: an h4 heading carrying the
+ * `decision-<id>` identifier, followed by a `details/summary`
+ * dropdown with the rationale and option tabs.
  *
- * Matches the prototype style from index.md.
+ * No grouping, no section headings: tags survive on the heading's
+ * `data.tags` slot and consumers (paper view, dashboard, plugins)
+ * compose any grouping or chrome they want on top. MySTRA's job
+ * here is to emit addressable per-decision blocks; the renderer
+ * has no opinion about how decisions are organised.
  */
 
 import type { ASTRADecision, ASTRAInsight, ASTRAUniverse } from '../types/astra.js';
@@ -18,9 +23,30 @@ import {
   tabItem,
   thematicBreak,
 } from './ast-helpers.js';
-import { groupDecisionsByTag } from './tag-sections.js';
 import { renderInsight } from './render-evidence.js';
 import type { ProseParser } from './narrative-parser.js';
+
+/**
+ * Will this decision produce a rendered block on the page?
+ *
+ * Two reasons a declared decision drops out of the AST:
+ *  - it's a bare `from`-reference (no local definition; the
+ *    parent analysis is where the data lives)
+ *  - its `when` predicate is unmet given the active universe
+ *
+ * The xref index uses this predicate to publish only ids that have
+ * a real carrier — anchors to unrendered decisions would otherwise
+ * land on nothing.
+ */
+export function isDecisionRendered(
+  decision: ASTRADecision,
+  universe: ASTRAUniverse,
+): boolean {
+  if (decision.from) return false;
+  if (!decision.options) return false;
+  if (!isConditionMet(decision.when, universe)) return false;
+  return true;
+}
 
 export function renderMethodsSections(
   decisions: Record<string, ASTRADecision>,
@@ -28,22 +54,17 @@ export function renderMethodsSections(
   universe: ASTRAUniverse,
   prose: ProseParser,
 ): any[] {
-  const groups = groupDecisionsByTag(decisions);
   const nodes: any[] = [];
+  const entries = Object.entries(decisions).filter(([, d]) =>
+    isDecisionRendered(d, universe),
+  );
 
-  for (const group of groups) {
-    // Section heading (h3)
-    nodes.push(heading(3, [text(group.sectionLabel)], group.sectionId));
-
-    // Each decision in this group
-    for (let i = 0; i < group.decisions.length; i++) {
-      const { id, decision } = group.decisions[i];
-      nodes.push(...renderDecision(id, decision, priorInsights, universe, prose));
-
-      // Thematic break between decisions (not after the last one)
-      if (i < group.decisions.length - 1) {
-        nodes.push(thematicBreak());
-      }
+  for (let i = 0; i < entries.length; i++) {
+    const [id, decision] = entries[i];
+    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose));
+    // Thematic break between decisions (not after the last one).
+    if (i < entries.length - 1) {
+      nodes.push(thematicBreak());
     }
   }
 
@@ -57,14 +78,7 @@ function renderDecision(
   universe: ASTRAUniverse,
   prose: ProseParser,
 ): any[] {
-  // Skip if conditional and condition not met
-  if (!isConditionMet(decision.when, universe)) {
-    return [];
-  }
-
-  const options = decision.options;
-  if (!options) return [];
-
+  const options = decision.options!;
   const selectedOptionId = universe.decisions[id] ?? decision.default;
   const selectedOption = selectedOptionId ? options[selectedOptionId] : undefined;
   const selectedLabel = selectedOption?.label ?? selectedOptionId ?? '(none)';
@@ -73,8 +87,14 @@ function renderDecision(
   const nodes: any[] = [];
 
   // h4 heading for the decision; identifier follows the
-  // structural-element scheme `<kind>-<id>`.
-  nodes.push(heading(4, [text(decisionLabel)], `decision-${id}`));
+  // structural-element scheme `<kind>-<id>`. Tags ride along on the
+  // mdast `data` slot — surface for downstream consumers that want
+  // to group decisions, without imposing any grouping ourselves.
+  const head: any = heading(4, [text(decisionLabel)], `decision-${id}`);
+  if (decision.tags && decision.tags.length > 0) {
+    head.data = { ...(head.data ?? {}), tags: decision.tags };
+  }
+  nodes.push(head);
 
   // Build option tabs, tracking which is selected for reordering
   const tabs: any[] = [];

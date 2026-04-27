@@ -12,13 +12,12 @@ import { blockBreak } from './ast-helpers.js';
 import { renderNarrativeChunks } from './render-narrative.js';
 import { renderUniverseBanner } from './render-universe-banner.js';
 import { renderFindings } from './render-findings.js';
-import { renderMethodsSections } from './render-methods.js';
+import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { renderVerification } from './render-verification.js';
 import { setDOICacheDir } from './render-evidence.js';
 import { makeProseParser } from './narrative-parser.js';
-import { toSlug } from '../utils/slug.js';
 
 export interface ASTRASource {
   analysis: ASTRAAnalysis;
@@ -116,7 +115,7 @@ export function buildAllPages(
   };
 
   // Collect identifiers for cross-references
-  const identifiers = collectIdentifiers(analysis, slug);
+  const identifiers = collectIdentifiers(analysis, universe, slug);
 
   // Collect static file dependencies
   const dependencies = collectDependencies(results);
@@ -160,7 +159,11 @@ export function buildAllPages(
   return pages;
 }
 
-function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] {
+function collectIdentifiers(
+  analysis: ASTRAAnalysis,
+  universe: ASTRAUniverse,
+  slug: string,
+): XRefEntry[] {
   const entries: XRefEntry[] = [];
   const dataPath = `/content/${slug}.json`;
   const url = slug === 'index' ? '/' : `/${slug}`;
@@ -177,9 +180,15 @@ function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] 
   // Per-element identifiers (`<kind>-<id>`) for every structural
   // element. Page-level section identifiers (findings, methods, …)
   // are no longer published — those h2 wrappers no longer exist.
+  // The xref contract: only publish ids with a real carrier in the
+  // emitted AST. Decisions that aren't rendered (bare `from`-refs
+  // and `when`-unmet ones) are filtered with the same predicate
+  // renderMethodsSections uses.
   for (const id of Object.keys(analysis.findings ?? {})) push(`finding-${id}`);
   for (const id of Object.keys(analysis.prior_insights ?? {})) push(`prior_insight-${id}`);
-  for (const id of Object.keys(analysis.decisions ?? {})) push(`decision-${id}`);
+  for (const [id, decision] of Object.entries(analysis.decisions ?? {})) {
+    if (isDecisionRendered(decision, universe)) push(`decision-${id}`);
+  }
   for (const input of analysis.inputs ?? []) push(`input-${input.id}`);
   for (const output of analysis.outputs ?? []) push(`output-${output.id}`);
   for (const id of Object.keys(analysis.analyses ?? {})) push(`analysis-${id}`);
@@ -188,18 +197,6 @@ function collectIdentifiers(analysis: ASTRAAnalysis, slug: string): XRefEntry[] 
   // are stable across re-orderings.
   for (const c of analysis.success_criteria ?? []) {
     if (c.output) push(`verification-${c.output}`);
-  }
-
-  // Decision tag-group h3 identifiers — real headings emitted by
-  // renderMethodsSections, kept as in-page anchors.
-  const seenSections = new Set<string>();
-  for (const decision of Object.values(analysis.decisions ?? {})) {
-    if (decision.from || !decision.tags?.[0]) continue;
-    const sectionId = toSlug(decision.tags[0]);
-    if (!seenSections.has(sectionId)) {
-      seenSections.add(sectionId);
-      push(sectionId);
-    }
   }
 
   return entries;

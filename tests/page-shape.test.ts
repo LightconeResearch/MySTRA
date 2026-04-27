@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { astraToMystAST } from '../src/transform/index.js';
+import { astraToMystAST, buildAllPages } from '../src/transform/index.js';
 import type { ASTRAAnalysis, ASTRAUniverse } from '../src/types/astra.js';
 
 function emptyUniverse(): ASTRAUniverse {
@@ -177,6 +177,97 @@ describe('astraToMystAST page shape', () => {
   });
 });
 
+describe('xref index (collectIdentifiers)', () => {
+  // collectIdentifiers' contract: every published id has a real
+  // carrier in the rendered AST. These tests pin that contract for
+  // the cases that previously broke it.
+
+  it('does not publish methods-* tag-section ids (decisions render flat)', () => {
+    // Tag-as-structure ontology was deleted; renderMethodsSections
+    // emits flat per-decision blocks with no h3 group headings.
+    const a: ASTRAAnalysis = {
+      name: 'Tagged',
+      decisions: {
+        scaling: {
+          label: 'Scaling',
+          tags: ['reddening', 'extinction'],
+          options: { a: { label: 'A' } },
+        },
+      },
+      prior_insights: {},
+      findings: {},
+    };
+    const pages = buildAllPages(a, { id: 'u', decisions: {} }, new Map(), '/tmp');
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    // Old emitter would have published `reddening-extinction` and/or
+    // tag-derived slugs — none of those should appear.
+    expect(ids.every((id) => !id.startsWith('reddening'))).toBe(true);
+    expect(ids).not.toContain('reddening-extinction');
+    expect(ids).not.toContain('reddening');
+  });
+
+  it('publishes decision-<id> only for rendered decisions (skips bare from-refs)', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Mixed',
+      decisions: {
+        local: { label: 'Local', options: { a: { label: 'A' } } },
+        inherited: { from: 'parent.local' },
+      },
+      prior_insights: {},
+      findings: {},
+    };
+    const pages = buildAllPages(a, { id: 'u', decisions: {} }, new Map(), '/tmp');
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids).toContain('decision-local');
+    expect(ids).not.toContain('decision-inherited');
+  });
+
+  it('publishes decision-<id> only for rendered decisions (skips when-unmet)', () => {
+    // Bug D: previously `collectIdentifiers` published every
+    // declared decision, but `renderDecision` dropped ones whose
+    // `when` predicate wasn't satisfied — anchors landed on nothing.
+    const a: ASTRAAnalysis = {
+      name: 'Conditional',
+      decisions: {
+        always: { label: 'Always', options: { a: { label: 'A' } } },
+        only_if_x: {
+          label: 'Conditional',
+          when: 'always.b',
+          options: { a: { label: 'A' } },
+        },
+      },
+      prior_insights: {},
+      findings: {},
+    };
+    // Universe selects always.a → the `when: always.b` predicate is unmet.
+    const universe: ASTRAUniverse = { id: 'u', decisions: { always: 'a' } };
+    const pages = buildAllPages(a, universe, new Map(), '/tmp');
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids).toContain('decision-always');
+    expect(ids).not.toContain('decision-only_if_x');
+  });
+
+  it('publishes decision-<id> for when-met conditional decisions', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Conditional',
+      decisions: {
+        always: { label: 'Always', options: { a: { label: 'A' } } },
+        only_if_x: {
+          label: 'Conditional',
+          when: 'always.a',
+          options: { a: { label: 'A' } },
+        },
+      },
+      prior_insights: {},
+      findings: {},
+    };
+    const universe: ASTRAUniverse = { id: 'u', decisions: { always: 'a' } };
+    const pages = buildAllPages(a, universe, new Map(), '/tmp');
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids).toContain('decision-only_if_x');
+  });
+});
+
 describe('structural-element identifiers (end-to-end)', () => {
   it('emits a finding-<id> heading for each finding', () => {
     const ast = astraToMystAST({
@@ -195,6 +286,84 @@ describe('structural-element identifiers (end-to-end)', () => {
       }
     }
     expect(find((n) => n.type === 'heading' && n.identifier === 'finding-best_model')).toBeTruthy();
+  });
+
+  it('carries decision.tags as data.tags on the decision heading', () => {
+    // Tags are no longer used as renderer-imposed grouping
+    // structure; they survive on the heading's mdast `data` slot
+    // for downstream consumers that want to compose grouping.
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          tags: ['reddening', 'extinction'],
+          options: { standard: { label: 'Standard' } },
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    function find(predicate: (n: any) => boolean): any | undefined {
+      const stack: any[] = [...ast.children];
+      while (stack.length) {
+        const n = stack.pop();
+        if (predicate(n)) return n;
+        if (Array.isArray(n.children)) stack.push(...n.children);
+      }
+    }
+    const decisionHeading = find((n) => n.type === 'heading' && n.identifier === 'decision-scaling');
+    expect(decisionHeading).toBeTruthy();
+    expect(decisionHeading.data?.tags).toEqual(['reddening', 'extinction']);
+  });
+
+  it('does not emit any h3 tag-group section heading', () => {
+    // tag-sections.ts is gone; "Reddening & Extinction" /
+    // "TRGB Detection Algorithm" / "General" / "Other" headings
+    // must not appear anywhere on the page.
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          tags: ['reddening'],
+          options: { standard: { label: 'Standard' } },
+        },
+        untagged: {
+          label: 'Untagged',
+          options: { standard: { label: 'Standard' } },
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const flat = JSON.stringify(ast);
+    expect(flat).not.toContain('Reddening & Extinction');
+    expect(flat).not.toContain('"General"');
+    expect(flat).not.toContain('"Other"');
+    // No h3 with a tag-derived id either.
+    function findAll(predicate: (n: any) => boolean): any[] {
+      const out: any[] = [];
+      const stack: any[] = [...ast.children];
+      while (stack.length) {
+        const n = stack.pop();
+        if (predicate(n)) out.push(n);
+        if (Array.isArray(n.children)) stack.push(...n.children);
+      }
+      return out;
+    }
+    const h3s = findAll((n) => n.type === 'heading' && n.depth === 3);
+    expect(h3s.every((h) => !h.identifier?.startsWith('reddening'))).toBe(true);
   });
 
   it('emits a decision-<id> heading for each decision', () => {

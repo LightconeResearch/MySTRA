@@ -290,29 +290,7 @@ function astraToMystAST(source: ASTRASource): Root {
 
 **`renderFinding`** — produces heading, narrative, evidence (inline figure/table from results if available, or a "pending" admonition if not), and a methodology callout with cross-references to relevant method sections.
 
-**`renderMethodsSections`** — groups decisions by their first tag into method sections (e.g., all decisions tagged `reddening` go under "Reddening & Extinction"). Each decision renders as a `<details>` dropdown with a `<tabSet>` of options inside. The selected option (from the active universe) is marked with ●.
-
-### Organizing decisions into method sections
-
-Decisions are grouped by their `tags` field. A configurable mapping converts tags to human-readable section headings:
-
-```typescript
-const TAG_TO_SECTION: Record<string, string> = {
-  'reddening': 'Reddening & Extinction',
-  'extinction': 'Reddening & Extinction',
-  'sample-selection': 'Sample Construction',
-  'foreground': 'Sample Construction',
-  'trgb-algorithm': 'TRGB Detection Algorithm',
-  'data-processing': 'Data Quality & Processing',
-  'photometry': 'Data Quality & Processing',
-  'metallicity': 'Calibration & Systematics',
-  'calibration': 'Calibration & Systematics',
-  'spatial-analysis': 'Calibration & Systematics',
-  'uncertainty': 'Calibration & Systematics',
-}
-```
-
-Decisions with tags not in the mapping fall under "Other". Decisions with no tags are grouped under "General".
+**`renderMethodsSections`** — emits a flat sequence of per-decision blocks. Each decision renders as an h4 heading (carrying `decision-<id>`) followed by a `<details>` dropdown with rationale and a `<tabSet>` of options. The selected option (from the active universe) is marked with ●. Decision tags survive on the heading's `data.tags` slot for downstream consumers; MySTRA imposes no grouping or section headings of its own.
 
 ## 4. Content server
 
@@ -515,7 +493,7 @@ It watches the project directory for changes and keeps the document live.
 Implement `astraToMystAST()` and all the render functions:
 - `renderAbstract`, `renderUniverseBanner`
 - `renderFinding` (heading, narrative, evidence figure/table, methodology callout)
-- `renderMethodsSections` (group by tags, render each decision as dropdown + tabs)
+- `renderMethodsSections` (flat per-decision blocks, each a dropdown + tabs)
 - `renderInputsTable`, `renderSubAnalysisCards`
 - AST helper functions: `heading()`, `paragraph()`, `text()`, `strong()`, `link()`, `details()`, `summary()`, `tabSet()`, `tabItem()`, `admonition()`, `figure()`, `table()`, `crossReference()`, `blockquote()`, `separator()`
 

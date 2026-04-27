@@ -79,9 +79,8 @@ src/
 │   ├── render-evidence.ts   Figures, JSON/CSV tables, cite nodes, quotes
 │   ├── render-universe-banner.ts  Collapsible decision summary table
 │   ├── render-verification.ts     Success criteria table
-│   ├── render-data-sources.ts     Inputs table
-│   ├── render-sub-analyses.ts     Sub-analysis cards
-│   └── tag-sections.ts     Decision grouping by tag
+│   ├── render-data-sources.ts     Inputs and outputs tables
+│   └── render-sub-analyses.ts     Sub-analysis cards
 ├── loader/                  ASTRA source loading (YAML, universes, results)
 ├── server/                  Express content server + WebSocket live reload
 ├── doi/                     DOI resolution, caching, citation formatting
