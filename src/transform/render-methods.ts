@@ -205,17 +205,16 @@ function renderOptionTab(
 }
 
 /**
- * Check if a `when` condition is satisfied by the universe.
+ * Check if a `when` condition is satisfied by the universe. `when` is
+ * multivalued in astra-spec — multiple conditions are AND'd together.
  */
 function isConditionMet(
-  when: string | string[] | undefined,
+  when: string[] | undefined,
   universe: ASTRAUniverse,
 ): boolean {
   if (when === undefined) return true;
 
-  const conditions = Array.isArray(when) ? when : [when];
-
-  for (const cond of conditions) {
+  for (const cond of when) {
     const negated = cond.startsWith('~');
     const ref = negated ? cond.slice(1) : cond;
     const dotIndex = ref.indexOf('.');

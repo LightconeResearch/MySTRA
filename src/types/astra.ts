@@ -1,16 +1,20 @@
 /**
  * TypeScript interfaces for the ASTRA data model.
  *
- * Mirrors the canonical Pydantic models in extern/ASTRA/models/.
- * Tracks astra-spec v0.0.6 (commit 1d948cf):
- *   - Analysis.description replaced by Analysis.narrative (structured prose,
- *     five Markdown sections: summary, findings, methods, inputs, outputs)
- *   - container + container_build unified into a single string `container`
- *   - Input/Output/Insight gained an optional `label`
- *   - YAML field is `from` (LinkML alias of the python-keyword-shy from_ref)
- *   - IDs may not be one of the reserved category keywords (inputs, outputs,
- *     decisions, findings, prior_insights, analyses, options, content,
- *     narrative); enforcement is upstream in `astra validate`.
+ * Tracks astra-spec v0.0.6 (commit 1d948cf) at
+ * https://w3id.org/ASTRA/. The schemas live at
+ * `astra-spec/src/astra/schema/*.yaml`; this file is hand-maintained
+ * to match them, with consumers (transform, server) typed off these
+ * interfaces.
+ *
+ * PRIVATE EXTENSIONS OF astra-spec v0.0.6 (pending upstream proposal):
+ *   - Evidence.figure: FigureSelector — figure-style evidence selector
+ *   - Evidence.table: TableSelector  — table-style evidence selector
+ *   - Evidence.checksum: ASTRAChecksum — content-addressed evidence
+ *   - Input.checksum: ASTRAChecksum — content-addressed input
+ * These four fields/types are not in astra-spec; MySTRA carries them
+ * to preserve evidence-rendering functionality. Propose to astra-spec
+ * before treating as canonical in downstream tooling.
  */
 
 // ── W3C Web Annotation Selectors ──
@@ -22,12 +26,14 @@ export interface TextQuoteSelector {
   suffix?: string;
 }
 
+/** Private extension; see file header. */
 export interface FigureSelector {
   type: 'FigureSelector';
   label: string;
   caption?: string;
 }
 
+/** Private extension; see file header. */
 export interface TableSelector {
   type: 'TableSelector';
   label: string;
@@ -42,7 +48,7 @@ export interface FragmentSelector {
   page?: number;
 }
 
-// ── Checksum ──
+// ── Checksum (private extension; see file header) ──
 
 export interface ASTRAChecksum {
   algorithm: 'sha256' | 'sha512' | 'md5';
@@ -62,13 +68,16 @@ export interface ASTRAEvidence {
   version?: number;
 
   // Artifact-specific
+  /** Private extension; see file header. */
   checksum?: ASTRAChecksum;
   snapshot?: string;
   source_commit?: string;
 
   // Content selectors
   quote?: TextQuoteSelector;
+  /** Private extension; see file header. */
   figure?: FigureSelector;
+  /** Private extension; see file header. */
   table?: TableSelector;
 
   // Location hint
@@ -101,6 +110,7 @@ export interface ASTRAInput {
 
   // Data inputs
   source?: string;
+  /** Private extension; see file header. */
   checksum?: ASTRAChecksum;
 
   // Analysis inputs
@@ -144,7 +154,7 @@ export interface ASTRAOutput {
   description?: string;
   /** Sub-analysis output that produces this (YAML key: `from`). */
   from?: string;
-  when?: string | string[];
+  when?: string[];
   recipe?: ASTRARecipe;
 }
 
@@ -170,7 +180,7 @@ export interface ASTRADecision {
   label?: string;
   rationale?: string;
   tags?: string[];
-  when?: string | string[];
+  when?: string[];
   default?: string;
   options?: Record<string, ASTRAOption>;
 }
@@ -202,7 +212,6 @@ export interface ASTRAAnalysis {
   name?: string;
   authors?: string[];
   tags?: string[];
-  /** Replaces the v0.0.5 free-form `description` field. */
   narrative?: ASTRANarrative;
   inputs?: ASTRAInput[];
   outputs?: ASTRAOutput[];
@@ -218,6 +227,12 @@ export interface ASTRAAnalysis {
 // ── Universe ──
 
 export interface ASTRAUniverseNode {
+  /**
+   * Name of a universe in the sub-analysis's universes/ directory;
+   * an alternative to inline `decisions`. Mirrors the spec's
+   * `UniverseNode.universe` slot (universe.yaml:46).
+   */
+  universe?: string;
   decisions: Record<string, string>;
   analyses?: Record<string, ASTRAUniverseNode>;
 }

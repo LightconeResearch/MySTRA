@@ -329,7 +329,7 @@ describe('xref index (collectIdentifiers)', () => {
         always: { label: 'Always', options: { a: { label: 'A' } } },
         only_if_x: {
           label: 'Conditional',
-          when: 'always.b',
+          when: ['always.b'],
           options: { a: { label: 'A' } },
         },
       },
@@ -368,7 +368,7 @@ describe('xref index (collectIdentifiers)', () => {
         always: { label: 'Always', options: { a: { label: 'A' } } },
         only_if_x: {
           label: 'Conditional',
-          when: 'always.a',
+          when: ['always.a'],
           options: { a: { label: 'A' } },
         },
       },
