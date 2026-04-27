@@ -316,4 +316,89 @@ describe('structural-element identifiers (end-to-end)', () => {
     for (const n of ast.children) walk(n);
     expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
   });
+
+  it('end-to-end: anchor + markdown in Option.excluded_reason render and resolve', () => {
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          options: {
+            minmax: {
+              label: 'MinMax',
+              excluded: true,
+              excluded_reason: 'Conflicts with **SVM**; see [the finding](#findings.best_model).',
+            },
+          },
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const xrefs: any[] = [];
+    const strongs: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') xrefs.push(n);
+      if (n.type === 'strong') strongs.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(xrefs.some((x) => x.identifier === 'finding-best_model')).toBe(true);
+    expect(strongs.length).toBeGreaterThan(0);
+    // Renderer-glued "Excluded:" prefix is gone.
+    const flat = JSON.stringify(ast);
+    expect(flat).not.toContain('Excluded:');
+  });
+
+  it('end-to-end: anchor + markdown in figure caption render and resolve', () => {
+    const a: ASTRAAnalysis = {
+      ...fixture(),
+      findings: {
+        best_model: {
+          id: 'best_model',
+          claim: 'SVM wins',
+          created_at: '2024-01-01',
+          evidence: [
+            {
+              id: 'ev1',
+              doi: '10.1234/foo',
+              figure: {
+                type: 'FigureSelector',
+                label: 'Fig. 3',
+                caption: 'Performance versus the [iris baseline](#inputs.iris_data).',
+              },
+            },
+          ],
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const xrefs: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') xrefs.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
+    // Caption is no longer glued via string interpolation — the
+    // text "Performance versus the [iris baseline]" should
+    // never appear as a single text node, because the anchor
+    // is now a crossReference. Search for the unsplit phrase
+    // including the link syntax to confirm migration.
+    const flat = JSON.stringify(ast);
+    expect(flat).not.toContain('[iris baseline](#inputs.iris_data)');
+    // Sanity: the leading caption text is parsed and present.
+    expect(flat).toContain('Performance versus the');
+  });
 });

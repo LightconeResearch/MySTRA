@@ -148,10 +148,14 @@ function renderOptionTab(
     children.push(...prose.blocks(option.description));
   }
 
-  // Excluded reason
+  // Excluded reason: parsed as author prose with anchor resolution.
+  // The "Excluded:" prefix is dropped — the boolean `excluded`
+  // field already carries that semantics; the prose just explains
+  // why. Inline-only because we want the reason to read as a
+  // single emphasised line under the option.
   if (option.excluded && option.excluded_reason) {
     children.push(
-      paragraph([emphasis([text(`Excluded: ${option.excluded_reason}`)])]),
+      paragraph([emphasis(prose.inline(option.excluded_reason))]),
     );
   }
 

@@ -49,7 +49,7 @@ export function renderEvidenceBlock(
   prose: ProseParser,
 ): any[] {
   if (evidence.doi) {
-    return renderLiteratureEvidence(evidence);
+    return renderLiteratureEvidence(evidence, prose);
   }
   if (evidence.artifact) {
     return renderArtifactEvidence(evidence, results, prose);
@@ -76,7 +76,10 @@ function formatCiteNode(doi: string): any {
   return link(`https://doi.org/${doi}`, [text(doi)]);
 }
 
-function renderLiteratureEvidence(evidence: ASTRAEvidence): any[] {
+function renderLiteratureEvidence(
+  evidence: ASTRAEvidence,
+  prose: ProseParser,
+): any[] {
   const nodes: any[] = [];
   const doi = evidence.doi!;
 
@@ -90,20 +93,27 @@ function renderLiteratureEvidence(evidence: ASTRAEvidence): any[] {
     nodes.push(paragraph([formatCiteNode(doi)]));
   }
 
-  // Figure/table references
+  // Figure/table references. The label ("Fig. 3", "Table 2") is a
+  // short renderer-functional handle and stays plain text; the
+  // caption / region come from the author and parse as prose with
+  // anchor resolution. Em-dash separators are kept as their own
+  // inline `text` pieces so the parsed prose stays clean.
   if (evidence.figure) {
-    nodes.push(
-      paragraph([
-        emphasis([text(`See ${evidence.figure.label}`)]),
-        ...(evidence.figure.caption ? [text(` \u2014 ${evidence.figure.caption}`)] : []),
-      ]),
-    );
+    const parts: any[] = [emphasis([text(`See ${evidence.figure.label}`)])];
+    if (evidence.figure.caption) {
+      parts.push(text(' \u2014 '), ...prose.inline(evidence.figure.caption));
+    }
+    nodes.push(paragraph(parts));
   }
   if (evidence.table) {
-    const tableParts: any[] = [emphasis([text(`See ${evidence.table.label}`)])];
-    if (evidence.table.caption) tableParts.push(text(` \u2014 ${evidence.table.caption}`));
-    if (evidence.table.region) tableParts.push(text(` (${evidence.table.region})`));
-    nodes.push(paragraph(tableParts));
+    const parts: any[] = [emphasis([text(`See ${evidence.table.label}`)])];
+    if (evidence.table.caption) {
+      parts.push(text(' \u2014 '), ...prose.inline(evidence.table.caption));
+    }
+    if (evidence.table.region) {
+      parts.push(text(' '), ...prose.inline(evidence.table.region));
+    }
+    nodes.push(paragraph(parts));
   }
 
   return nodes;
