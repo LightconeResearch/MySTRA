@@ -12,7 +12,7 @@
  * description); the renderer doesn't synthesise them.
  */
 
-import type { ASTRAInsight } from '../types/astra.js';
+import type { ASTRAInsight, ASTRAOutput } from '../types/astra.js';
 import {
   heading,
   paragraph,
@@ -26,6 +26,7 @@ import { renderEvidenceBlock } from './render-evidence.js';
 export function renderFindings(
   findings: Record<string, ASTRAInsight>,
   results: Map<string, string>,
+  outputs: Map<string, ASTRAOutput>,
   prose: ProseParser,
   doiCacheDir: string | null,
 ): any[] {
@@ -42,7 +43,7 @@ export function renderFindings(
     if (index > 1) {
       nodes.push(thematicBreak());
     }
-    nodes.push(...renderFinding(finding, index, findingId, results, prose, doiCacheDir));
+    nodes.push(...renderFinding(finding, index, findingId, results, outputs, prose, doiCacheDir));
     index++;
   }
 
@@ -54,6 +55,7 @@ function renderFinding(
   index: number,
   findingId: string,
   results: Map<string, string>,
+  outputs: Map<string, ASTRAOutput>,
   prose: ProseParser,
   doiCacheDir: string | null,
 ): any[] {
@@ -88,7 +90,7 @@ function renderFinding(
 
   // Evidence blocks (figures, tables, artifact references)
   for (const evidence of finding.evidence) {
-    nodes.push(...renderEvidenceBlock(evidence, results, prose, doiCacheDir));
+    nodes.push(...renderEvidenceBlock(evidence, results, outputs, prose, doiCacheDir));
   }
 
   return nodes;

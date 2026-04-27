@@ -54,6 +54,12 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   // is available (the cite node falls back to a plain DOI link).
   const doiCacheDir = projectDir ? join(projectDir, '.mystra-cache', 'doi') : null;
 
+  // Outputs as an id→Output map so artifact-evidence rendering can
+  // dispatch on `output.type` (figure/table/metric/data/report) in
+  // O(1). Builds once per page; broken evidence references emit a
+  // console.warn at render time when the id isn't in this map.
+  const outputsById = new Map(outputs.map((o) => [o.id, o] as const));
+
   // Page layout: emit a flat sequence of named, addressable blocks
   // — narrative chunks AND structural elements at the same level.
   // No top-level section h2s, no narrative wrapper. mdast position
@@ -76,7 +82,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     renderUniverseBanner(universe, decisions, prose),
 
     // Structural elements as a flat sequence of addressable blocks.
-    ...renderFindings(findings, results, prose, doiCacheDir),
+    ...renderFindings(findings, results, outputsById, prose, doiCacheDir),
     ...renderPriorInsights(priorInsights, prose, doiCacheDir),
     ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem, doiCacheDir),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),

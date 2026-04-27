@@ -6,15 +6,6 @@
  * `astra-spec/src/astra/schema/*.yaml`; this file is hand-maintained
  * to match them, with consumers (transform, server) typed off these
  * interfaces.
- *
- * PRIVATE EXTENSIONS OF astra-spec v0.0.6 (pending upstream proposal):
- *   - Evidence.figure: FigureSelector — figure-style evidence selector
- *   - Evidence.table: TableSelector  — table-style evidence selector
- *   - Evidence.checksum: ASTRAChecksum — content-addressed evidence
- *   - Input.checksum: ASTRAChecksum — content-addressed input
- * These four fields/types are not in astra-spec; MySTRA carries them
- * to preserve evidence-rendering functionality. Propose to astra-spec
- * before treating as canonical in downstream tooling.
  */
 
 // ── W3C Web Annotation Selectors ──
@@ -26,33 +17,11 @@ export interface TextQuoteSelector {
   suffix?: string;
 }
 
-/** Private extension; see file header. */
-export interface FigureSelector {
-  type: 'FigureSelector';
-  label: string;
-  caption?: string;
-}
-
-/** Private extension; see file header. */
-export interface TableSelector {
-  type: 'TableSelector';
-  label: string;
-  caption?: string;
-  region?: string;
-}
-
 export interface FragmentSelector {
   type: 'FragmentSelector';
   conformsTo?: string;
   value?: string;
   page?: number;
-}
-
-// ── Checksum (private extension; see file header) ──
-
-export interface ASTRAChecksum {
-  algorithm: 'sha256' | 'sha512' | 'md5';
-  value: string;
 }
 
 // ── Evidence ──
@@ -62,23 +31,25 @@ export interface ASTRAEvidence {
 
   // Source: exactly one of doi or artifact
   doi?: string;
+  /**
+   * Reference to an output by id. The output's `type` (figure /
+   * table / metric / data / report) drives how the artifact
+   * renders; the output's `label` and `description` carry the
+   * caption-equivalent metadata. There is no separate
+   * figure/table selector on Evidence — those would conflate the
+   * 'what kind' concern that already lives on Output.
+   */
   artifact?: string;
 
   // Literature-specific
   version?: number;
 
   // Artifact-specific
-  /** Private extension; see file header. */
-  checksum?: ASTRAChecksum;
   snapshot?: string;
   source_commit?: string;
 
   // Content selectors
   quote?: TextQuoteSelector;
-  /** Private extension; see file header. */
-  figure?: FigureSelector;
-  /** Private extension; see file header. */
-  table?: TableSelector;
 
   // Location hint
   location?: FragmentSelector;
@@ -110,8 +81,6 @@ export interface ASTRAInput {
 
   // Data inputs
   source?: string;
-  /** Private extension; see file header. */
-  checksum?: ASTRAChecksum;
 
   // Analysis inputs
   ref?: string;

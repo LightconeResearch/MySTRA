@@ -7,6 +7,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { astraToMystAST, buildAllPages } from '../src/transform/index.js';
 import type { ASTRAAnalysis, ASTRAUniverse } from '../src/types/astra.js';
 
@@ -829,24 +832,29 @@ describe('structural-element identifiers (end-to-end)', () => {
     expect(flat).not.toContain('Excluded:');
   });
 
-  it('end-to-end: anchor + markdown in figure caption render and resolve', () => {
+  it('end-to-end: anchor + markdown in figure-output description render and resolve', () => {
+    // Figure rendering is driven by Output.type === 'figure'; the
+    // caption-equivalent metadata lives on Output.description (it
+    // parses with the narrative anchor grammar like every other
+    // prose surface). There is no Evidence.figure selector — the
+    // 'what kind' concern lives on Output, not Evidence.
     const a: ASTRAAnalysis = {
       ...fixture(),
+      outputs: [
+        {
+          id: 'best_fit_plot',
+          type: 'figure',
+          label: 'Fig. 3',
+          description: 'Performance versus the [iris baseline](#inputs.iris_data).',
+        },
+      ],
       findings: {
         best_model: {
           id: 'best_model',
           claim: 'SVM wins',
           created_at: '2024-01-01',
           evidence: [
-            {
-              id: 'ev1',
-              doi: '10.1234/foo',
-              figure: {
-                type: 'FigureSelector',
-                label: 'Fig. 3',
-                caption: 'Performance versus the [iris baseline](#inputs.iris_data).',
-              },
-            },
+            { id: 'ev1', artifact: 'best_fit_plot' },
           ],
         },
       },
@@ -854,7 +862,7 @@ describe('structural-element identifiers (end-to-end)', () => {
     const ast = astraToMystAST({
       analysis: a,
       universe: emptyUniverse(),
-      results: new Map(),
+      results: new Map([['best_fit_plot', '/tmp/best_fit_plot.png']]),
       projectDir: '/tmp',
       slug: 'index',
     });
@@ -865,15 +873,128 @@ describe('structural-element identifiers (end-to-end)', () => {
     }
     for (const n of ast.children) walk(n);
     expect(xrefs.some((x) => x.identifier === 'input-iris_data')).toBe(true);
-    // Caption is no longer glued via string interpolation — the
-    // text "Performance versus the [iris baseline]" should
-    // never appear as a single text node, because the anchor
-    // is now a crossReference. Search for the unsplit phrase
-    // including the link syntax to confirm migration.
     const flat = JSON.stringify(ast);
     expect(flat).not.toContain('[iris baseline](#inputs.iris_data)');
-    // Sanity: the leading caption text is parsed and present.
     expect(flat).toContain('Performance versus the');
+  });
+});
+
+describe('artifact evidence dispatches on Output.type', () => {
+  // Drop-in spec alignment: figure / table rendering is driven by
+  // Output.type, not by an Evidence selector. label / description
+  // on Output carry the caption-equivalent metadata.
+
+  function withOutput(o: { id: string; type: 'figure' | 'table' | 'metric' | 'data' | 'report'; label?: string; description?: string }): ASTRAAnalysis {
+    return {
+      name: 'WithOutput',
+      decisions: {},
+      prior_insights: {},
+      findings: {
+        f1: {
+          id: 'f1',
+          claim: 'Result',
+          created_at: '2024-01-01',
+          evidence: [{ id: 'ev1', artifact: o.id }],
+        },
+      },
+      outputs: [o],
+    };
+  }
+
+  it('Output.type=figure renders an image+caption container', () => {
+    const a = withOutput({
+      id: 'plot',
+      type: 'figure',
+      label: 'Plot',
+      description: 'A figure caption.',
+    });
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: { id: 'u', decisions: {} },
+      results: new Map([['plot', '/tmp/plot.png']]),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const figures: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'container' && n.kind === 'figure') figures.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(figures).toHaveLength(1);
+    const flat = JSON.stringify(figures[0]);
+    expect(flat).toContain('A figure caption.');
+    expect(flat).toContain('/static/plot.png');
+  });
+
+  it('Output.type=table renders a JSON file as a collapsible table', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'mystra-test-'));
+    const file = join(tmpDir, 'metrics.json');
+    writeFileSync(file, JSON.stringify({ accuracy: 0.95, precision: 0.92 }));
+    const a = withOutput({ id: 'metrics', type: 'table', label: 'Metrics' });
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: { id: 'u', decisions: {} },
+      results: new Map([['metrics', file]]),
+      projectDir: tmpDir,
+      slug: 'index',
+    });
+    const detailsNodes: any[] = [];
+    function walk(n: any) {
+      if (n.type === 'details') detailsNodes.push(n);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const n of ast.children) walk(n);
+    expect(detailsNodes.length).toBeGreaterThan(0);
+    const flat = JSON.stringify(detailsNodes);
+    expect(flat).toContain('accuracy');
+    expect(flat).toContain('Metrics');
+  });
+
+  it('broken evidence.artifact reference (output id not declared) emits console.warn', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Broken',
+      decisions: {},
+      prior_insights: {},
+      findings: {
+        f1: {
+          id: 'f1',
+          claim: 'Whatever',
+          created_at: '2024-01-01',
+          evidence: [{ id: 'ev1', artifact: 'nonexistent' }],
+        },
+      },
+      outputs: [],
+    };
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (msg: any) => { warns.push(String(msg)); };
+    try {
+      astraToMystAST({
+        analysis: a,
+        universe: { id: 'u', decisions: {} },
+        results: new Map(),
+        projectDir: '/tmp',
+        slug: 'index',
+      });
+    } finally {
+      console.warn = orig;
+    }
+    expect(warns.some((w) => w.includes('nonexistent'))).toBe(true);
+  });
+
+  it('declared output but unproduced artifact still renders a Pending Output admonition', () => {
+    const a = withOutput({ id: 'pending_plot', type: 'figure' });
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: { id: 'u', decisions: {} },
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const flat = JSON.stringify(ast);
+    expect(flat).toContain('Pending Output');
+    expect(flat).toContain('pending_plot');
   });
 });
 
