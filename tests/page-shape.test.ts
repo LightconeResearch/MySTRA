@@ -139,6 +139,23 @@ describe('astraToMystAST page shape', () => {
     expect(flat).not.toContain('No success criteria defined');
   });
 
+  it('does not emit a renderer-imposed methods intro paragraph', () => {
+    const ast = astraToMystAST({
+      analysis: fixture(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    // The legacy intro ("The following sections detail each
+    // methodological decision…") claimed alternative options
+    // could be explored via tabs — no longer true under the flat
+    // addressable-elements layout.
+    const flat = JSON.stringify(ast);
+    expect(flat).not.toContain('The following sections detail');
+    expect(flat).not.toContain('alternative options can be explored');
+  });
+
   it('resolves narrative anchors against the host analysis', () => {
     // The methods section in the fixture contains a link to
     // `#decisions.scaling`; that should be a crossReference in the

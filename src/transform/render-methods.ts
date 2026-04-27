@@ -31,17 +31,6 @@ export function renderMethodsSections(
   const groups = groupDecisionsByTag(decisions);
   const nodes: any[] = [];
 
-  // Intro paragraph
-  nodes.push(
-    paragraph([
-      text(
-        'The following sections detail each methodological decision. ' +
-        'Decisions are organized by scientific concern. Each decision shows the selected option ' +
-        'with supporting evidence; alternative options can be explored via tabs.',
-      ),
-    ]),
-  );
-
   for (const group of groups) {
     // Section heading (h3)
     nodes.push(heading(3, [text(group.sectionLabel)], group.sectionId));
