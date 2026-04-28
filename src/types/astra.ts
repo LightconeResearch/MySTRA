@@ -184,9 +184,13 @@ export interface ASTRAAnalysis {
   narrative?: ASTRANarrative;
   inputs?: ASTRAInput[];
   outputs?: ASTRAOutput[];
-  decisions: Record<string, ASTRADecision>;
-  prior_insights: Record<string, ASTRAInsight>;
-  findings: Record<string, ASTRAInsight>;
+  // decisions / prior_insights / findings are multivalued inlined in
+  // the spec with no `required: true`, so a stub analysis legitimately
+  // has none. Optional in TypeScript matches that semantics; render
+  // helpers already defend with `?? {}` everywhere they read these.
+  decisions?: Record<string, ASTRADecision>;
+  prior_insights?: Record<string, ASTRAInsight>;
+  findings?: Record<string, ASTRAInsight>;
   /** Image name to pull, or path to a Containerfile to build. */
   container?: string;
   path?: string;
