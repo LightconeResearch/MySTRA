@@ -16,7 +16,7 @@ import { renderPriorInsights } from './render-prior-insights.js';
 import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
-import { makeProseParser } from './narrative-parser.js';
+import { makeProseParser, firstParagraphText } from './narrative-parser.js';
 
 export interface ASTRASource {
   analysis: ASTRAAnalysis;
@@ -125,7 +125,7 @@ export function buildAllPages(
     title: analysis.name ?? slug,
     authors: (analysis.authors ?? []).map((name) => ({ name })),
     tags: analysis.tags,
-    description: firstParagraph(analysis.narrative?.summary),
+    description: firstParagraphText(analysis.narrative?.summary),
   };
 
   // Collect identifiers for cross-references
@@ -219,22 +219,6 @@ function collectDependencies(results: Map<string, string>): string[] {
     }
   }
   return deps;
-}
-
-/**
- * Plain-text first paragraph of a markdown string, with simple inline
- * markdown stripped — suitable for OpenGraph/SEO descriptions.
- */
-function firstParagraph(md: string | undefined): string | undefined {
-  if (!md) return undefined;
-  const first = md.split(/\n{2,}/, 1)[0]?.trim();
-  if (!first) return undefined;
-  return first
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\s+/g, ' ');
 }
 
 function collectDOIs(analysis: ASTRAAnalysis): string[] {

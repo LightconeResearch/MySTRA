@@ -152,6 +152,39 @@ export function makeProseParser(context: ProseContext): ProseParser {
 }
 
 /**
+ * Extract the first paragraph of a Markdown string as a plain-text
+ * single line — suitable for OpenGraph / SEO descriptions and
+ * sub-analysis card previews. Walks the parsed mdast and collects
+ * `text`/`inlineCode` leaves under the first `paragraph` block,
+ * preserving order and inserting natural spaces. Anchor links and
+ * formatting (emphasis, strong, code) collapse to their visible
+ * text. Returns `undefined` if the input is empty or contains no
+ * paragraph block.
+ */
+export function firstParagraphText(md: string | undefined): string | undefined {
+  if (!md) return undefined;
+  const tree = mystParse(md);
+  const blocks = tree.children ?? [];
+  const para = blocks.find((b: any) => b?.type === 'paragraph');
+  if (!para) return undefined;
+  const collected = collectVisibleText(para).trim().replace(/\s+/g, ' ');
+  return collected || undefined;
+}
+
+function collectVisibleText(node: any): string {
+  if (!node || typeof node !== 'object') return '';
+  // Leaf-level visible text. `text` and `inlineCode` carry literal
+  // strings; `link` children carry the link's display text (the URL
+  // doesn't belong in an SEO description).
+  if (node.type === 'text' && typeof node.value === 'string') return node.value;
+  if (node.type === 'inlineCode' && typeof node.value === 'string') return node.value;
+  if (Array.isArray(node.children)) {
+    return node.children.map(collectVisibleText).join('');
+  }
+  return '';
+}
+
+/**
  * Recursively strip the `position` field that markdown-it injects.
  * The book-theme ignores it, but it bloats the JSON payload and
  * makes test snapshots noisy.
