@@ -315,6 +315,13 @@ function renderJSONTable(
     return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
   }
 
+  // Parsed but didn't match a known shape (object-of-objects, flat
+  // object, array-of-objects). Surface it the same way an unknown
+  // artifact id is surfaced — silent fallback hides misconfigured
+  // outputs from operators.
+  console.warn(
+    `[mystra] JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
+  );
   return [paragraph([text(`Output: `), inlineCode(artifactId)])];
 }
 
