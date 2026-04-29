@@ -45,7 +45,7 @@ export interface SiteAction {
   internal?: boolean;
 }
 
-// ── Page content (GET /content/:project/:slug.json) ──
+// ── Page content (GET /content/*.json) ──
 
 export interface PageContent {
   kind: 'Article';

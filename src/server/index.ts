@@ -85,8 +85,12 @@ export function createContentServer(options: ServerOptions): ContentServer {
 
   // API routes
   app.get('/config.json', configHandler(() => pages, siteTitle));
-  app.get('/content/:slug.json', contentHandler(() => pages, () => references));
-  app.get('/content/:project/:slug.json', contentHandler(() => pages, () => references));
+  // Wildcard captures the full page slug — including any `/` from
+  // nested sub-analyses (`buildAllPages` joins the analysis path with
+  // `/`). A single splat route replaces the previous pair of
+  // `:slug.json` / `:project/:slug.json` handlers, neither of which
+  // could match slugs deeper than two segments correctly.
+  app.get('/content/*.json', contentHandler(() => pages, () => references));
   app.get('/myst.xref.json', xrefHandler(() => pages));
 
   // Endpoint to get DOI metadata (used by evidence rendering at request time)
