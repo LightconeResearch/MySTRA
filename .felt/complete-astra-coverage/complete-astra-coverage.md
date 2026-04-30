@@ -10,52 +10,46 @@ tags:
     - architecture
 created-at: 2026-05-01T01:07:02.437378+02:00
 outcome: |-
-    PHASES A, B, E LANDED (MySTRA `cail/spec-catchup`, three commits 2026-05-01).
-    Type surface, emission, and CI guard are all in place.
+    ALL FOUR SUBSTANTIVE PHASES LANDED (MySTRA `cail/spec-catchup`,
+    four commits 2026-05-01). Type surface, both emission carriers
+    (provenance + recipe), and the CI guard are all in place.
+    MySTRA's job at the boundary is done.
 
     **Phase A — type-file v0.0.7 parity** (commit `2a6aea6`):
     `ASTRAOutput` gains `inputs?` / `decisions?`; `ASTRARecipe`
     drops the dead `inputs?` slot; `ASTRAResources` gains `disk?`;
     `ASTRAInput` / `ASTRAOutput` `type` becomes optional (aliased
     nodes inherit). Header docstring tracks v0.0.7 (`ed13f48`).
-    Selector types stripped of unused JSON-LD discriminators.
 
     **Phase B — Output provenance emission** (commit `8984766`):
     new `render-output-provenance.ts` emits one
     `container.kind=output-provenance` per Output with non-empty
     inputs/decisions. `data: { astraKind, outputId, inputs,
-    decisions, from, unresolved }` is the consumer contract;
-    inline `crossReference` chips render as fallback. New
-    `resolve-output.ts` walks `Output.from` chains through nested
-    `analyses` so aliased outputs inherit
-    type/description/inputs/decisions/recipe; multi-segment
-    descent (`outer.inner.leaf`) and chained re-exports both
-    handled. Smoke-tested on `astra-spec/examples/iris_pipeline`
-    — all six outputs emit correct provenance carriers across
-    top + two sub-pages. 9 new test cases.
+    decisions, from, unresolved }` is the consumer contract.
+    Aliased outputs resolve via `resolve-output.ts`. 9 test cases.
+
+    **Phase C — Output recipe emission** (commit `f76da78`):
+    new `render-output-recipe.ts` emits one
+    `container.kind=output-recipe` per Output with a non-empty
+    resolved recipe. `data: { astraKind, outputId, command,
+    container, resources, from, unresolved }` is the consumer
+    contract. Display is downstream (renderers suppress for
+    "hide" or pattern-match `data` for "render"). 8 test cases.
 
     **Phase E — CI coverage guard** (commit `2938612`):
     `tests/schema-coverage.test.ts` walks vendored
     `tests/fixtures/schema-v0.0.7/*.yaml` and asserts every slot
-    is referenced in `src/types/astra.ts`. Bump discipline lives
-    at `tests/fixtures/schema-v0.0.7/README.md`. New
-    classes/slots without a TS landing surface fail loudly.
+    is referenced in `src/types/astra.ts`.
 
-    **Phases C & D remain.**
-    - **Phase C (Recipe emission).** Open. Schema fully specified
-      in v0.0.7: `Recipe` has `command` (template), `resources`,
-      `container`. Per the principle, mystra emits as a pure
-      container (`kind: 'output-recipe'`); display is downstream.
-      Mirror of `render-output-provenance.ts`. Just work to do.
-    - **Phase D (lightcone-ui consumer cleanup).** Blocked on
-      Phase B being published / bundled into lightcone-ui. Once
-      this branch (`cail/spec-catchup`) merges and lightcone-ui
-      consumes the new MySTRA, `bundle.ts`'s `resolveAliasedOutput`
-      and `buildOutputEntry` collapse into a pattern-match on
-      `kind: 'output-provenance'` mdast nodes.
+    Consumer cleanup (porting lightcone-ui's vanilla `bundle.ts`
+    direct-read of `Output.inputs/decisions` into pattern-matches
+    on mystra's emitted `output-provenance` / `output-recipe`
+    containers) is tracked downstream in
+    `lightcone-ui/.felt/mainline-parity` — not MySTRA's scope.
+    Phase D is removed from this constitution: once mystra emits,
+    consumers absorb on their own schedule.
 
-    Test status: `npm test` → 102 passing (3 files, 0 failing).
-    `npm run build` → clean.
+    Test status: `npm test` → 110 passing. `npm run build` → clean.
 ---
 
 Constitution rides alongside the v0.0.6 catchup [PR #1](https://github.com/LightconeResearch/MySTRA/pull/1) — formalizes the "no spec leaks" principle and audits coverage against astra-spec v0.0.7.
@@ -96,7 +90,7 @@ The principle wasn't new — it's been implicit in the parent direction (mystra 
 | Input | `analysis.yaml: Input` | `render-data-sources.ts` | ✅ Registry; ⚠️ emits `table` (retrofit candidate) |
 | Output | `analysis.yaml: Output` | `render-data-sources.ts` | ✅ Registry; ⚠️ emits `table` (retrofit candidate) |
 | **Output.inputs / Output.decisions** (provenance) | `analysis.yaml: Output.inputs/decisions` (v0.0.7 #19) | **`render-output-provenance.ts`** (new in Phase B) | ✅ Pure container `kind: 'output-provenance'` |
-| Output.recipe | `analysis.yaml: Recipe` | (none) | ⚠️ Phase C — decision pending |
+| Output.recipe | `analysis.yaml: Recipe` | `render-output-recipe.ts` | ✅ Phase C landed |
 | Sub-analyses | `analysis.yaml: Analysis.analyses` | `render-sub-analyses.ts` | ✅ |
 | Universe (selected options) | `universe.yaml: Universe` | `render-universe-banner.ts` | ✅ |
 | Evidence (selectors) | `insight.yaml: TextQuoteSelector, FragmentSelector, ArtifactEvidence` | `render-evidence.ts` | ✅ |
@@ -128,40 +122,32 @@ Phase E's CI guard now enforces that every spec slot has at least one TS interfa
 - Smoke-tested on `astra-spec/examples/iris_pipeline` — all six outputs emit correct provenance carriers across top + two sub-pages
 - 9 new test cases
 
-The consumer contract is the `data` slot; lightcone-ui (Phase D) pattern-matches on `kind: 'output-provenance'`.
+The consumer contract is the `data` slot. Pattern-matching on `kind: 'output-provenance'` is the consumer's job (e.g., the React port handles this in `packages/renderer/src/layout/Section.tsx`); how each consumer absorbs the emission is downstream of mystra.
 
-### Phase C — emit Output.recipe as structured mdast ⏳ open
+### Phase C — emit Output.recipe as structured mdast ✅ landed `f76da78`
 
-Per the principle (mystra emits structured data, renderer decides display), the work is straightforward implementation — not a decision gate.
-
-astra-spec v0.0.7's `Recipe` has exactly three attributes (read directly from `astra-spec/src/astra/schema/analysis.yaml`):
-
-- `command` — POSIX shell command template. Placeholders: `{inputs.<id>}`, `{inputs}`, `{decisions.<id>}`, `{output}` (substituted by the runner from declared `Output.inputs` / `Output.decisions`). `{{ }}` for literal braces. Static constants belong inline; varying values are decisions.
-- `resources` — inlined `Resources` (cpus, memory, time_limit, etc.)
-- `container` — image name (pulled) or path to a Containerfile (built)
-
-Emission shape, mirroring Phase B:
+`render-output-recipe.ts` emits one `container.kind=output-recipe` per Output with a non-empty resolved recipe. The consumer contract:
 
 ```
 type: 'container', kind: 'output-recipe', identifier: 'output-<id>-recipe',
 data: {
   astraKind: 'output-recipe',
   outputId: '<id>',
-  command, resources, container
+  command, container, resources, from, unresolved
 }
 ```
 
-Place adjacent to the Output's provenance carrier. Renderer's kind-handler decides hide vs collapsible vs inline; mystra is silent on display.
+Fallback children are a single `details` block (open=false) holding a `summary 'Recipe'`, a fenced bash `code` block for the command, and labeled paragraphs for container and resources — sensible default for renderers that don't pattern-match on `data`. Renderers that do pattern-match on `data` ignore the fallback and render their own shape.
 
-Whether to render the resolved (placeholder-substituted) command for a given universe, or only the template, is a renderer-side question — for the structural carrier, emit the template plus enough context (the Output's `inputs` and `decisions` already in the provenance carrier) for the renderer to compute substitutions if it wants.
+Display is downstream (suppress for "hide", pattern-match for "render"). Recipe vocabulary is frozen at v0.0.7 (`command` template, `resources`, `container`); no ambiguity to defer.
 
-### Phase D — port lightcone-ui's direct reads back through MySTRA ⏳ blocked on Phase B publishing
+8 new test cases.
 
-Once `cail/spec-catchup` merges and lightcone-ui consumes the new MySTRA:
+### Phase D — *removed (consumer concern, not MySTRA's)*
 
-- [ ] `lightcone-ui` `bundle.ts`'s `resolveAliasedOutput` and `buildOutputEntry` collapse into a pattern-match on `kind: 'output-provenance'` mdast nodes (the work that landed in `ed0e69c` reads moves through mystra)
-- [ ] Audit other lightcone-ui call sites that read `astra.yaml` directly; each becomes either a mystra-emission gap or a documented exception
-- [ ] Lock in: a new consumer reading `astra.yaml` directly is a code-review red flag; the request goes to MySTRA first
+The earlier draft of this constitution included a "port lightcone-ui's `bundle.ts` direct-reads through mystra-emitted nodes" phase. That's overreach: once mystra emits, what consumers do with the emission is downstream. The consumer cleanup arc (porting lightcone-ui's vanilla bundle path to pattern-match on `output-provenance` containers) lives in `lightcone-ui/.felt/mainline-parity` as Phase 13 of the React port catchup, where it belongs.
+
+What MySTRA owes its consumers: stable emission shape (the `data` slot contract), publication of the new emissions (push the branch, cut a release), and discipline to keep emitting completely (Phase E's CI guard). The consumer-side "stop reading the spec directly" arc is a *consequence* of the principle being held in mystra, not an additional phase mystra ships.
 
 ### Phase E — CI coverage guard ✅ landed `2938612`
 
@@ -191,7 +177,7 @@ Phase E now enforces this in CI, but the human discipline remains:
 
 | Question | Resolution |
 |---|---|
-| Recipe emission (Phase C) | Resolved by principle — emit as pure container (`kind: 'output-recipe'`); display is downstream. Schema is fully specified in v0.0.7 (`command`, `resources`, `container`); no upstream decision needed before implementing. |
+| Recipe emission (Phase C) | Landed `f76da78`. Pure container (`kind: 'output-recipe'`) with `data: { command, container, resources, ... }`; renderer decides display. |
 | Inputs/Outputs registry tables vs inline provenance | Both. Registry is the top-of-doc index; inline provenance (Phase B) is the per-Output view. Renderer chooses what to show. |
 | Element-id → mdast-location index | Yes, expose. Filed as future work — not blocking the constitution. Built once during emit, O(1) lookup. |
 | Resources / KeyValuePair | Phase A's TS audit added them as needed; emission as consumers require. |
@@ -201,11 +187,11 @@ Phase E now enforces this in CI, but the human discipline remains:
 
 You're working in MySTRA on `cail/spec-catchup`. Phases A, B, E are landed; tests pass; build clean. The remaining open phases:
 
-**Phase C** is straightforward implementation — mirror `render-output-provenance.ts` for `Output.recipe`. Schema's three slots (`command`, `resources`, `container`) are fully specified in v0.0.7's `analysis.yaml`. No upstream decision gate. Display is downstream.
+**Phases A, B, C, E are landed.** All four substantive phases shipped on `cail/spec-catchup` over 2026-05-01: types parity (`2a6aea6`), provenance emission (`8984766`), recipe emission (`f76da78`), CI guard (`2938612`). MySTRA's job at the boundary is done.
 
-**Phase D** unblocks when this branch publishes / lightcone-ui consumes the new MySTRA. Pattern-matching `kind: 'output-provenance'` in lightcone-ui's bundle loader is a small change; the audit pass for other direct-bundle reads is the larger ask.
+**Consumer-side cleanup** (the vanilla bundle's direct-read collapsing into pattern-match) is tracked downstream in `lightcone-ui/.felt/mainline-parity` Phase 13, not here. MySTRA's job at the boundary ends with stable emission and publication; how consumers absorb the new kinds is their call.
 
-The principle is the load-bearing thing. Even outside the numbered phases: when a new astra-spec slot arrives without mystra coverage, that's the leak this constitution was written to prevent. The CI guard catches the type-side; pattern-match on emitted mdast everywhere downstream catches the consumer-side.
+The principle is the load-bearing thing. Even outside the numbered phases: when a new astra-spec slot arrives without mystra coverage, that's the leak this constitution was written to prevent. The CI guard (Phase E) catches future drift on the emit side; consumer-side discipline (no direct astra.yaml reads) is each consumer's own constitution to hold.
 
 ## Related
 
@@ -214,5 +200,6 @@ The principle is the load-bearing thing. Even outside the numbered phases: when 
 - [LightconeResearch/astra-spec PR #19](https://github.com/LightconeResearch/astra-spec/pull/19) — Output as unit of provenance (the change that surfaced the leak)
 - [LightconeResearch/astra-spec PR #18](https://github.com/LightconeResearch/astra-spec/pull/18) — `from_ref` → `from` rename
 - [LightconeResearch/astra-spec v0.0.7 release](https://github.com/LightconeResearch/astra-spec/releases/tag/v0.0.7)
-- [LightconeResearch/lightcone-ui commit ed0e69c](https://github.com/LightconeResearch/lightcone-ui/commit/ed0e69c) — the direct-bundle provenance read that Phase D ports back through mystra
+- [LightconeResearch/lightcone-ui commit ed0e69c](https://github.com/LightconeResearch/lightcone-ui/commit/ed0e69c) — the direct-bundle provenance read that surfaced the leak (consumer-side cleanup tracked in `lightcone-ui/.felt/mainline-parity`)
+- `lightcone-ui/.felt/mainline-parity` — sibling constitution for the React port; Phase 13 there picks up MySTRA's emitted `output-provenance` containers via kind-handlers
 - `tests/fixtures/schema-v0.0.7/README.md` — bump discipline for the CI coverage guard
