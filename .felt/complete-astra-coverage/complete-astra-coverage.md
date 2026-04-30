@@ -1,6 +1,6 @@
 ---
 name: MySTRA owns the entire ASTRA → mdast translation
-status: active
+status: closed
 tags:
     - constitution
     - mystra
@@ -10,10 +10,11 @@ tags:
     - architecture
 created-at: 2026-05-01T01:07:02.437378+02:00
 outcome: |-
-    ALL FOUR SUBSTANTIVE PHASES LANDED (MySTRA `cail/spec-catchup`,
-    four commits 2026-05-01). Type surface, both emission carriers
-    (provenance + recipe), and the CI guard are all in place.
-    MySTRA's job at the boundary is done.
+    REALIZED AND PUBLISHED. MySTRA `cail/spec-catchup` now owns
+    astra-spec v0.0.7 coverage end-to-end: type surface, both
+    emission carriers (output provenance + output recipe), and the
+    schema coverage guard are in place and pushed to
+    `origin/cail/spec-catchup`.
 
     **Phase A — type-file v0.0.7 parity** (commit `2a6aea6`):
     `ASTRAOutput` gains `inputs?` / `decisions?`; `ASTRARecipe`
@@ -49,7 +50,8 @@ outcome: |-
     Phase D is removed from this constitution: once mystra emits,
     consumers absorb on their own schedule.
 
-    Test status: `npm test` → 110 passing. `npm run build` → clean.
+    Verification: `npm test -- --run` → 110 passing. `npm run
+    build` → clean.
 ---
 
 Constitution rides alongside the v0.0.6 catchup [PR #1](https://github.com/LightconeResearch/MySTRA/pull/1) — formalizes the "no spec leaks" principle and audits coverage against astra-spec v0.0.7.
