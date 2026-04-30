@@ -40,11 +40,14 @@ export function renderInputsTable(inputs: ASTRAInput[], prose: ProseParser): any
   // `tableRow` doesn't formally have an identifier slot, but the
   // node tolerates extra fields and the xref index keys off
   // `identifier` regardless of node type.
+  // `type` is schema-optional only for aliased inputs (those with
+  // `from:`). Fall back to an empty cell when absent — Phase B's
+  // alias-resolution emission will surface the inherited type.
   const dataRows = inputs.map((input) => {
     const descCell = prose.inline(input.description);
     const row: any = tableRow([
       tableCell([strong([text(input.label ?? input.id)])]),
-      tableCell([text(input.type)]),
+      tableCell([text(input.type ?? '')]),
       tableCell(descCell.length > 0 ? descCell : [text('')]),
     ]);
     row.identifier = `input-${input.id}`;
@@ -75,11 +78,15 @@ export function renderOutputsTable(outputs: ASTRAOutput[], prose: ProseParser): 
     true,
   );
 
+  // `type` is schema-optional only for aliased outputs (those with
+  // `from:`); the resolved type lives at the source. Fall back to an
+  // empty cell when type is absent — Phase B's resolved-output
+  // emission will surface the inherited type once it lands.
   const dataRows = outputs.map((output) => {
     const descCell = prose.inline(output.description);
     const row: any = tableRow([
       tableCell([strong([text(output.label ?? output.id)])]),
-      tableCell([text(output.type)]),
+      tableCell([text(output.type ?? '')]),
       tableCell(descCell.length > 0 ? descCell : [text('')]),
     ]);
     row.identifier = `output-${output.id}`;

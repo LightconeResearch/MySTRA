@@ -1,12 +1,17 @@
 # MySTRA — Live ASTRA Document Rendering via MyST
 
-> Tracks **astra-spec v0.0.6** (commit `1d948cf`). Notable v0.0.5→v0.0.6
-> deltas reflected in the transform: `Analysis.description` is replaced
-> by a structured `Analysis.narrative` with five Markdown sections and
-> tree-path anchor grammar; `container_build` is folded into a single
-> string `container` field; `Input.from_ref` is now `Input.from`;
-> `Input`/`Output`/`Insight` carry an optional `label` for compact
-> handles; reserved-keyword IDs are forbidden upstream.
+> Tracks **astra-spec v0.0.7** (commit `ed13f48`). Notable v0.0.6→v0.0.7
+> deltas reflected in the transform's type surface (`src/types/astra.ts`):
+> `Output.inputs` and `Output.decisions` now carry the per-output
+> provenance contract (PR #19); `Recipe` shrinks to pure *how*
+> (`command`, `resources`, `container`); `Resources` gains `disk`. The
+> Recipe template grammar (`{inputs.<id>}`, `{decisions.<id>}`,
+> `{output}`) is the runner's substitution surface, not MySTRA's.
+> Earlier v0.0.5→v0.0.6 deltas — structured `Analysis.narrative` with
+> tree-path anchor grammar, `container_build` collapsed into
+> `container`, `from_ref` renamed to `from`, optional `label` on
+> `Input`/`Output`/`Insight`, reserved-keyword ID exclusions — remain
+> in force.
 
 ## 1. Goal
 
