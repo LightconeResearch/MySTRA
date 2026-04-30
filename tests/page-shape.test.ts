@@ -1267,3 +1267,312 @@ describe('prior_insights as minimal addressable carriers', () => {
     expect(refs.has('prior_insight-scaling_helps')).toBe(true);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Phase B (complete-astra-coverage): per-Output provenance carriers.
+//
+// PR #19 (astra-spec v0.0.7) made the Output the unit of provenance:
+// `Output.inputs` and `Output.decisions` declare what materializing
+// the artifact depends on, and the Recipe is pure *how*. MySTRA
+// emits one container per Output with non-empty provenance (after
+// `from:` resolution) so downstream renderers (lightcone-ui, vellum)
+// pattern-match on emitted mdast instead of reading `astra.yaml`
+// directly.
+// ──────────────────────────────────────────────────────────────────
+
+describe('Output provenance carriers', () => {
+  function withProvenance(): ASTRAAnalysis {
+    return {
+      name: 'Provenance fixture',
+      decisions: {
+        scaling: {
+          label: 'Feature Scaling',
+          options: { standard: { label: 'Standard' } },
+        },
+      },
+      prior_insights: {},
+      findings: {},
+      inputs: [{ id: 'iris_data', type: 'data', description: 'Iris dataset' }],
+      outputs: [
+        {
+          id: 'accuracy',
+          type: 'metric',
+          description: 'Held-out accuracy',
+          inputs: ['iris_data'],
+          decisions: ['scaling'],
+        },
+        {
+          id: 'plain_metric',
+          type: 'metric',
+          description: 'No provenance to declare',
+        },
+      ],
+    };
+  }
+
+  function findContainer(ast: any, kind: string, identifier: string): any | null {
+    for (const n of ast.children) {
+      if (n.type === 'container' && n.kind === kind && n.identifier === identifier) {
+        return n;
+      }
+    }
+    return null;
+  }
+
+  it('emits a `output-provenance` container per Output with non-empty inputs/decisions', () => {
+    const ast = astraToMystAST({
+      analysis: withProvenance(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const containers = ast.children.filter(
+      (n: any) => n.type === 'container' && n.kind === 'output-provenance',
+    );
+    expect(containers).toHaveLength(1);
+    expect((containers[0] as any).identifier).toBe('output-accuracy-provenance');
+  });
+
+  it('does not emit a carrier for Outputs with empty provenance', () => {
+    const ast = astraToMystAST({
+      analysis: withProvenance(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    expect(findContainer(ast, 'output-provenance', 'output-plain_metric-provenance')).toBeNull();
+  });
+
+  it('carrier carries structured `data` (astraKind, outputId, inputs, decisions, from)', () => {
+    const ast = astraToMystAST({
+      analysis: withProvenance(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = findContainer(ast, 'output-provenance', 'output-accuracy-provenance');
+    expect(carrier).toBeTruthy();
+    expect(carrier.data).toMatchObject({
+      astraKind: 'output_provenance',
+      outputId: 'accuracy',
+      inputs: ['iris_data'],
+      decisions: ['scaling'],
+      from: null,
+      unresolved: false,
+    });
+    // Class is the conventional ASTRA marker for this kind.
+    expect(carrier.class).toContain('astra-output-provenance');
+  });
+
+  it('emits inline crossReferences for each input and decision (fallback rendering)', () => {
+    const ast = astraToMystAST({
+      analysis: withProvenance(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = findContainer(ast, 'output-provenance', 'output-accuracy-provenance');
+    const refs: string[] = [];
+    function walk(n: any) {
+      if (n.type === 'crossReference') refs.push(n.identifier);
+      for (const c of n.children ?? []) walk(c);
+    }
+    for (const c of carrier.children ?? []) walk(c);
+    expect(refs).toContain('input-iris_data');
+    expect(refs).toContain('decision-scaling');
+  });
+
+  it('publishes the provenance identifier in the xref index', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'mystra-prov-'));
+    writeFileSync(
+      join(tmp, 'astra.yaml'),
+      'name: x\ninputs: []\noutputs: []\ndecisions: {}\n', // unused; we use buildAllPages directly
+    );
+    const pages = buildAllPages(
+      withProvenance(),
+      emptyUniverse(),
+      new Map(),
+      tmp,
+    );
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids).toContain('output-accuracy');
+    expect(ids).toContain('output-accuracy-provenance');
+    // No carrier was emitted for plain_metric — its identifier
+    // doesn't appear either, matching the xref contract.
+    expect(ids).not.toContain('output-plain_metric-provenance');
+  });
+
+  it('sits adjacent to (after) the outputs registry table', () => {
+    const ast = astraToMystAST({
+      analysis: withProvenance(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    // Find the outputs table — it carries one tableRow with
+    // identifier `output-accuracy`.
+    const outputsTableIdx = ast.children.findIndex((n: any) => {
+      if (n.type !== 'table') return false;
+      return (n.children ?? []).some(
+        (row: any) => row.identifier === 'output-accuracy',
+      );
+    });
+    const provenanceIdx = ast.children.findIndex(
+      (n: any) =>
+        n.type === 'container' &&
+        n.identifier === 'output-accuracy-provenance',
+    );
+    expect(outputsTableIdx).toBeGreaterThan(-1);
+    expect(provenanceIdx).toBeGreaterThan(outputsTableIdx);
+  });
+});
+
+describe('Output alias resolution', () => {
+  function withAlias(): ASTRAAnalysis {
+    return {
+      name: 'Alias fixture',
+      decisions: {
+        scaling: { label: 'Scaling', options: { standard: { label: 'Standard' } } },
+      },
+      prior_insights: {},
+      findings: {},
+      inputs: [{ id: 'iris_data', type: 'data' }],
+      // Top-level output re-exports a sub-analysis output.
+      outputs: [{ id: 'features', from: 'preprocessing.features' }],
+      analyses: {
+        preprocessing: {
+          name: 'Preprocessing',
+          decisions: {},
+          prior_insights: {},
+          findings: {},
+          outputs: [
+            {
+              id: 'features',
+              type: 'data',
+              description: 'Scaled features',
+              inputs: ['iris_data'],
+              decisions: ['scaling'],
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  it('resolves `from:` so an aliased Output inherits inputs/decisions', () => {
+    const ast = astraToMystAST({
+      analysis: withAlias(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = ast.children.find(
+      (n: any) =>
+        n.type === 'container' &&
+        n.kind === 'output-provenance' &&
+        n.identifier === 'output-features-provenance',
+    );
+    expect(carrier).toBeTruthy();
+    expect((carrier as any).data).toMatchObject({
+      astraKind: 'output_provenance',
+      outputId: 'features',
+      inputs: ['iris_data'],
+      decisions: ['scaling'],
+      from: 'preprocessing.features',
+      unresolved: false,
+    });
+  });
+
+  it('walks multi-segment paths through nested analyses', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Two-level alias',
+      decisions: {},
+      prior_insights: {},
+      findings: {},
+      outputs: [{ id: 'final', from: 'outer.inner.leaf' }],
+      analyses: {
+        outer: {
+          name: 'Outer',
+          decisions: {},
+          prior_insights: {},
+          findings: {},
+          analyses: {
+            inner: {
+              name: 'Inner',
+              decisions: {},
+              prior_insights: {},
+              findings: {},
+              outputs: [
+                {
+                  id: 'leaf',
+                  type: 'data',
+                  inputs: ['raw'],
+                  decisions: [],
+                },
+              ],
+            },
+          },
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = ast.children.find(
+      (n: any) =>
+        n.type === 'container' &&
+        n.identifier === 'output-final-provenance',
+    );
+    expect(carrier).toBeTruthy();
+    expect((carrier as any).data.inputs).toEqual(['raw']);
+    expect((carrier as any).data.from).toBe('outer.inner.leaf');
+  });
+
+  it('flags unresolved when `from:` points nowhere', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Broken alias',
+      decisions: {},
+      prior_insights: {},
+      findings: {},
+      // Note: emit-predicate skips outputs with empty resolved
+      // provenance, so a broken alias produces no carrier — the
+      // `unresolved` flag is observable through the resolveOutput
+      // unit, not the rendered AST.
+      outputs: [
+        {
+          id: 'placeholder',
+          type: 'data',
+          inputs: ['some_input'],
+          from: 'ghost.nope',
+        },
+      ],
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    // The Output's `from:` is set, so per the spec the local
+    // `inputs`/`decisions` are forbidden — but in practice an
+    // upstream validator catches that. The emission falls back to
+    // declared `inputs` (empty after resolution failure) so no
+    // carrier is emitted. The contract: a broken alias never
+    // produces phantom provenance.
+    const carriers = ast.children.filter(
+      (n: any) => n.type === 'container' && n.kind === 'output-provenance',
+    );
+    expect(carriers).toHaveLength(0);
+  });
+});

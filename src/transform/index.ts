@@ -15,6 +15,8 @@ import { renderFindings } from './render-findings.js';
 import { renderPriorInsights } from './render-prior-insights.js';
 import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
+import { renderOutputProvenance } from './render-output-provenance.js';
+import { resolveOutputs } from './resolve-output.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { makeProseParser, firstParagraphText } from './narrative-parser.js';
 
@@ -87,6 +89,14 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem, doiCacheDir),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
     ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
+    // Per-Output provenance blocks (Output.inputs / Output.decisions
+    // from astra-spec v0.0.7 PR #19). Sits adjacent to the outputs
+    // registry table; one container per Output with non-empty
+    // provenance, addressable as `output-<id>-provenance`. The
+    // resolved view is what renderers see — `from:` chains are
+    // walked here so consumers (lightcone-ui, vellum, …) never read
+    // `astra.yaml` directly to recover provenance.
+    ...renderOutputProvenance(analysis),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
       ? renderSubAnalysisCards(analysis.analyses, slug)
       : []),
@@ -205,6 +215,18 @@ function collectIdentifiers(
   }
   for (const input of analysis.inputs ?? []) push(`input-${input.id}`);
   for (const output of analysis.outputs ?? []) push(`output-${output.id}`);
+  // Per-Output provenance carriers. Same predicate as
+  // render-output-provenance.ts (resolved view has non-empty
+  // inputs/decisions) so the xref contract — only publish ids with a
+  // real carrier — holds even for aliased outputs whose provenance
+  // arrives via `from:`.
+  for (const r of resolveOutputs(analysis)) {
+    const inputs = r.resolved.inputs ?? [];
+    const decisions = r.resolved.decisions ?? [];
+    if (inputs.length > 0 || decisions.length > 0) {
+      push(`output-${r.declared.id}-provenance`);
+    }
+  }
   for (const id of Object.keys(analysis.analyses ?? {})) push(`analysis-${id}`);
 
   return entries;

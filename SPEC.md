@@ -117,6 +117,7 @@ DOI auto-resolution (which MyST's markdown parser provides for free) is handled 
 | DOI reference | `cite` / `citeGroup` (or `link` fallback when uncached) |
 | Input | `tableRow` carrying `input-<id>` |
 | Output | `tableRow` carrying `output-<id>` |
+| Output provenance (Output.inputs / Output.decisions) | `container` (kind: output-provenance) carrying `output-<id>-provenance` + `data.{outputId, inputs, decisions, from, unresolved}` + inline `crossReference` chips for each input / decision |
 | Sub-analysis | Separate page + `card` (carrying `analysis-<id>`) in parent |
 
 ### Document structure
@@ -145,6 +146,9 @@ Root
 ├── Decisions (flat)         one h4 + details + tabSet per rendered decision
 ├── Inputs table             one row per input, carrying input-<id>
 ├── Outputs table            one row per output, carrying output-<id>
+├── Output provenance        one container per Output with non-empty
+│                            inputs/decisions (after `from:` resolution),
+│                            carrying output-<id>-provenance
 └── Sub-analysis cards       one card per nested analysis, carrying analysis-<id>
 ```
 
