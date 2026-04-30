@@ -1576,3 +1576,258 @@ describe('Output alias resolution', () => {
     expect(carriers).toHaveLength(0);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────
+// Phase C (complete-astra-coverage): per-Output recipe carriers.
+//
+// Recipe is the *how* of an Output (command, container, resources).
+// MySTRA emits one `kind: 'output-recipe'` container per Output with
+// a non-empty resolved recipe; structured `data` slot is the renderer
+// contract, fallback children are a collapsed `details` block.
+// Closes the Recipe coverage hole — no consumer needs to read
+// `astra.yaml` to surface (or hide) recipes.
+// ──────────────────────────────────────────────────────────────────
+
+describe('Output recipe carriers', () => {
+  function withRecipe(): ASTRAAnalysis {
+    return {
+      name: 'Recipe fixture',
+      decisions: {},
+      prior_insights: {},
+      findings: {},
+      inputs: [{ id: 'iris_data', type: 'data' }],
+      outputs: [
+        {
+          id: 'accuracy',
+          type: 'metric',
+          description: 'Held-out accuracy',
+          inputs: ['iris_data'],
+          recipe: {
+            command: 'python src/train.py {inputs} > {output}',
+            container: 'python:3.11-slim',
+            resources: { cpus: 4, memory: '8Gi', time_limit: '30m' },
+          },
+        },
+        // No recipe — should produce no carrier.
+        { id: 'plain_metric', type: 'metric' },
+      ],
+    };
+  }
+
+  function findContainer(ast: any, kind: string, identifier: string): any | null {
+    for (const n of ast.children) {
+      if (n.type === 'container' && n.kind === kind && n.identifier === identifier) {
+        return n;
+      }
+    }
+    return null;
+  }
+
+  it('emits a `output-recipe` container per Output with a non-empty recipe', () => {
+    const ast = astraToMystAST({
+      analysis: withRecipe(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const containers = ast.children.filter(
+      (n: any) => n.type === 'container' && n.kind === 'output-recipe',
+    );
+    expect(containers).toHaveLength(1);
+    expect((containers[0] as any).identifier).toBe('output-accuracy-recipe');
+  });
+
+  it('does not emit a carrier for Outputs with no recipe', () => {
+    const ast = astraToMystAST({
+      analysis: withRecipe(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    expect(findContainer(ast, 'output-recipe', 'output-plain_metric-recipe')).toBeNull();
+  });
+
+  it('does not emit a carrier when recipe is present but every field is empty', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Empty recipe',
+      decisions: {},
+      prior_insights: {},
+      findings: {},
+      outputs: [
+        // recipe object exists but no command/container/resources;
+        // emission predicate should skip it.
+        { id: 'noop', type: 'data', recipe: { resources: {} } },
+      ],
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carriers = ast.children.filter(
+      (n: any) => n.type === 'container' && n.kind === 'output-recipe',
+    );
+    expect(carriers).toHaveLength(0);
+  });
+
+  it('carrier carries structured `data` (astraKind, outputId, command, container, resources, from)', () => {
+    const ast = astraToMystAST({
+      analysis: withRecipe(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = findContainer(ast, 'output-recipe', 'output-accuracy-recipe');
+    expect(carrier).toBeTruthy();
+    expect(carrier.data).toMatchObject({
+      astraKind: 'output_recipe',
+      outputId: 'accuracy',
+      command: 'python src/train.py {inputs} > {output}',
+      container: 'python:3.11-slim',
+      resources: { cpus: 4, memory: '8Gi', time_limit: '30m' },
+      from: null,
+      unresolved: false,
+    });
+    expect(carrier.class).toContain('astra-output-recipe');
+  });
+
+  it('fallback children are a single `details` block collapsed by default', () => {
+    const ast = astraToMystAST({
+      analysis: withRecipe(),
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = findContainer(ast, 'output-recipe', 'output-accuracy-recipe');
+    expect(carrier.children).toHaveLength(1);
+    const det = carrier.children[0];
+    expect(det.type).toBe('details');
+    expect(det.open).toBe(false);
+    // First inner node is the summary "Recipe".
+    expect(det.children[0].type).toBe('summary');
+    // Command renders as a fenced bash code block somewhere inside.
+    const codeNode = det.children.find((c: any) => c.type === 'code');
+    expect(codeNode).toBeTruthy();
+    expect(codeNode.lang).toBe('bash');
+    expect(codeNode.value).toContain('python src/train.py');
+  });
+
+  it('publishes the recipe identifier in the xref index', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'mystra-recipe-'));
+    writeFileSync(join(tmp, 'astra.yaml'), 'name: x\n');
+    const pages = buildAllPages(
+      withRecipe(),
+      emptyUniverse(),
+      new Map(),
+      tmp,
+    );
+    const ids = pages[0].identifiers.map((e) => e.identifier);
+    expect(ids).toContain('output-accuracy-recipe');
+    expect(ids).not.toContain('output-plain_metric-recipe');
+  });
+
+  it('aliased Output inherits its source recipe', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Alias inherits recipe',
+      decisions: {},
+      prior_insights: {},
+      findings: {},
+      // Top-level re-export of a sub-analysis output. Local node is
+      // a pure pointer; recipe inherits from the source.
+      outputs: [{ id: 'features', from: 'preprocessing.features' }],
+      analyses: {
+        preprocessing: {
+          name: 'Preprocessing',
+          decisions: {},
+          prior_insights: {},
+          findings: {},
+          outputs: [
+            {
+              id: 'features',
+              type: 'data',
+              recipe: {
+                command: 'python preprocess.py',
+                container: 'python:3.11',
+              },
+            },
+          ],
+        },
+      },
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const carrier = ast.children.find(
+      (n: any) =>
+        n.type === 'container' &&
+        n.kind === 'output-recipe' &&
+        n.identifier === 'output-features-recipe',
+    );
+    expect(carrier).toBeTruthy();
+    expect((carrier as any).data).toMatchObject({
+      astraKind: 'output_recipe',
+      outputId: 'features',
+      command: 'python preprocess.py',
+      container: 'python:3.11',
+      from: 'preprocessing.features',
+      unresolved: false,
+    });
+  });
+
+  it('sits after the outputs registry table and after provenance carriers', () => {
+    const a: ASTRAAnalysis = {
+      name: 'Order check',
+      decisions: {
+        scaling: { label: 'Scaling', options: { standard: { label: 'Standard' } } },
+      },
+      prior_insights: {},
+      findings: {},
+      inputs: [{ id: 'raw', type: 'data' }],
+      outputs: [
+        {
+          id: 'accuracy',
+          type: 'metric',
+          inputs: ['raw'],
+          decisions: ['scaling'],
+          recipe: { command: 'python score.py' },
+        },
+      ],
+    };
+    const ast = astraToMystAST({
+      analysis: a,
+      universe: emptyUniverse(),
+      results: new Map(),
+      projectDir: '/tmp',
+      slug: 'index',
+    });
+    const tableIdx = ast.children.findIndex((n: any) => {
+      if (n.type !== 'table') return false;
+      return (n.children ?? []).some(
+        (row: any) => row.identifier === 'output-accuracy',
+      );
+    });
+    const provIdx = ast.children.findIndex(
+      (n: any) =>
+        n.type === 'container' &&
+        n.identifier === 'output-accuracy-provenance',
+    );
+    const recipeIdx = ast.children.findIndex(
+      (n: any) =>
+        n.type === 'container' &&
+        n.identifier === 'output-accuracy-recipe',
+    );
+    expect(tableIdx).toBeGreaterThan(-1);
+    expect(provIdx).toBeGreaterThan(tableIdx);
+    expect(recipeIdx).toBeGreaterThan(provIdx);
+  });
+});

@@ -16,6 +16,7 @@ import { renderPriorInsights } from './render-prior-insights.js';
 import { renderMethodsSections, isDecisionRendered } from './render-methods.js';
 import { renderInputsTable, renderOutputsTable } from './render-data-sources.js';
 import { renderOutputProvenance } from './render-output-provenance.js';
+import { renderOutputRecipes, hasRecipe } from './render-output-recipe.js';
 import { resolveOutputs } from './resolve-output.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { makeProseParser, firstParagraphText } from './narrative-parser.js';
@@ -97,6 +98,14 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     // walked here so consumers (lightcone-ui, vellum, …) never read
     // `astra.yaml` directly to recover provenance.
     ...renderOutputProvenance(analysis),
+    // Per-Output recipe carriers (the *how*: command, container,
+    // resources). One `kind: 'output-recipe'` container per Output
+    // with a non-empty resolved recipe. Display direction is
+    // renderer-side: structured `data` slot lets consumers
+    // pattern-match; fallback children are a `details` block
+    // collapsed by default. Closes the Recipe coverage hole — no
+    // consumer needs to read `astra.yaml` to recover the recipe.
+    ...renderOutputRecipes(analysis),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
       ? renderSubAnalysisCards(analysis.analyses, slug)
       : []),
@@ -215,16 +224,19 @@ function collectIdentifiers(
   }
   for (const input of analysis.inputs ?? []) push(`input-${input.id}`);
   for (const output of analysis.outputs ?? []) push(`output-${output.id}`);
-  // Per-Output provenance carriers. Same predicate as
-  // render-output-provenance.ts (resolved view has non-empty
-  // inputs/decisions) so the xref contract — only publish ids with a
-  // real carrier — holds even for aliased outputs whose provenance
+  // Per-Output provenance + recipe carriers. Same predicate as
+  // their respective render modules (resolved view has the relevant
+  // content) so the xref contract — only publish ids with a real
+  // carrier — holds even for aliased outputs whose provenance/recipe
   // arrives via `from:`.
   for (const r of resolveOutputs(analysis)) {
     const inputs = r.resolved.inputs ?? [];
     const decisions = r.resolved.decisions ?? [];
     if (inputs.length > 0 || decisions.length > 0) {
       push(`output-${r.declared.id}-provenance`);
+    }
+    if (hasRecipe(r)) {
+      push(`output-${r.declared.id}-recipe`);
     }
   }
   for (const id of Object.keys(analysis.analyses ?? {})) push(`analysis-${id}`);
