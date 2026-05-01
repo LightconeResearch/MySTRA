@@ -19,7 +19,7 @@
  */
 
 import { mystParse } from 'myst-parser';
-import type { ASTRAAnalysis } from '../types/astra.js';
+import type { ASTRAAnalysis, ASTRAInsight } from '../types/astra.js';
 import { crossReference, link } from './ast-helpers.js';
 
 // ── Parsing ───────────────────────────────────────────────────────
@@ -43,7 +43,12 @@ export function parseProseBlocks(
   const tree = mystParse(md);
   const blocks = (tree.children ?? []).map(stripPositions);
   return context
-    ? resolveNarrativeAnchors(blocks, context.analysis, context.slug)
+    ? resolveNarrativeAnchors(
+        blocks,
+        context.analysis,
+        context.slug,
+        context.priorInsightScopes,
+      )
     : blocks;
 }
 
@@ -87,7 +92,12 @@ export function parseProseInline(
     }
   }
   return context
-    ? resolveNarrativeAnchors(inline, context.analysis, context.slug)
+    ? resolveNarrativeAnchors(
+        inline,
+        context.analysis,
+        context.slug,
+        context.priorInsightScopes,
+      )
     : inline;
 }
 
@@ -133,6 +143,12 @@ function extractInline(node: any): any[] {
 export interface ProseContext {
   analysis: ASTRAAnalysis;
   slug: string;
+  priorInsightScopes?: PriorInsightScope[];
+}
+
+export interface PriorInsightScope {
+  slug: string;
+  priorInsights: Record<string, ASTRAInsight>;
 }
 
 /**
@@ -222,13 +238,26 @@ export function resolveAnchorPath(
   path: string,
   analysis: ASTRAAnalysis,
   slug: string,
+  priorInsightScopes: PriorInsightScope[] = [],
 ): { identifier: string } | { url: string } {
   // Strip a leading '#'; tolerate either form.
   const ref = path.replace(/^#/, '');
 
-  // `../` prefix escapes to parent scope — we don't have the parent
-  // chain at render time, so fall back to a link with the raw href.
-  if (ref.startsWith('../')) return { url: `#${ref}` };
+  // `../prior_insights.<id>` escapes to the nearest ancestor page
+  // that owns the prior_insight carrier. Other parent traversals
+  // still fall back until their categories have explicit scope
+  // context.
+  if (ref.startsWith('../')) {
+    const parentRef = ref.slice(3);
+    const [parentHead, ...parentRest] = parentRef.split('.');
+    if (parentHead === 'prior_insights' && parentRest.length === 1) {
+      const ancestor = nearestPriorInsightScope(priorInsightScopes, parentRest[0]);
+      if (ancestor) {
+        return { url: `${pageUrl(ancestor.slug)}#prior_insight-${parentRest[0]}` };
+      }
+    }
+    return { url: `#${ref}` };
+  }
 
   const segments = ref.split('.');
   const [head, ...rest] = segments;
@@ -257,9 +286,14 @@ export function resolveAnchorPath(
         ? { identifier: `decision-${rest[0]}` }
         : { url: `#${ref}` };
     case 'prior_insights':
-      return rest.length === 1 && rest[0] in (analysis.prior_insights ?? {})
-        ? { identifier: `prior_insight-${rest[0]}` }
-        : { url: `#${ref}` };
+      if (rest.length === 1 && rest[0] in (analysis.prior_insights ?? {})) {
+        return { identifier: `prior_insight-${rest[0]}` };
+      }
+      if (rest.length === 1) {
+        const ancestor = nearestPriorInsightScope(priorInsightScopes, rest[0]);
+        if (ancestor) return { url: `${pageUrl(ancestor.slug)}#prior_insight-${rest[0]}` };
+      }
+      return { url: `#${ref}` };
     case 'inputs':
       return rest.length === 1 && (analysis.inputs ?? []).some((i) => i.id === rest[0])
         ? { identifier: `input-${rest[0]}` }
@@ -283,6 +317,20 @@ export function resolveAnchorPath(
     default:
       return { url: `#${ref}` };
   }
+}
+
+function pageUrl(slug: string): string {
+  return slug === 'index' ? '/' : `/${slug}`;
+}
+
+function nearestPriorInsightScope(
+  scopes: PriorInsightScope[],
+  insightId: string,
+): PriorInsightScope | undefined {
+  for (let i = scopes.length - 1; i >= 0; i--) {
+    if (insightId in scopes[i].priorInsights) return scopes[i];
+  }
+  return undefined;
 }
 
 function subAnalysisUrl(
@@ -354,15 +402,21 @@ export function resolveNarrativeAnchors(
   nodes: any[],
   analysis: ASTRAAnalysis,
   slug: string,
+  priorInsightScopes: PriorInsightScope[] = [],
 ): any[] {
-  return nodes.map((node) => rewrite(node, analysis, slug));
+  return nodes.map((node) => rewrite(node, analysis, slug, priorInsightScopes));
 }
 
-function rewrite(node: any, analysis: ASTRAAnalysis, slug: string): any {
+function rewrite(
+  node: any,
+  analysis: ASTRAAnalysis,
+  slug: string,
+  priorInsightScopes: PriorInsightScope[],
+): any {
   if (!node || typeof node !== 'object') return node;
 
   if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('#')) {
-    const verdict = resolveAnchorPath(node.url, analysis, slug);
+    const verdict = resolveAnchorPath(node.url, analysis, slug, priorInsightScopes);
     if ('identifier' in verdict) {
       return crossReference(verdict.identifier, node.children ?? []);
     }
@@ -370,7 +424,12 @@ function rewrite(node: any, analysis: ASTRAAnalysis, slug: string): any {
   }
 
   if (Array.isArray(node.children)) {
-    return { ...node, children: node.children.map((c: any) => rewrite(c, analysis, slug)) };
+    return {
+      ...node,
+      children: node.children.map((c: any) =>
+        rewrite(c, analysis, slug, priorInsightScopes),
+      ),
+    };
   }
   return node;
 }

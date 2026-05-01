@@ -243,6 +243,40 @@ describe('resolveAnchorPath', () => {
     });
   });
 
+  it('routes parent-scope #prior_insights.<id> to the parent page carrier', () => {
+    const priorInsightScopes = [
+      {
+        slug: 'index',
+        priorInsights: {
+          compute_scaling: {
+            id: 'compute_scaling',
+            claim: 'Scaling matters',
+            created_at: '2024-01-01',
+            evidence: [],
+          },
+        },
+      },
+    ];
+
+    expect(
+      resolveAnchorPath(
+        '#prior_insights.compute_scaling',
+        a,
+        'preprocessing',
+        priorInsightScopes,
+      ),
+    ).toEqual({ url: '/#prior_insight-compute_scaling' });
+
+    expect(
+      resolveAnchorPath(
+        '#../prior_insights.compute_scaling',
+        a,
+        'preprocessing',
+        priorInsightScopes,
+      ),
+    ).toEqual({ url: '/#prior_insight-compute_scaling' });
+  });
+
   it('falls back when #inputs.<id>/#outputs.<id>/#prior_insights.<id> targets are unknown', () => {
     expect(resolveAnchorPath('#inputs.unknown', a, 'index')).toEqual({
       url: '#inputs.unknown',

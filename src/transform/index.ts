@@ -5,7 +5,7 @@
  * buildAllPages() handles recursive sub-analysis page generation.
  */
 
-import type { ASTRAAnalysis, ASTRAUniverse, ASTRAUniverseNode } from '../types/astra.js';
+import type { ASTRAAnalysis, ASTRAInsight, ASTRAUniverse, ASTRAUniverseNode } from '../types/astra.js';
 import type { PageData, PageFrontmatter, XRefEntry } from '../types/content-server.js';
 import { join } from 'node:path';
 import { blockBreak, makeTabItem } from './ast-helpers.js';
@@ -20,6 +20,7 @@ import { renderOutputRecipes, hasRecipe } from './render-output-recipe.js';
 import { resolveOutputs } from './resolve-output.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { makeProseParser, firstParagraphText } from './narrative-parser.js';
+import type { PriorInsightScope } from './narrative-parser.js';
 
 export interface ASTRASource {
   analysis: ASTRAAnalysis;
@@ -29,12 +30,16 @@ export interface ASTRASource {
   /** Slug of the host page; needed to build sub-analysis links from
    * narrative anchors (e.g. `#analyses.feature_extraction`). */
   slug: string;
+  /** Ancestor prior_insights keyed by the page slug that owns their
+   * rendered `prior_insight-<id>` carrier. */
+  priorInsightScopes?: PriorInsightScope[];
 }
 
 export function astraToMystAST(source: ASTRASource): { type: 'root'; children: any[] } {
   const { analysis, universe, results, projectDir, slug } = source;
   const decisions = analysis.decisions ?? {};
   const priorInsights = analysis.prior_insights ?? {};
+  const priorInsightLookup = mergePriorInsights(source.priorInsightScopes ?? [], priorInsights);
   const findings = analysis.findings ?? {};
   const inputs = analysis.inputs ?? [];
   const outputs = analysis.outputs ?? [];
@@ -45,7 +50,12 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   // prose surface, not just narrative sections — anchors in
   // rationales, descriptions, claims, captions, and criterion claims
   // all resolve to crossReferences against the host analysis.
-  const prose = makeProseParser({ analysis, slug });
+  const proseContext = {
+    analysis,
+    slug,
+    priorInsightScopes: source.priorInsightScopes,
+  };
+  const prose = makeProseParser(proseContext);
 
   // Per-pass tabItem factory — each transform invocation gets its
   // own counter so two consecutive transforms produce identical
@@ -69,7 +79,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
   // is the spec-declared default; downstream renderers (paper,
   // dashboard, DAG) compose layouts however they like by looking
   // up `identifier` attributes.
-  const narrativeChunks = renderNarrativeChunks(analysis, slug);
+  const narrativeChunks = renderNarrativeChunks(analysis, slug, proseContext);
   const children: any[] = [
     // Block break separating frontmatter from content
     blockBreak('{"class": ""}'),
@@ -87,7 +97,7 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     // Structural elements as a flat sequence of addressable blocks.
     ...renderFindings(findings, results, outputsById, prose, doiCacheDir),
     ...renderPriorInsights(priorInsights, prose, doiCacheDir),
-    ...renderMethodsSections(decisions, priorInsights, universe, prose, tabItem, doiCacheDir),
+    ...renderMethodsSections(decisions, priorInsightLookup, universe, prose, tabItem, doiCacheDir),
     ...(inputs.length > 0 ? [renderInputsTable(inputs, prose)] : []),
     ...(outputs.length > 0 ? [renderOutputsTable(outputs, prose)] : []),
     // Per-Output provenance blocks (Output.inputs / Output.decisions
@@ -124,6 +134,7 @@ export function buildAllPages(
   projectDir: string,
   basePath = '',
   level = 1,
+  priorInsightScopes: PriorInsightScope[] = [],
 ): PageData[] {
   const pages: PageData[] = [];
   const slug = basePath || 'index';
@@ -131,7 +142,14 @@ export function buildAllPages(
   // Build page for this analysis node. astraToMystAST derives the
   // DOI cache dir from `projectDir` and threads it into every
   // renderer that emits a cite node — no module-global state.
-  const ast = astraToMystAST({ analysis, universe, results, projectDir, slug });
+  const ast = astraToMystAST({
+    analysis,
+    universe,
+    results,
+    projectDir,
+    slug,
+    priorInsightScopes,
+  });
 
   // PageFrontmatter.description feeds OpenGraph/SEO/list previews. ASTRA
   // v0.0.6 dropped the free-form `description` slot in favour of a
@@ -169,6 +187,11 @@ export function buildAllPages(
 
   // Recurse into sub-analyses
   if (analysis.analyses) {
+    const childPriorInsightScopes = nextPriorInsightScopes(
+      priorInsightScopes,
+      slug,
+      analysis.prior_insights ?? {},
+    );
     for (const [id, sub] of Object.entries(analysis.analyses)) {
       const subPath = basePath ? `${basePath}/${id}` : id;
 
@@ -184,12 +207,37 @@ export function buildAllPages(
       // Sub-analysis results would be in a nested path
       // For now, pass the same results map (scanner handles universe-scoped paths)
       pages.push(
-        ...buildAllPages(sub, subUniverse, results, projectDir, subPath, level + 1),
+        ...buildAllPages(
+          sub,
+          subUniverse,
+          results,
+          projectDir,
+          subPath,
+          level + 1,
+          childPriorInsightScopes,
+        ),
       );
     }
   }
 
   return pages;
+}
+
+function mergePriorInsights(
+  scopes: PriorInsightScope[],
+  local: Record<string, ASTRAInsight>,
+): Record<string, ASTRAInsight> {
+  return Object.assign({}, ...scopes.map((scope) => scope.priorInsights), local);
+}
+
+function nextPriorInsightScopes(
+  scopes: PriorInsightScope[],
+  slug: string,
+  local: Record<string, ASTRAInsight>,
+): PriorInsightScope[] {
+  return Object.keys(local).length > 0
+    ? [...scopes, { slug, priorInsights: local }]
+    : scopes;
 }
 
 function collectIdentifiers(

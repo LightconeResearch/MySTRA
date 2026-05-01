@@ -22,6 +22,7 @@
 
 import type { ASTRAAnalysis, ASTRANarrative } from '../types/astra.js';
 import { parseProseBlocks } from './narrative-parser.js';
+import type { ProseContext } from './narrative-parser.js';
 import { paragraph } from './ast-helpers.js';
 
 const SECTION_ORDER: (keyof ASTRANarrative)[] = [
@@ -49,6 +50,7 @@ export interface NarrativeChunk {
 export function renderNarrativeChunks(
   analysis: ASTRAAnalysis,
   slug: string,
+  context: ProseContext = { analysis, slug },
 ): NarrativeChunk[] {
   const narrative = analysis.narrative;
   if (!narrative) return [];
@@ -57,7 +59,7 @@ export function renderNarrativeChunks(
     const md = narrative[section];
     if (!md) continue;
     const identifier = `narrative-${section}`;
-    const blocks = parseProseBlocks(md, { analysis, slug });
+    const blocks = parseProseBlocks(md, context);
     // Attach the chunk identifier to its first node so xrefs to
     // `#narrative.<section>` resolve. If the section parsed empty
     // (whitespace-only Markdown), synthesize an empty paragraph
@@ -80,6 +82,7 @@ export function renderNarrativeSection(
   md: string | undefined,
   analysis: ASTRAAnalysis,
   slug: string,
+  context: ProseContext = { analysis, slug },
 ): any[] {
-  return parseProseBlocks(md, { analysis, slug });
+  return parseProseBlocks(md, context);
 }
