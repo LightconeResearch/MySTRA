@@ -3,7 +3,7 @@
  * resolution per the v0.0.6 narrative grammar.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { ASTRAAnalysis } from '../src/types/astra.js';
 import {
   parseProseBlocks,
@@ -30,7 +30,11 @@ function fixtureAnalysis(): ASTRAAnalysis {
       },
     },
     inputs: [{ id: 'iris_data', type: 'data' }],
-    outputs: [{ id: 'accuracy', type: 'metric' }],
+    outputs: [
+      { id: 'accuracy', type: 'metric' },
+      { id: 'accuracy_plot', type: 'figure' },
+      { id: 'results_table', type: 'table' },
+    ],
     analyses: {
       preprocessing: {
         decisions: {},
@@ -39,6 +43,21 @@ function fixtureAnalysis(): ASTRAAnalysis {
       },
     },
   };
+}
+
+function collectNodes(nodes: any[], type: string): any[] {
+  const collected: any[] = [];
+  const walk = (node: any) => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    if (node.type === type) collected.push(node);
+    Object.values(node).forEach(walk);
+  };
+  walk(nodes);
+  return collected;
 }
 
 describe('parseProseBlocks (via myst-parser)', () => {
@@ -411,5 +430,48 @@ describe('resolveNarrativeAnchors', () => {
     const links = inline.filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
     expect(links[0].url).toBe('/preprocessing');
+  });
+
+  it('rewrites narrative image output anchors to static artifact URLs', () => {
+    const a = fixtureAnalysis();
+    const resolved = parseProseBlocks('![Accuracy](#outputs.accuracy_plot)', {
+      analysis: a,
+      slug: 'index',
+      results: new Map([['accuracy_plot', '/tmp/accuracy_plot.PNG']]),
+    });
+    const images = collectNodes(resolved, 'image');
+    expect(images).toHaveLength(1);
+    expect(images[0].url).toBe('/static/accuracy_plot.png');
+  });
+
+  it('rewrites image URLs inside MyST figure directives', () => {
+    const a = fixtureAnalysis();
+    const resolved = parseProseBlocks(
+      ':::{figure} #outputs.accuracy_plot\nAccuracy by model\n:::',
+      {
+        analysis: a,
+        slug: 'index',
+        results: new Map([['accuracy_plot', '/tmp/accuracy_plot.svg']]),
+      },
+    );
+    const images = collectNodes(resolved, 'image');
+    expect(images).toHaveLength(1);
+    expect(images[0].url).toBe('/static/accuracy_plot.svg');
+  });
+
+  it('drops narrative image embeds that point at non-figure outputs', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const a = fixtureAnalysis();
+    const resolved = parseProseBlocks('![Table](#outputs.results_table)', {
+      analysis: a,
+      slug: 'index',
+      results: new Map([['results_table', '/tmp/results_table.csv']]),
+    });
+
+    expect(collectNodes(resolved, 'image')).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith(
+      '[mystra] Narrative image embed references non-figure output "results_table" (type: table) — dropping image.',
+    );
+    warn.mockRestore();
   });
 });

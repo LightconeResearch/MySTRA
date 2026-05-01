@@ -20,7 +20,7 @@ import { renderOutputRecipes, hasRecipe } from './render-output-recipe.js';
 import { resolveOutputs } from './resolve-output.js';
 import { renderSubAnalysisCards } from './render-sub-analyses.js';
 import { makeProseParser, firstParagraphText } from './narrative-parser.js';
-import type { PriorInsightScope } from './narrative-parser.js';
+import type { AnalysisScope, PriorInsightScope } from './narrative-parser.js';
 
 export interface ASTRASource {
   analysis: ASTRAAnalysis;
@@ -33,6 +33,9 @@ export interface ASTRASource {
   /** Ancestor prior_insights keyed by the page slug that owns their
    * rendered `prior_insight-<id>` carrier. */
   priorInsightScopes?: PriorInsightScope[];
+  /** Ancestor analyses keyed by page slug for cross-scope output
+   * image embeds such as `#../outputs.<id>`. */
+  analysisScopes?: AnalysisScope[];
 }
 
 export function astraToMystAST(source: ASTRASource): { type: 'root'; children: any[] } {
@@ -54,6 +57,8 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     analysis,
     slug,
     priorInsightScopes: source.priorInsightScopes,
+    analysisScopes: source.analysisScopes,
+    results,
   };
   const prose = makeProseParser(proseContext);
 
@@ -117,7 +122,15 @@ export function astraToMystAST(source: ASTRASource): { type: 'root'; children: a
     // consumer needs to read `astra.yaml` to recover the recipe.
     ...renderOutputRecipes(analysis),
     ...(analysis.analyses && Object.keys(analysis.analyses).length > 0
-      ? renderSubAnalysisCards(analysis.analyses, slug)
+      ? renderSubAnalysisCards(analysis.analyses, slug, {
+          priorInsightScopes: nextPriorInsightScopes(
+            source.priorInsightScopes ?? [],
+            slug,
+            priorInsights,
+          ),
+          analysisScopes: nextAnalysisScopes(source.analysisScopes ?? [], slug, analysis),
+          results,
+        })
       : []),
   ];
 
@@ -135,6 +148,7 @@ export function buildAllPages(
   basePath = '',
   level = 1,
   priorInsightScopes: PriorInsightScope[] = [],
+  analysisScopes: AnalysisScope[] = [],
 ): PageData[] {
   const pages: PageData[] = [];
   const slug = basePath || 'index';
@@ -149,6 +163,7 @@ export function buildAllPages(
     projectDir,
     slug,
     priorInsightScopes,
+    analysisScopes,
   });
 
   // PageFrontmatter.description feeds OpenGraph/SEO/list previews. ASTRA
@@ -192,6 +207,7 @@ export function buildAllPages(
       slug,
       analysis.prior_insights ?? {},
     );
+    const childAnalysisScopes = nextAnalysisScopes(analysisScopes, slug, analysis);
     for (const [id, sub] of Object.entries(analysis.analyses)) {
       const subPath = basePath ? `${basePath}/${id}` : id;
 
@@ -215,6 +231,7 @@ export function buildAllPages(
           subPath,
           level + 1,
           childPriorInsightScopes,
+          childAnalysisScopes,
         ),
       );
     }
@@ -238,6 +255,14 @@ function nextPriorInsightScopes(
   return Object.keys(local).length > 0
     ? [...scopes, { slug, priorInsights: local }]
     : scopes;
+}
+
+function nextAnalysisScopes(
+  scopes: AnalysisScope[],
+  slug: string,
+  analysis: ASTRAAnalysis,
+): AnalysisScope[] {
+  return [...scopes, { slug, analysis }];
 }
 
 function collectIdentifiers(

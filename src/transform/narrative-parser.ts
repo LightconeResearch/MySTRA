@@ -19,7 +19,8 @@
  */
 
 import { mystParse } from 'myst-parser';
-import type { ASTRAAnalysis, ASTRAInsight } from '../types/astra.js';
+import { parse as parsePath } from 'node:path';
+import type { ASTRAAnalysis, ASTRAInsight, ASTRAOutput } from '../types/astra.js';
 import { crossReference, link } from './ast-helpers.js';
 
 // ── Parsing ───────────────────────────────────────────────────────
@@ -48,6 +49,8 @@ export function parseProseBlocks(
         context.analysis,
         context.slug,
         context.priorInsightScopes,
+        context.results,
+        context.analysisScopes,
       )
     : blocks;
 }
@@ -97,6 +100,8 @@ export function parseProseInline(
         context.analysis,
         context.slug,
         context.priorInsightScopes,
+        context.results,
+        context.analysisScopes,
       )
     : inline;
 }
@@ -144,11 +149,18 @@ export interface ProseContext {
   analysis: ASTRAAnalysis;
   slug: string;
   priorInsightScopes?: PriorInsightScope[];
+  analysisScopes?: AnalysisScope[];
+  results?: Map<string, string>;
 }
 
 export interface PriorInsightScope {
   slug: string;
   priorInsights: Record<string, ASTRAInsight>;
+}
+
+export interface AnalysisScope {
+  slug: string;
+  analysis: ASTRAAnalysis;
 }
 
 /**
@@ -403,8 +415,20 @@ export function resolveNarrativeAnchors(
   analysis: ASTRAAnalysis,
   slug: string,
   priorInsightScopes: PriorInsightScope[] = [],
+  results?: Map<string, string>,
+  analysisScopes: AnalysisScope[] = [],
 ): any[] {
-  return nodes.map((node) => rewrite(node, analysis, slug, priorInsightScopes));
+  return nodes.flatMap((node) => {
+    const rewritten = rewrite(
+      node,
+      analysis,
+      slug,
+      priorInsightScopes,
+      results,
+      analysisScopes,
+    );
+    return rewritten ? [rewritten] : [];
+  });
 }
 
 function rewrite(
@@ -412,7 +436,9 @@ function rewrite(
   analysis: ASTRAAnalysis,
   slug: string,
   priorInsightScopes: PriorInsightScope[],
-): any {
+  results: Map<string, string> | undefined,
+  analysisScopes: AnalysisScope[],
+): any | null {
   if (!node || typeof node !== 'object') return node;
 
   if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('#')) {
@@ -423,13 +449,103 @@ function rewrite(
     return link(verdict.url, node.children ?? []);
   }
 
+  if (node.type === 'image' && isOutputImageAnchor(node.url)) {
+    return rewriteOutputImage(node, analysis, results, analysisScopes);
+  }
+
   if (Array.isArray(node.children)) {
     return {
       ...node,
       children: node.children.map((c: any) =>
-        rewrite(c, analysis, slug, priorInsightScopes),
-      ),
+        rewrite(c, analysis, slug, priorInsightScopes, results, analysisScopes),
+      ).filter(Boolean),
     };
   }
   return node;
+}
+
+function isOutputImageAnchor(url: unknown): url is string {
+  return typeof url === 'string' && url.startsWith('#') && url.includes('outputs.');
+}
+
+function rewriteOutputImage(
+  node: any,
+  analysis: ASTRAAnalysis,
+  results: Map<string, string> | undefined,
+  analysisScopes: AnalysisScope[],
+): any | null {
+  if (!results) return node;
+
+  const target = resolveOutputTarget(node.url, analysis, analysisScopes);
+  const outputId = target?.id ?? outputIdFromAnchor(node.url);
+  if (!target?.output || !outputId) {
+    console.warn(
+      `[mystra] Narrative image embed references unknown output id "${outputId ?? node.url}" — broken reference dropped from output.`,
+    );
+    return null;
+  }
+
+  if (target.output.type !== 'figure') {
+    console.warn(
+      `[mystra] Narrative image embed references non-figure output "${outputId}" (type: ${target.output.type}) — dropping image.`,
+    );
+    return null;
+  }
+
+  const resultPath = results.get(outputId);
+  if (!resultPath) {
+    console.warn(
+      `[mystra] Narrative image embed references unproduced output id "${outputId}" — dropping image.`,
+    );
+    return null;
+  }
+
+  const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
+  return { ...node, url: `/static/${outputId}.${ext}` };
+}
+
+function resolveOutputTarget(
+  path: string,
+  analysis: ASTRAAnalysis,
+  analysisScopes: AnalysisScope[],
+): { id: string; output: ASTRAOutput | undefined } | undefined {
+  const ref = path.replace(/^#/, '');
+
+  if (ref.startsWith('../')) {
+    const parent = analysisScopes[analysisScopes.length - 1]?.analysis;
+    return parent ? outputTargetFromSegments(parent, ref.slice(3).split('.')) : undefined;
+  }
+
+  return outputTargetFromSegments(analysis, ref.split('.'));
+}
+
+function outputTargetFromSegments(
+  analysis: ASTRAAnalysis,
+  segments: string[],
+): { id: string; output: ASTRAOutput | undefined } | undefined {
+  const [head, ...rest] = segments;
+
+  if (head === 'outputs' && rest.length === 1) {
+    return {
+      id: rest[0],
+      output: (analysis.outputs ?? []).find((output) => output.id === rest[0]),
+    };
+  }
+
+  if (head === 'analyses' && rest.length >= 1) {
+    const child = analysis.analyses?.[rest[0]];
+    return child ? outputTargetFromSegments(child, rest.slice(1)) : undefined;
+  }
+
+  if (analysis.analyses && head in analysis.analyses) {
+    return outputTargetFromSegments(analysis.analyses[head], rest);
+  }
+
+  return undefined;
+}
+
+function outputIdFromAnchor(url: string): string | undefined {
+  const segments = url.replace(/^#/, '').split('.');
+  const outputIndex = segments.indexOf('outputs');
+  return outputIndex >= 0 ? segments[outputIndex + 1] : undefined;
 }

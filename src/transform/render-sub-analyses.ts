@@ -10,10 +10,18 @@
 import type { ASTRAAnalysis } from '../types/astra.js';
 import { card } from './ast-helpers.js';
 import { renderNarrativeSection } from './render-narrative.js';
+import type { AnalysisScope, PriorInsightScope } from './narrative-parser.js';
+
+export interface SubAnalysisCardContext {
+  priorInsightScopes?: PriorInsightScope[];
+  analysisScopes?: AnalysisScope[];
+  results?: Map<string, string>;
+}
 
 export function renderSubAnalysisCards(
   analyses: Record<string, ASTRAAnalysis>,
   hostSlug: string,
+  context: SubAnalysisCardContext = {},
 ): any[] {
   const nodes: any[] = [];
 
@@ -32,6 +40,13 @@ export function renderSubAnalysisCards(
       sub.narrative?.summary,
       sub,
       subSlug,
+      {
+        analysis: sub,
+        slug: subSlug,
+        priorInsightScopes: context.priorInsightScopes,
+        analysisScopes: context.analysisScopes,
+        results: context.results,
+      },
     );
 
     // Card carries `identifier: analysis-<id>` so a parent-page
