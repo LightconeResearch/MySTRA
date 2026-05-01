@@ -418,17 +418,30 @@ export function resolveNarrativeAnchors(
   results?: Map<string, string>,
   analysisScopes: AnalysisScope[] = [],
 ): any[] {
-  return nodes.flatMap((node) => {
-    const rewritten = rewrite(
-      node,
-      analysis,
-      slug,
-      priorInsightScopes,
-      results,
-      analysisScopes,
-    );
-    return rewritten ? [rewritten] : [];
-  });
+  return nodes.flatMap((node) =>
+    flatten(
+      rewrite(
+        node,
+        analysis,
+        slug,
+        priorInsightScopes,
+        results,
+        analysisScopes,
+      ),
+    ),
+  );
+}
+
+/**
+ * Normalize the `any | any[] | null | undefined` result of `rewrite()`
+ * into a flat array suitable for `flatMap`/`children:` slots. Used at
+ * every recursion boundary so a node can collapse into zero, one, or
+ * many siblings (mystDirective unwrapping, broken-image drops, etc.)
+ * without each call site re-implementing the destructuring.
+ */
+function flatten(r: any | any[] | null | undefined): any[] {
+  if (r === null || r === undefined) return [];
+  return Array.isArray(r) ? r : [r];
 }
 
 function rewrite(
@@ -438,7 +451,7 @@ function rewrite(
   priorInsightScopes: PriorInsightScope[],
   results: Map<string, string> | undefined,
   analysisScopes: AnalysisScope[],
-): any | null {
+): any | any[] | null {
   if (!node || typeof node !== 'object') return node;
 
   if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('#')) {
@@ -453,12 +466,29 @@ function rewrite(
     return rewriteOutputImage(node, analysis, results, analysisScopes);
   }
 
+  // Unwrap the `mystDirective` wrapper that `mystParse` keeps around
+  // expanded directive content. The wrapper carries `name`/`args`/`value`
+  // metadata about the source directive but no longer represents structure
+  // — the actual directive output (e.g. `container[kind:figure]`,
+  // `admonition`, `container[kind:table]`) sits inside as a single child.
+  // Downstream renderers (myst-to-react and our @lightcone/renderer
+  // overrides) consume the canonical node, not the wrapper; without this
+  // unwrap, `:::{figure}` lands in the React tree as an unknown directive
+  // and shows the "Unknown Directive" placeholder. Children get
+  // recursively rewritten so URL anchors inside the directive (image
+  // `#outputs.X`, link `#decisions.X`) still resolve.
+  if (node.type === 'mystDirective' && Array.isArray(node.children)) {
+    return node.children.flatMap((c: any) =>
+      flatten(rewrite(c, analysis, slug, priorInsightScopes, results, analysisScopes)),
+    );
+  }
+
   if (Array.isArray(node.children)) {
     return {
       ...node,
-      children: node.children.map((c: any) =>
-        rewrite(c, analysis, slug, priorInsightScopes, results, analysisScopes),
-      ).filter(Boolean),
+      children: node.children.flatMap((c: any) =>
+        flatten(rewrite(c, analysis, slug, priorInsightScopes, results, analysisScopes)),
+      ),
     };
   }
   return node;
