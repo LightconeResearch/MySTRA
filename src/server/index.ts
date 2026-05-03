@@ -10,6 +10,7 @@ import cors from 'cors';
 import { configHandler } from './routes/config.js';
 import { contentHandler } from './routes/content.js';
 import { xrefHandler } from './routes/xref.js';
+import { astraHandler, buildASTRADataMap, type ASTRAPageData } from './routes/astra.js';
 import { WebSocketManager } from './websocket.js';
 import { startWatcher } from './watcher.js';
 import { loadASTRASource } from '../loader/index.js';
@@ -33,6 +34,7 @@ export function createContentServer(options: ServerOptions): ContentServer {
   const { projectDir, contentPort, universeName } = options;
 
   let pages: PageData[] = [];
+  let astraDataMap: Map<string, ASTRAPageData> = new Map();
   let references: References = {};
   let doiMetadata: Map<string, DOIMetadata> = new Map();
   let wsManager: WebSocketManager;
@@ -49,6 +51,7 @@ export function createContentServer(options: ServerOptions): ContentServer {
       source.results,
       source.projectDir,
     );
+    astraDataMap = buildASTRADataMap(source.analysis, source.results);
     console.log(
       `[mystra] Loaded: ${pages.length} page(s), universe "${source.universe.id}"`,
     );
@@ -92,6 +95,8 @@ export function createContentServer(options: ServerOptions): ContentServer {
   // could match slugs deeper than two segments correctly.
   app.get('/content/*.json', contentHandler(() => pages, () => references));
   app.get('/myst.xref.json', xrefHandler(() => pages));
+  // Structured ASTRA data — outputs + inputs per slug, for gallery rendering.
+  app.get('/astra/*.json', astraHandler(() => astraDataMap));
 
   // Endpoint to get DOI metadata (used by evidence rendering at request time)
   app.get('/doi-metadata/:doi(*)', (req, res) => {
