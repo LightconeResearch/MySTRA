@@ -23,6 +23,13 @@ import { resolveOutputs } from '../../transform/resolve-output.js';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
+export interface SerializedRecipe {
+  /** Resolved shell command — recipe.command from astra.yaml. */
+  command?: string;
+  /** Container image / Containerfile path (when declared). */
+  container?: string;
+}
+
 export interface SerializedOutput {
   id: string;
   label?: string;
@@ -31,6 +38,20 @@ export interface SerializedOutput {
   /** Relative URL served by the content server's /static mount, or undefined
    *  when no result artifact was found for this output. */
   resolved_path?: string;
+  /** Recipe command + container.  When the output is aliased (`from:`),
+   *  recipe is inherited from the source by `resolveOutputs`. */
+  recipe?: SerializedRecipe;
+  /** Input IDs (in the surrounding analysis scope) this output depends on. */
+  inputs?: string[];
+  /** Decision IDs (declared on the output) that parameterise this artefact.
+   *  Drives the "Decisions affecting this artefact" section on the per-output
+   *  detail page.  Absent / empty → "None — no decision flows into this
+   *  artefact's recipe chain" (matching Liam's vanilla template). */
+  decisions?: string[];
+  /** Re-export pointer for aliased outputs (`from: child.out_id`).  When set,
+   *  type/description/inputs/decisions/recipe are inherited from the source;
+   *  the alias node carries only id/from/when. */
+  from?: string;
 }
 
 export interface SerializedInput {
@@ -88,6 +109,20 @@ export function buildASTRADataMap(
     type: resolved.type,
     description: resolved.description,
     resolved_path: resolvedPath(declared.id, results),
+    // Provenance (Liam parity for `#/spec/<id>` per-output detail page):
+    //   recipe — command + declared inputs (the "Recipe" section)
+    //   decisions — IDs that parameterise this output (the "Decisions
+    //     affecting this artefact" section; absent → "None")
+    //   from — alias pointer for re-exported outputs
+    // Aliased outputs (`from:`) inherit recipe/decisions/inputs from the
+    // source via resolveOutputs above, so the serialised view is the
+    // resolved one regardless of whether the declaration site was an alias.
+    recipe: resolved.recipe
+      ? { command: resolved.recipe.command, container: resolved.recipe.container }
+      : undefined,
+    inputs: resolved.inputs,
+    decisions: resolved.decisions,
+    from: declared.from,
   }));
 
   const inputs: SerializedInput[] = (analysis.inputs ?? []).map((inp: ASTRAInput) => ({
