@@ -39,10 +39,9 @@ import {
   citeGroup,
 } from './ast-helpers.js';
 import { parse as parsePath } from 'node:path';
-import { readFileSync } from 'node:fs';
-import Papa from 'papaparse';
 import { getCachedMetadata } from '../doi/resolver.js';
 import type { ProseParser } from './narrative-parser.js';
+import { parseTableData, formatValue } from './parse-table-data.js';
 
 /**
  * Render a single evidence item as AST nodes.
@@ -242,135 +241,74 @@ function renderInlineArtifact(
 
 /**
  * Render a JSON result file as a table inside a collapsible details element.
- * Supports nested object structures: outer keys → rows, inner keys → columns.
+ * Delegates parsing to `parseTableData`; builds MDAST from the result.
  */
 function renderJSONTable(
   filePath: string,
   artifactId: string,
   tableLabel: string,
 ): any[] {
-  let data: unknown;
-  try {
-    data = JSON.parse(readFileSync(filePath, 'utf-8'));
-  } catch {
-    return [paragraph([text(`Could not parse ${artifactId}.json`)])];
-  }
-
-  // Handle nested object: { key: { col1: val, col2: val }, ... }
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    const entries = Object.entries(data as Record<string, unknown>);
-    if (entries.length === 0) return [];
-
-    // Collect all inner keys across all entries for column headers
-    const colSet = new Set<string>();
-    for (const [, value] of entries) {
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        for (const k of Object.keys(value as Record<string, unknown>)) {
-          colSet.add(k);
-        }
-      }
-    }
-    const columns = Array.from(colSet);
-
-    if (columns.length === 0) {
-      // Flat object: { key: value, ... } → two-column table
-      const headerRow = tableRow(
-        [tableCell([text('Key')], true), tableCell([text('Value')], true)],
-        true,
-      );
-      const rows = entries.map(([k, v]) =>
-        tableRow([tableCell([text(k)]), tableCell([text(formatValue(v))])]),
-      );
-      return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
-    }
-
-    // Nested object → multi-column table
-    const headerRow = tableRow(
-      [tableCell([text('')], true), ...columns.map((c) => tableCell([text(c)], true))],
-      true,
+  const data = parseTableData(filePath);
+  if (!data) {
+    console.warn(
+      `[mystra] JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
     );
-    const rows = entries.map(([key, value]) => {
-      const record = (value && typeof value === 'object' && !Array.isArray(value))
-        ? value as Record<string, unknown>
-        : {};
-      return tableRow([
-        tableCell([strong([text(key)])]),
-        ...columns.map((col) => tableCell([text(formatValue(record[col]))])),
-      ]);
-    });
-
-    return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
+    return [paragraph([text('Output: '), inlineCode(artifactId)])];
   }
-
-  // Handle array of objects: [{ col1: val, col2: val }, ...]
-  if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-    const columns = Object.keys(data[0] as Record<string, unknown>);
-    const headerRow = tableRow(
-      columns.map((c) => tableCell([text(c)], true)),
-      true,
-    );
-    const rows = data.map((item: Record<string, unknown>) =>
-      tableRow(columns.map((col) => tableCell([text(formatValue(item[col]))]))),
-    );
-    return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
-  }
-
-  // Parsed but didn't match a known shape (object-of-objects, flat
-  // object, array-of-objects). Surface it the same way an unknown
-  // artifact id is surfaced — silent fallback hides misconfigured
-  // outputs from operators.
-  console.warn(
-    `[mystra] JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
-  );
-  return [paragraph([text(`Output: `), inlineCode(artifactId)])];
+  return renderTableDataAsMDAST(data, tableLabel, artifactId);
 }
 
 /**
  * Render a CSV result file as a table inside a collapsible details element.
+ * Delegates parsing to `parseTableData`; builds MDAST from the result.
  */
 function renderCSVTable(
   filePath: string,
   artifactId: string,
   tableLabel: string,
 ): any[] {
-  let csvText: string;
-  try {
-    csvText = readFileSync(filePath, 'utf-8');
-  } catch {
+  const data = parseTableData(filePath);
+  if (!data) {
     return [paragraph([text(`Could not read ${artifactId}.csv`)])];
   }
+  return renderTableDataAsMDAST(data, tableLabel, artifactId);
+}
 
-  // papaparse provides a sync parse; the package is the same one
-  // listed in package.json — imported at top of file as ESM.
-  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-
-  if (!result.data || result.data.length === 0) {
-    return [paragraph([text(`Empty CSV: ${artifactId}`)])];
+/**
+ * Convert a `TableData` value into a MDAST `details` + `table` subtree
+ * suitable for embedding in narrative evidence blocks.
+ */
+function renderTableDataAsMDAST(
+  data: ReturnType<typeof parseTableData> & {},
+  tableLabel: string,
+  artifactId: string,
+): any[] {
+  if (data.headers.length === 0 || data.rows.length === 0) {
+    return [paragraph([text(`Empty table: ${artifactId}`)])];
   }
 
-  const columns = result.meta.fields as string[];
+  // First column in nested-object tables is the outer key — render in strong.
+  // We detect this heuristically: headers[0] === '' (parseTableData sets it).
+  const isNestedObject = data.headers[0] === '';
+  const displayHeaders = isNestedObject
+    ? ['', ...data.headers.slice(1)]
+    : data.headers;
+
   const headerRow = tableRow(
-    columns.map((c: string) => tableCell([text(c)], true)),
+    displayHeaders.map((c) => tableCell([text(c)], true)),
     true,
   );
-  const rows = (result.data as Record<string, string>[]).map((row) =>
-    tableRow(columns.map((col: string) => tableCell([text(row[col] ?? '')]))),
+  const rows = data.rows.map((row) =>
+    tableRow(
+      row.map((cell, i) =>
+        isNestedObject && i === 0
+          ? tableCell([strong([text(cell)])])
+          : tableCell([text(cell)]),
+      ),
+    ),
   );
 
   return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
-}
-
-function formatValue(val: unknown): string {
-  if (val === null || val === undefined) return '—';
-  if (typeof val === 'number') {
-    if (Number.isNaN(val)) return 'NaN';
-    return Number.isInteger(val) ? val.toString() : val.toPrecision(6);
-  }
-  if (Array.isArray(val)) {
-    return val.map((v) => formatValue(v)).join(', ');
-  }
-  if (typeof val === 'object') return JSON.stringify(val);
-  return String(val);
 }
 
 /**

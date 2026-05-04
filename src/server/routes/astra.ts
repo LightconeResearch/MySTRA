@@ -20,6 +20,7 @@ import { basename } from 'node:path';
 import type { RequestHandler } from 'express';
 import type { ASTRAAnalysis, ASTRAInput, ASTRAOutput } from '../../types/astra.js';
 import { resolveOutputs } from '../../transform/resolve-output.js';
+import { parseTableData, type TableData } from '../../transform/parse-table-data.js';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,15 @@ export interface SerializedOutput {
    *  type/description/inputs/decisions/recipe are inherited from the source;
    *  the alias node carries only id/from/when. */
   from?: string;
+  /**
+   * Parsed table data for table-type outputs.  Populated by MySTRA at build
+   * time using the same CSV/JSON parser as the narrative evidence renderer.
+   *
+   * Absent for non-table outputs, missing result files, unsupported
+   * extensions (parquet, etc.), or when the row count exceeds MAX_INLINE_ROWS.
+   * When `truncated` is true the source file has more rows than `rows.length`.
+   */
+  table_data?: TableData;
 }
 
 export interface SerializedInput {
@@ -103,27 +113,38 @@ export function buildASTRADataMap(
   const slug = basePath || 'index';
 
   const resolvedOuts = resolveOutputs(analysis);
-  const outputs: SerializedOutput[] = resolvedOuts.map(({ declared, resolved }) => ({
-    id: declared.id,
-    label: resolved.label,
-    type: resolved.type,
-    description: resolved.description,
-    resolved_path: resolvedPath(declared.id, results),
-    // Provenance (Liam parity for `#/spec/<id>` per-output detail page):
-    //   recipe — command + declared inputs (the "Recipe" section)
-    //   decisions — IDs that parameterise this output (the "Decisions
-    //     affecting this artefact" section; absent → "None")
-    //   from — alias pointer for re-exported outputs
-    // Aliased outputs (`from:`) inherit recipe/decisions/inputs from the
-    // source via resolveOutputs above, so the serialised view is the
-    // resolved one regardless of whether the declaration site was an alias.
-    recipe: resolved.recipe
-      ? { command: resolved.recipe.command, container: resolved.recipe.container }
-      : undefined,
-    inputs: resolved.inputs,
-    decisions: resolved.decisions,
-    from: declared.from,
-  }));
+  const outputs: SerializedOutput[] = resolvedOuts.map(({ declared, resolved }) => {
+    // For table-type outputs with a materialized result file, parse and inline
+    // the data so the React renderer can display it without a second round-trip.
+    // Uses the same CSV/JSON parser as the narrative evidence renderer — no
+    // second reader introduced.
+    const absPath = results.get(declared.id);
+    const tableData =
+      resolved.type === 'table' && absPath ? (parseTableData(absPath) ?? undefined) : undefined;
+
+    return {
+      id: declared.id,
+      label: resolved.label,
+      type: resolved.type,
+      description: resolved.description,
+      resolved_path: resolvedPath(declared.id, results),
+      // Provenance (Liam parity for `#/spec/<id>` per-output detail page):
+      //   recipe — command + declared inputs (the "Recipe" section)
+      //   decisions — IDs that parameterise this output (the "Decisions
+      //     affecting this artefact" section; absent → "None")
+      //   from — alias pointer for re-exported outputs
+      // Aliased outputs (`from:`) inherit recipe/decisions/inputs from the
+      // source via resolveOutputs above, so the serialised view is the
+      // resolved one regardless of whether the declaration site was an alias.
+      recipe: resolved.recipe
+        ? { command: resolved.recipe.command, container: resolved.recipe.container }
+        : undefined,
+      inputs: resolved.inputs,
+      decisions: resolved.decisions,
+      from: declared.from,
+      table_data: tableData,
+    };
+  });
 
   const inputs: SerializedInput[] = (analysis.inputs ?? []).map((inp: ASTRAInput) => ({
     id: inp.id,
