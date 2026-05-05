@@ -5,6 +5,7 @@
 import { DOICache } from './cache.js';
 import { fetchDOI } from './fetcher.js';
 import type { References, CitationData } from '../types/content-server.js';
+import type { PaperInsightSummary } from '../types/papers.js';
 
 export interface DOIMetadata {
   label: string;
@@ -14,6 +15,10 @@ export interface DOIMetadata {
   title: string;
   journal: string;
   doi: string;
+  version?: number;
+  cache_key?: string;
+  pdf_url?: string;
+  insights?: PaperInsightSummary[];
 }
 
 /**
