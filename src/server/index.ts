@@ -5,7 +5,7 @@
 
 import { createReadStream, stat } from 'node:fs';
 import { createServer as createHTTPServer } from 'node:http';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import { configHandler } from './routes/config.js';
@@ -40,6 +40,15 @@ export function createContentServer(options: ServerOptions): ContentServer {
   let astraDataMap: Map<string, ASTRAPageData> = new Map();
   let references: References = {};
   let doiMetadata: Map<string, DOIMetadata> = new Map();
+  /**
+   * `output_id -> absolute path` from the recursive scanner. Populated by
+   * `loadASTRASource` (see `loader/result-scanner.ts`); covers the root
+   * `results/<universe>/` dir and every sub-analysis's
+   * `analyses/<sub>/results/<universe>/` dir. Used to resolve `/static/<file>`
+   * URLs by matching the URL's basename against `basename(absPath)` for any
+   * id in the map.
+   */
+  let resultsByOutputId: Map<string, string> = new Map();
   let wsManager: WebSocketManager;
   let activeUniverseId = '';
   let doiReloadToken = 0;
@@ -47,6 +56,7 @@ export function createContentServer(options: ServerOptions): ContentServer {
   function reload(): ASTRAAnalysis {
     const source = loadASTRASource(projectDir, universeName);
     activeUniverseId = source.universe.id;
+    resultsByOutputId = source.results;
     pages = buildAllPages(
       source.analysis,
       source.universe,
@@ -137,10 +147,30 @@ export function createContentServer(options: ServerOptions): ContentServer {
     });
   });
 
-  // Static file serving for result images. The universe id is the
-  // one captured during the initial reload — no need to re-parse
-  // the source just to learn it.
+  // Static file serving for result artifacts. The recursive scanner
+  // already discovered every result file across the root and every
+  // sub-analysis (`<project>/results/<universe>/...` plus
+  // `<project>/analyses/<sub>/results/<universe>/...`); we keep its
+  // map in `resultsByOutputId` and resolve `/static/<basename>` by
+  // matching against the basenames it indexed. Falls through to the
+  // root `results/<universe>/` static dir for legacy callers that
+  // request files we haven't indexed (e.g. ad-hoc figures).
   const staticDir = join(projectDir, 'results', activeUniverseId);
+  app.use('/static', (req, res, next) => {
+    const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
+    const rel = urlPath.replace(/^\/+/, '');
+    if (!rel) return next();
+    // Match by basename across every scanned result file.
+    for (const absPath of resultsByOutputId.values()) {
+      if (basename(absPath) === rel) {
+        res.status(200);
+        res.setHeader('Cache-Control', 'no-store');
+        createReadStream(absPath).pipe(res);
+        return;
+      }
+    }
+    return next();
+  });
   app.use('/static', express.static(staticDir));
 
   // HTTP server

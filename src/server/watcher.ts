@@ -9,16 +9,19 @@ export function startWatcher(
   projectDir: string,
   onReload: () => void,
 ): FSWatcher {
+  const resultExts = ['png', 'jpg', 'jpeg', 'svg', 'csv', 'json', 'md'];
+  const resultGlobs = resultExts.flatMap((ext) => [
+    `${projectDir}/results/**/*.${ext}`,
+    `${projectDir}/analyses/**/results/**/*.${ext}`,
+  ]);
+
   const watcher = chokidar.watch(
     [
       `${projectDir}/astra.yaml`,
+      `${projectDir}/analyses/**/astra.yaml`,
       `${projectDir}/universes/*.yaml`,
       `${projectDir}/universes/*.yml`,
-      `${projectDir}/results/**/*.png`,
-      `${projectDir}/results/**/*.jpg`,
-      `${projectDir}/results/**/*.csv`,
-      `${projectDir}/results/**/*.json`,
-      `${projectDir}/results/**/*.md`,
+      ...resultGlobs,
     ],
     {
       ignoreInitial: true,
