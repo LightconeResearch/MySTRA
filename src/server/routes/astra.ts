@@ -17,6 +17,7 @@
  */
 
 import { basename } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
 import type { RequestHandler } from 'express';
 import type { ASTRAAnalysis, ASTRAInput, ASTRAOutput } from '../../types/astra.js';
 import { resolveOutputs } from '../../transform/resolve-output.js';
@@ -29,6 +30,33 @@ export interface SerializedRecipe {
   command?: string;
   /** Container image / Containerfile path (when declared). */
   container?: string;
+}
+
+/**
+ * Inlined metric-output value data, parsed from the materialised result file
+ * at build time so renderers can hero-print value ± uncertainty + unit
+ * without a second round-trip. Mirrors the shape the React port's
+ * `MetricGalleryCard` and `lightcone-ui-liam`'s `attachMetricData` consume.
+ *
+ * Three accepted source shapes:
+ *   - bare number / string             → { value }
+ *   - `[value, uncertainty]` 2-tuple   → { value, uncertainty }
+ *   - object with at least `value`     → spread as-is (value, uncertainty,
+ *                                        unit, label, …)
+ *
+ * Anything else (or an unreadable file) leaves `metric` absent; the renderer
+ * falls back to a "no value" placeholder.
+ */
+export interface SerializedMetric {
+  value?: number | string;
+  uncertainty?: number | string;
+  /** Alias for `uncertainty` accepted by some convention; the renderer reads
+   *  either. */
+  error?: number | string;
+  unit?: string;
+  /** Plural alias accepted by some convention. */
+  units?: string;
+  label?: string;
 }
 
 export interface SerializedOutput {
@@ -62,6 +90,12 @@ export interface SerializedOutput {
    * When `truncated` is true the source file has more rows than `rows.length`.
    */
   table_data?: TableData;
+  /**
+   * Inlined metric value, populated for `type: 'metric'` outputs whose
+   * result file parses as JSON. Absent for non-metric outputs, missing
+   * result files, non-JSON extensions, or unparseable content.
+   */
+  metric?: SerializedMetric;
 }
 
 export interface SerializedInput {
@@ -121,6 +155,7 @@ export function buildASTRADataMap(
     const absPath = results.get(declared.id);
     const tableData =
       resolved.type === 'table' && absPath ? (parseTableData(absPath) ?? undefined) : undefined;
+    const metric = resolved.type === 'metric' && absPath ? readMetric(absPath) : undefined;
 
     return {
       id: declared.id,
@@ -143,6 +178,7 @@ export function buildASTRADataMap(
       decisions: resolved.decisions,
       from: declared.from,
       table_data: tableData,
+      metric,
     };
   });
 
@@ -177,4 +213,54 @@ function resolvedPath(
   const absPath = results.get(outputId);
   if (!absPath) return undefined;
   return `/static/${basename(absPath)}`;
+}
+
+/**
+ * Read and parse a metric output's result file. Mirrors the
+ * `attachMetricData` recipe in `lightcone-ui-liam/packages/core/src/bundle.ts`
+ * — three accepted source shapes (bare scalar, 2-tuple, object), anything
+ * else returns undefined so the renderer falls back to a placeholder.
+ *
+ * Limited to `.json` files; other extensions don't surface as inline metric
+ * heroes (matches Liam's pipeline). Read errors are swallowed — silently
+ * dropping is correct here, the React renderer's empty state is the contract.
+ */
+function readMetric(absPath: string): SerializedMetric | undefined {
+  if (!absPath.toLowerCase().endsWith('.json')) return undefined;
+  if (!existsSync(absPath)) return undefined;
+  try {
+    const raw: unknown = JSON.parse(readFileSync(absPath, 'utf-8'));
+    if (typeof raw === 'number' || typeof raw === 'string') {
+      return { value: raw };
+    }
+    if (Array.isArray(raw) && raw.length >= 1) {
+      const [value, uncertainty] = raw;
+      // Only surface scalar value/uncertainty pairs; arrays of objects
+      // belong on the table-data path, not the metric hero.
+      if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+      const out: SerializedMetric = { value };
+      if (typeof uncertainty === 'number' || typeof uncertainty === 'string') {
+        out.uncertainty = uncertainty;
+      }
+      return out;
+    }
+    if (raw && typeof raw === 'object' && 'value' in raw) {
+      // Spread the object — accept any of value/uncertainty/error/unit/units/label.
+      const obj = raw as Record<string, unknown>;
+      const out: SerializedMetric = {};
+      if (typeof obj.value === 'number' || typeof obj.value === 'string')
+        out.value = obj.value;
+      if (typeof obj.uncertainty === 'number' || typeof obj.uncertainty === 'string')
+        out.uncertainty = obj.uncertainty;
+      if (typeof obj.error === 'number' || typeof obj.error === 'string')
+        out.error = obj.error;
+      if (typeof obj.unit === 'string') out.unit = obj.unit;
+      if (typeof obj.units === 'string') out.units = obj.units;
+      if (typeof obj.label === 'string') out.label = obj.label;
+      return Object.keys(out).length > 0 ? out : undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
