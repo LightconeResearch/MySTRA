@@ -137,11 +137,18 @@ export function astraHandler(
  * Walk the analysis tree (same recursion as `buildAllPages`) and produce a
  * slug → ASTRAPageData map.  Called once per reload; the server stores the
  * result and serves it via `astraHandler`.
+ *
+ * `parentInputScopes` carries the input maps of every ancestor analysis,
+ * outermost first. Aliased inputs (`from: <id>`) walk the chain inner →
+ * outer to inherit description / source / type from the source declaration,
+ * matching Liam's bundle pipeline which renders the resolved input record
+ * regardless of which scope owns the alias.
  */
 export function buildASTRADataMap(
   analysis: ASTRAAnalysis,
   results: Map<string, string>,
   basePath = '',
+  parentInputScopes: Map<string, ASTRAInput>[] = [],
 ): Map<string, ASTRAPageData> {
   const map = new Map<string, ASTRAPageData>();
   const slug = basePath || 'index';
@@ -182,26 +189,93 @@ export function buildASTRADataMap(
     };
   });
 
-  const inputs: SerializedInput[] = (analysis.inputs ?? []).map((inp: ASTRAInput) => ({
+  // Build this scope's own input map — used for output-input resolution
+  // within this scope, and as a parent scope for nested sub-analyses.
+  const localInputs: Map<string, ASTRAInput> = new Map(
+    (analysis.inputs ?? []).map((i) => [i.id, i] as const),
+  );
+
+  const inputs: SerializedInput[] = (analysis.inputs ?? []).map((inp: ASTRAInput) =>
+    serializeInput(inp, parentInputScopes),
+  );
+
+  map.set(slug, { outputs, inputs });
+
+  // Recurse into sub-analyses (mirrors buildAllPages depth-first walk).
+  // Children inherit our scope at the end of `parentInputScopes` so they
+  // can resolve `from:` references against ancestors.
+  const childParentScopes = [...parentInputScopes, localInputs];
+  for (const [subId, sub] of Object.entries(analysis.analyses ?? {})) {
+    const subPath = basePath ? `${basePath}/${subId}` : subId;
+    for (const [subSlug, subData] of buildASTRADataMap(
+      sub,
+      results,
+      subPath,
+      childParentScopes,
+    )) {
+      map.set(subSlug, subData);
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Resolve an input declaration into a `SerializedInput` for the wire.
+ *
+ * Plain inputs (no `from:`): pass-through.
+ *
+ * Aliased inputs (`from: <id>`): walk `parentInputScopes` from innermost to
+ * outermost looking for a matching id. The source's content fields
+ * (`type`, `label`, `description`, `source`) are inherited; the alias keeps
+ * its own `id` and `from` pointer so consumers can still distinguish "this
+ * scope declared it" from "inherited from above".
+ *
+ * Mirrors Liam's bundle pipeline behaviour (`subInputPath` / aliased inputs
+ * inherit from the source declaration). The `from:` value MAY use the
+ * v0.0.7 path syntax (`../id`, `../../id`, `../scope.out_id`) — this lookup
+ * accepts either the bare id (current mystra emit shape) or the trailing
+ * id token after the last `.` or `/`. Sibling-output references
+ * (`../scope.out_id`) leave the alias untouched; that's an output-input
+ * cross-link and should still display as "from <output-id>" in the UI.
+ */
+function serializeInput(
+  inp: ASTRAInput,
+  parentInputScopes: Map<string, ASTRAInput>[],
+): SerializedInput {
+  const out: SerializedInput = {
     id: inp.id,
     label: inp.label,
     type: inp.type,
     description: inp.description,
     source: inp.source,
     from: inp.from,
-  }));
-
-  map.set(slug, { outputs, inputs });
-
-  // Recurse into sub-analyses (mirrors buildAllPages depth-first walk).
-  for (const [subId, sub] of Object.entries(analysis.analyses ?? {})) {
-    const subPath = basePath ? `${basePath}/${subId}` : subId;
-    for (const [subSlug, subData] of buildASTRADataMap(sub, results, subPath)) {
-      map.set(subSlug, subData);
-    }
+  };
+  if (!inp.from) return out;
+  // Output-input cross-link (`../scope.out_id`): leave alone — the source
+  // is an Output, not an Input, and the modal renders the from pointer.
+  if (inp.from.includes('.')) return out;
+  const targetId = lastSegment(inp.from);
+  // Walk inner -> outer so the closest declaration wins on conflict.
+  for (let i = parentInputScopes.length - 1; i >= 0; i--) {
+    const scope = parentInputScopes[i];
+    const src = scope.get(targetId);
+    if (!src) continue;
+    return {
+      ...out,
+      type: out.type ?? src.type,
+      label: out.label ?? src.label,
+      description: out.description ?? src.description,
+      source: out.source ?? src.source,
+    };
   }
+  return out;
+}
 
-  return map;
+/** Strip leading `../` segments from a `from:` path and return the trailing id. */
+function lastSegment(path: string): string {
+  const parts = path.split('/');
+  return parts[parts.length - 1];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
