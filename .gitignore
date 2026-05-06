@@ -9,5 +9,5 @@ _build/
 .playwright-mcp/
 *.png
 snapshot.md
-# felt index (regenerable; fibers themselves are tracked)
-.felt/index.db
+# local fibers / notes are not part of the public repo
+.felt/

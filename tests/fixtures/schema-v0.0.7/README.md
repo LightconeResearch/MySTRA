@@ -18,8 +18,6 @@ Every astra-spec release:
 
 The coverage test is the mechanical guard that replaces "hand-audit
 every release." When the test goes green again, MySTRA is back to
-parity. See the
-[complete-astra-coverage constitution][constitution] for the full
-rationale.
-
-[constitution]: ../../../.felt/vellum-reader/myst-as-ast-layer-for-lightcone-ui/complete-astra-coverage/complete-astra-coverage.md
+parity. The broader rationale for the guard lives in `SPEC.md` and
+in the coverage work merged through
+[MySTRA PR #1](https://github.com/LightconeResearch/MySTRA/pull/1).

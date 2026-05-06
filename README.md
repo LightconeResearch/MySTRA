@@ -45,13 +45,14 @@ The MyST book-theme doesn't care where its AST comes from. MySTRA replaces the c
 ## Features
 
 - **Flat addressable elements** — every finding, decision, prior-insight, input, output, and narrative chunk is emitted as a top-level block with a stable `<kind>-<id>` identifier. Themes and downstream renderers compose layout from those carriers; MySTRA imposes no section structure of its own.
+- **Structured ASTRA sidecar** — `/astra/<slug>.json` exposes resolved inputs/outputs, recipes, and inline metric/table payloads for renderer-native gallery/detail views.
 - **Findings** as h3 blocks with author notes, scope, and evidence (figures, tables, citations).
 - **Decisions** as collapsible dropdowns with tabbed option comparisons (selected option marked with **●**).
 - **Prior insights** as flat blocks; option tabs cross-reference them rather than expanding inline.
 - **Universe banner** summarising active decision selections with links to each decision.
 - **Narrative anchor grammar** — `[text](#path.to.element)` resolves to a `crossReference` everywhere prose appears (narrative sections, claims, rationales, descriptions, captions, excluded reasons).
-- **Live reload** — edits to `astra.yaml`, `universes/*.yaml`, or `results/**/*` trigger an automatic page refresh.
-- **DOI resolution** with disk-cached citation metadata and formatted bibliography.
+- **Live reload** — edits to the root spec, nested `analyses/**/astra.yaml`, or result artifacts under `results/` and `analyses/**/results/` trigger an automatic page refresh.
+- **DOI + paper-cache enrichment** — disk-cached citation metadata, optional cached-PDF links, and insight→decision backlinks for cited papers.
 - **Recursive sub-analyses** rendered as separate pages with their own universe scoping.
 
 ## Usage
@@ -86,6 +87,7 @@ src/
 ├── loader/                  ASTRA source loading (YAML, universes, results)
 ├── server/                  Express content server + WebSocket live reload
 ├── doi/                     DOI resolution, caching, citation formatting
+├── papers/                  Cached-paper enrichment + DOI insight backlinks
 ├── theme/                   MyST book-theme launcher
 ├── types/                   TypeScript interfaces (ASTRA, content-server API)
 └── cli.ts                   CLI entry point
@@ -108,6 +110,10 @@ my-analysis/
     └── variant/
 ```
 
+Nested analyses typically live under `analyses/<sub>/astra.yaml`; MySTRA also
+scans `analyses/**/results/<universe>/` when resolving artifacts and serving
+`/static/*` URLs.
+
 ## Content API
 
 When running with `--no-theme`, the content server exposes:
@@ -115,9 +121,12 @@ When running with `--no-theme`, the content server exposes:
 | Endpoint | Description |
 |----------|-------------|
 | `GET /config.json` | Site manifest + table of contents |
-| `GET /content/{slug}.json` | Page AST + frontmatter + references |
+| `GET /content/*.json` | Page AST + frontmatter + references |
 | `GET /myst.xref.json` | Cross-reference index |
-| `GET /static/*` | Result artifacts (images, data files) |
+| `GET /astra/*.json` | Structured ASTRA sidecar with resolved inputs/outputs, recipes, metric/table payloads |
+| `GET /doi-metadata/:doi(*)` | Enriched DOI metadata, including cached-PDF links and insight backlinks when available |
+| `GET /papers/*` | Cached paper PDFs from the local ASTRA paper cache |
+| `GET /static/*` | Result artifacts from root or nested sub-analysis results |
 | `WS /socket` | Live reload notifications |
 
 ## Development
