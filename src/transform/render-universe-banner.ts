@@ -14,10 +14,12 @@ import {
   tableRow,
   tableCell,
 } from './ast-helpers.js';
+import type { ProseParser } from './narrative-parser.js';
 
 export function renderUniverseBanner(
   universe: ASTRAUniverse,
   decisions: Record<string, ASTRADecision>,
+  prose: ProseParser,
 ): any {
   const rows: any[] = [];
 
@@ -31,7 +33,7 @@ export function renderUniverseBanner(
 
     rows.push(
       tableRow([
-        tableCell([crossReference(decisionId, [strong([text(decisionLabel)])])]),
+        tableCell([crossReference(`decision-${decisionId}`, [strong([text(decisionLabel)])])]),
         tableCell([text(optionLabel)]),
       ]),
     );
@@ -45,9 +47,20 @@ export function renderUniverseBanner(
     true,
   );
 
+  // Universe.description gets the same anchor-resolution treatment
+  // as other prose fields. Inline-only because the banner's
+  // collapsible summary expects a single line of phrasing content.
+  const descNodes = prose.inline(universe.description);
+
   return details(
     [
-      summary([text('Universe: '), strong([text(universe.id)])]),
+      summary([
+        text('Universe: '),
+        strong([text(universe.id)]),
+        ...(descNodes.length > 0
+          ? [text(' — '), ...descNodes]
+          : []),
+      ]),
       ...(rows.length > 0 ? [table([headerRow, ...rows])] : []),
     ],
     true,

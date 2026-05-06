@@ -3,8 +3,6 @@
  * Every function returns a plain object — no side effects, no state.
  */
 
-import { toSlug } from '../utils/slug.js';
-
 // ── Inline nodes ──
 
 export function text(value: string) {
@@ -124,17 +122,28 @@ export function tabSet(children: any[]) {
   return { type: 'tabSet' as const, children };
 }
 
-let tabKeyCounter = 0;
-
-export function tabItem(title: string, children: any[], selected?: boolean) {
-  // The book-theme React renderer requires a unique `key` on each tabItem
-  const key = `tab-${(tabKeyCounter++).toString(36)}`;
-  return {
-    type: 'tabItem' as const,
-    title,
-    key,
-    ...(selected ? { selected: true } : {}),
-    children,
+/**
+ * Per-transform tabItem factory. The book-theme React renderer
+ * requires a unique `key` per tabItem; we mint one with a closure-
+ * scoped counter so two consecutive transform passes produce the
+ * same keys (downstream consumers diffing AST JSON shouldn't see
+ * spurious `key` changes from a module-global counter).
+ */
+export function makeTabItem(): (
+  title: string,
+  children: any[],
+  selected?: boolean,
+) => any {
+  let counter = 0;
+  return function tabItem(title, children, selected) {
+    const key = `tab-${(counter++).toString(36)}`;
+    return {
+      type: 'tabItem' as const,
+      title,
+      key,
+      ...(selected ? { selected: true } : {}),
+      children,
+    };
   };
 }
 
@@ -145,16 +154,6 @@ export function card(title: string, children: any[], url?: string) {
     ...(url ? { url } : {}),
     children,
   };
-}
-
-// ── List nodes ──
-
-export function list(children: any[], ordered = false) {
-  return { type: 'list' as const, ordered, children };
-}
-
-export function listItem(children: any[]) {
-  return { type: 'listItem' as const, children };
 }
 
 // ── Citation nodes ──
@@ -185,15 +184,4 @@ export function summary(children: any[]) {
 
 export function blockBreak(meta?: string) {
   return { type: 'blockBreak' as const, ...(meta ? { meta } : {}) };
-}
-
-// ── Convenience composites ──
-
-export function sectionHeading(depth: 1 | 2 | 3 | 4 | 5 | 6, label: string, identifier?: string) {
-  const id = identifier ?? toSlug(label);
-  return heading(depth, [text(label)], id, label);
-}
-
-export function doiLink(doi: string) {
-  return link(`https://doi.org/${doi}`, [text(doi)]);
 }

@@ -1,37 +1,40 @@
 /**
- * Renders the Findings section of an analysis page.
+ * Renders findings as flat per-finding blocks: an h3 heading
+ * carrying `finding-<id>`, the author's notes prose, scope, and
+ * evidence blocks. Tags ride along on the heading's mdast `data`
+ * slot for consumers that want to compose grouping or relations.
  *
- * Matches the prototype style: heading, narrative, figure, result table
- * in dropdown, methodology callout, thematic breaks between findings.
+ * No implicit relational inference. Earlier versions emitted
+ * crossReferences to "tag-overlapping" decisions — same shape as
+ * the deleted TAG_TO_SECTION ontology, just inverted. The author
+ * narrates relations explicitly through the v0.0.6 anchor grammar
+ * (a methods narrative, a finding-claim link, an option
+ * description); the renderer doesn't synthesise them.
  */
 
-import type { ASTRAInsight, ASTRADecision, ASTRAOutput } from '../types/astra.js';
+import type { ASTRAInsight, ASTRAOutput } from '../types/astra.js';
 import {
   heading,
   paragraph,
   text,
   emphasis,
-  admonition,
-  admonitionTitle,
-  crossReference,
   thematicBreak,
 } from './ast-helpers.js';
-import { parseInlineMarkdown } from './inline-parser.js';
+import type { ProseParser } from './narrative-parser.js';
 import { renderEvidenceBlock } from './render-evidence.js';
-import { TAG_TO_SECTION } from './tag-sections.js';
-import { toSlug } from '../utils/slug.js';
 
 export function renderFindings(
   findings: Record<string, ASTRAInsight>,
   results: Map<string, string>,
-  decisions: Record<string, ASTRADecision>,
-  outputs: ASTRAOutput[],
+  outputs: Map<string, ASTRAOutput>,
+  prose: ProseParser,
+  doiCacheDir: string | null,
 ): any[] {
   const findingEntries = Object.entries(findings);
-
-  if (findingEntries.length === 0) {
-    return [paragraph([emphasis([text('No findings recorded yet.')])])];
-  }
+  // Empty findings → no output. The page no longer wraps findings in
+  // a section heading, so an empty placeholder would be a stray
+  // sentence floating in the middle of the document.
+  if (findingEntries.length === 0) return [];
 
   const nodes: any[] = [];
   let index = 1;
@@ -40,7 +43,7 @@ export function renderFindings(
     if (index > 1) {
       nodes.push(thematicBreak());
     }
-    nodes.push(...renderFinding(finding, index, findingId, results, decisions));
+    nodes.push(...renderFinding(finding, index, findingId, results, outputs, prose, doiCacheDir));
     index++;
   }
 
@@ -52,17 +55,32 @@ function renderFinding(
   index: number,
   findingId: string,
   results: Map<string, string>,
-  decisions: Record<string, ASTRADecision>,
+  outputs: Map<string, ASTRAOutput>,
+  prose: ProseParser,
+  doiCacheDir: string | null,
 ): any[] {
   const nodes: any[] = [];
   const identifier = `finding-${findingId}`;
 
-  // Finding heading
-  nodes.push(heading(3, [text(`${index}. ${finding.claim}`)], identifier));
+  // Finding heading: claim parsed as inline Markdown so emphasis and
+  // code spans render, and any anchor links resolve. Numeric prefix
+  // stays as plain text. Tags survive on the mdast `data` slot —
+  // consumers that want grouping (paper view, dashboard) read them
+  // there; MySTRA imposes no grouping of its own.
+  const head: any = heading(
+    3,
+    [text(`${index}. `), ...prose.inline(finding.claim)],
+    identifier,
+  );
+  if (finding.tags && finding.tags.length > 0) {
+    head.data = { ...(head.data ?? {}), tags: finding.tags };
+  }
+  nodes.push(head);
 
-  // Notes as narrative paragraph (with inline markdown formatting)
+  // Notes parse as full Markdown — block-level structure (multiple
+  // paragraphs, lists, code blocks) is intentionally allowed.
   if (finding.notes) {
-    nodes.push(paragraph(parseInlineMarkdown(finding.notes)));
+    nodes.push(...prose.blocks(finding.notes));
   }
 
   // Scope
@@ -72,61 +90,8 @@ function renderFinding(
 
   // Evidence blocks (figures, tables, artifact references)
   for (const evidence of finding.evidence) {
-    nodes.push(...renderEvidenceBlock(evidence, results));
-  }
-
-  // Methodology callout with cross-references to relevant method sections
-  const methodLinks = buildMethodologyLinks(finding, decisions);
-  if (methodLinks.length > 0) {
-    const linkParts: any[] = [text('This finding depends on: ')];
-    for (let i = 0; i < methodLinks.length; i++) {
-      if (i > 0 && i === methodLinks.length - 1) {
-        linkParts.push(text(', and '));
-      } else if (i > 0) {
-        linkParts.push(text(', '));
-      }
-      linkParts.push(
-        crossReference(methodLinks[i].sectionId, [text(methodLinks[i].sectionLabel)]),
-      );
-    }
-    linkParts.push(text('.'));
-
-    nodes.push(
-      admonition('seealso', [
-        admonitionTitle([text('Methodology')]),
-        paragraph(linkParts),
-      ]),
-    );
+    nodes.push(...renderEvidenceBlock(evidence, results, outputs, prose, doiCacheDir));
   }
 
   return nodes;
-}
-
-/**
- * Find method sections relevant to a finding by matching tags.
- */
-function buildMethodologyLinks(
-  finding: ASTRAInsight,
-  decisions: Record<string, ASTRADecision>,
-): Array<{ sectionLabel: string; sectionId: string }> {
-  if (!finding.tags || finding.tags.length === 0) return [];
-
-  const seenSections = new Set<string>();
-  const links: Array<{ sectionLabel: string; sectionId: string }> = [];
-
-  for (const [, decision] of Object.entries(decisions)) {
-    if (decision.from || !decision.tags) continue;
-
-    const hasOverlap = decision.tags.some((dt) => finding.tags!.includes(dt));
-    if (!hasOverlap) continue;
-
-    const firstTag = decision.tags[0];
-    const sectionLabel = TAG_TO_SECTION[firstTag] ?? 'Other';
-    if (seenSections.has(sectionLabel)) continue;
-    seenSections.add(sectionLabel);
-
-    links.push({ sectionLabel, sectionId: toSlug(sectionLabel) });
-  }
-
-  return links;
 }

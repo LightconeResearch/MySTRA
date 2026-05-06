@@ -1,5 +1,11 @@
 /**
- * GET /content/:project/:slug.json — Page AST + frontmatter.
+ * GET /content/*.json — Page AST + frontmatter.
+ *
+ * The wildcard captures the full page slug, including any `/`
+ * separators that nested sub-analyses introduce (`buildAllPages`
+ * builds slugs by joining the analysis path with `/`, so a
+ * grandchild lives at slug `parent/child`). The Express handler
+ * exposes the captured value as `req.params[0]`.
  */
 
 import type { Request, Response } from 'express';
@@ -11,7 +17,10 @@ export function contentHandler(
   getReferences: () => References,
 ) {
   return (req: Request, res: Response) => {
-    const slug = req.params['slug'];
+    // `req.params[0]` is the wildcard capture from `/content/*.json`.
+    // It's the full slug regardless of depth, e.g. `index`,
+    // `reconstruction`, `reconstruction/step1`.
+    const slug = req.params[0] ?? req.params['slug'];
     const pages = getPages();
     const page = pages.find((p) => p.slug === slug);
 

@@ -1,0 +1,160 @@
+/**
+ * Output alias resolution.
+ *
+ * As of astra-spec v0.0.7, an Output with `from:` is a pure pointer
+ * — type, description, inputs, decisions, and recipe are inherited
+ * from the source. The path grammar is downward only:
+ *
+ *   from: child.out_id            -- own child sub's output
+ *   from: child.grand.out_id      -- descend through nested children
+ *
+ * Resolution is the consumer's problem if MySTRA doesn't do it. To
+ * keep the boundary clean (renderers pattern-match on emitted nodes,
+ * never re-read `astra.yaml`), MySTRA does it here: every Output
+ * surfaces a resolved view with type/description/inputs/decisions/
+ * recipe inherited from the source if `from:` is set.
+ *
+ * This mirrors the resolver lightcone-ui's `ed0e69c` pulled into
+ * `bundle.ts`; that work moves back into MySTRA so both
+ * lightcone-ui's bundle layer and vellum (and any future renderer)
+ * read the resolved view from the emitted mdast rather than walking
+ * the spec themselves.
+ */
+
+import type { ASTRAAnalysis, ASTRAOutput } from '../types/astra.js';
+
+export interface ResolvedOutput {
+  /** The original output as declared in this scope. */
+  declared: ASTRAOutput;
+  /**
+   * The resolved view: type, description, inputs, decisions, recipe
+   * filled in from the source if `from:` chains were walked. When
+   * `declared.from` is unset, this equals `declared`.
+   */
+  resolved: ASTRAOutput;
+  /**
+   * The dot-separated chain that was walked, e.g.
+   * `['preprocessing', 'features']` for `from: preprocessing.features`.
+   * Empty when no resolution happened.
+   */
+  fromChain: string[];
+  /**
+   * True if `from:` was set but the path failed to resolve to an
+   * output. Renderers can surface this as a broken-reference warning.
+   */
+  unresolved: boolean;
+}
+
+/**
+ * Resolve an Output by walking its `from:` chain through nested
+ * `analyses` of the surrounding scope. The walker descends one
+ * sub-analysis per path segment; the last segment names the output.
+ *
+ * If the source itself has `from:`, the walker recurses, scoped to
+ * that source's `analyses` map.
+ *
+ * Returns the original output if no `from:` is set.
+ */
+export function resolveOutput(
+  output: ASTRAOutput,
+  scope: ASTRAAnalysis,
+): ResolvedOutput {
+  if (!output.from) {
+    return { declared: output, resolved: output, fromChain: [], unresolved: false };
+  }
+
+  const chain = output.from.split('.');
+  const source = walkOutputPath(chain, scope);
+
+  if (!source) {
+    // `from:` was set but the path didn't land on an output. The
+    // local node should be a pure pointer (validator-enforced), so
+    // declared inputs/decisions/recipe — if any — are spec
+    // violations and shouldn't be surfaced. Return an empty resolved
+    // view so consumers see "no provenance" instead of inheriting
+    // from a half-broken declaration.
+    const empty: ASTRAOutput = {
+      id: output.id,
+      from: output.from,
+      when: output.when,
+      label: output.label,
+    };
+    return {
+      declared: output,
+      resolved: empty,
+      fromChain: chain,
+      unresolved: true,
+    };
+  }
+
+  // Source might itself be aliased — recurse, scoped to the source's
+  // surrounding analysis. The walker returns both the matched output
+  // and its containing analysis, so the recursion has the right
+  // scope to interpret the source's `from:` (if any).
+  const { output: sourceOutput, parent } = source;
+  if (sourceOutput.from) {
+    const recursed = resolveOutput(sourceOutput, parent);
+    return {
+      declared: output,
+      resolved: recursed.resolved,
+      fromChain: chain,
+      unresolved: recursed.unresolved,
+    };
+  }
+
+  // Merge: declared keeps its id/from/when (and label, if explicit);
+  // everything else is inherited.
+  const merged: ASTRAOutput = {
+    id: output.id,
+    from: output.from,
+    when: output.when,
+    label: output.label ?? sourceOutput.label,
+    type: sourceOutput.type,
+    description: sourceOutput.description,
+    inputs: sourceOutput.inputs,
+    decisions: sourceOutput.decisions,
+    recipe: sourceOutput.recipe,
+  };
+
+  return {
+    declared: output,
+    resolved: merged,
+    fromChain: chain,
+    unresolved: false,
+  };
+}
+
+/**
+ * Walk a path of `[child, sub, ..., out_id]` segments through nested
+ * `analyses` and return the matched output along with its containing
+ * analysis (so the caller can recurse if the matched output is itself
+ * aliased).
+ */
+function walkOutputPath(
+  parts: string[],
+  scope: ASTRAAnalysis,
+): { output: ASTRAOutput; parent: ASTRAAnalysis } | null {
+  if (parts.length < 2) return null;
+
+  let current: ASTRAAnalysis = scope;
+  // All segments but the last name nested sub-analyses.
+  for (let i = 0; i < parts.length - 1; i++) {
+    const segId = parts[i];
+    const next = current.analyses?.[segId];
+    if (!next) return null;
+    current = next;
+  }
+
+  const outId = parts[parts.length - 1];
+  const output = (current.outputs ?? []).find((o) => o.id === outId);
+  if (!output) return null;
+  return { output, parent: current };
+}
+
+/**
+ * Resolve every Output in an analysis — convenience for renderers
+ * that want the resolved view across the registry.
+ */
+export function resolveOutputs(analysis: ASTRAAnalysis): ResolvedOutput[] {
+  return (analysis.outputs ?? []).map((o) => resolveOutput(o, analysis));
+}

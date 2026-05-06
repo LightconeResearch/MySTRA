@@ -1,8 +1,13 @@
 /**
- * Renders the Methods section: decisions grouped by tag, each with
- * an h4 heading and collapsible dropdown containing option tabs.
+ * Renders each decision as a flat block: an h4 heading carrying the
+ * `decision-<id>` identifier, followed by a `details/summary`
+ * dropdown with the rationale and option tabs.
  *
- * Matches the prototype style from index.md.
+ * No grouping, no section headings: tags survive on the heading's
+ * `data.tags` slot and consumers (paper view, dashboard, plugins)
+ * compose any grouping or chrome they want on top. MySTRA's job
+ * here is to emit addressable per-decision blocks; the renderer
+ * has no opinion about how decisions are organised.
  */
 
 import type { ASTRADecision, ASTRAInsight, ASTRAUniverse } from '../types/astra.js';
@@ -15,44 +20,59 @@ import {
   details,
   summary,
   tabSet,
-  tabItem,
   thematicBreak,
+  crossReference,
 } from './ast-helpers.js';
-import { groupDecisionsByTag } from './tag-sections.js';
-import { renderInsight } from './render-evidence.js';
+import type { ProseParser } from './narrative-parser.js';
+
+/**
+ * tabItem factory bound to the current transform pass. Created once
+ * by astraToMystAST and threaded through to every renderer that
+ * mints tab keys, so the counter is per-transform, not global.
+ */
+export type TabItemFn = (title: string, children: any[], selected?: boolean) => any;
+
+/**
+ * Will this decision produce a rendered block on the page?
+ *
+ * Two reasons a declared decision drops out of the AST:
+ *  - it's a bare `from`-reference (no local definition; the
+ *    parent analysis is where the data lives)
+ *  - its `when` predicate is unmet given the active universe
+ *
+ * The xref index uses this predicate to publish only ids that have
+ * a real carrier — anchors to unrendered decisions would otherwise
+ * land on nothing.
+ */
+export function isDecisionRendered(
+  decision: ASTRADecision,
+  universe: ASTRAUniverse,
+): boolean {
+  if (decision.from) return false;
+  if (!decision.options) return false;
+  if (!isConditionMet(decision.when, universe)) return false;
+  return true;
+}
 
 export function renderMethodsSections(
   decisions: Record<string, ASTRADecision>,
   priorInsights: Record<string, ASTRAInsight>,
   universe: ASTRAUniverse,
+  prose: ProseParser,
+  tabItem: TabItemFn,
+  doiCacheDir: string | null,
 ): any[] {
-  const groups = groupDecisionsByTag(decisions);
   const nodes: any[] = [];
-
-  // Intro paragraph
-  nodes.push(
-    paragraph([
-      text(
-        'The following sections detail each methodological decision. ' +
-        'Decisions are organized by scientific concern. Each decision shows the selected option ' +
-        'with supporting evidence; alternative options can be explored via tabs.',
-      ),
-    ]),
+  const entries = Object.entries(decisions).filter(([, d]) =>
+    isDecisionRendered(d, universe),
   );
 
-  for (const group of groups) {
-    // Section heading (h3)
-    nodes.push(heading(3, [text(group.sectionLabel)], group.sectionId));
-
-    // Each decision in this group
-    for (let i = 0; i < group.decisions.length; i++) {
-      const { id, decision } = group.decisions[i];
-      nodes.push(...renderDecision(id, decision, priorInsights, universe));
-
-      // Thematic break between decisions (not after the last one)
-      if (i < group.decisions.length - 1) {
-        nodes.push(thematicBreak());
-      }
+  for (let i = 0; i < entries.length; i++) {
+    const [id, decision] = entries[i];
+    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose, tabItem, doiCacheDir));
+    // Thematic break between decisions (not after the last one).
+    if (i < entries.length - 1) {
+      nodes.push(thematicBreak());
     }
   }
 
@@ -64,15 +84,11 @@ function renderDecision(
   decision: ASTRADecision,
   priorInsights: Record<string, ASTRAInsight>,
   universe: ASTRAUniverse,
+  prose: ProseParser,
+  tabItem: TabItemFn,
+  doiCacheDir: string | null,
 ): any[] {
-  // Skip if conditional and condition not met
-  if (!isConditionMet(decision.when, universe)) {
-    return [];
-  }
-
-  const options = decision.options;
-  if (!options) return [];
-
+  const options = decision.options!;
   const selectedOptionId = universe.decisions[id] ?? decision.default;
   const selectedOption = selectedOptionId ? options[selectedOptionId] : undefined;
   const selectedLabel = selectedOption?.label ?? selectedOptionId ?? '(none)';
@@ -80,8 +96,15 @@ function renderDecision(
 
   const nodes: any[] = [];
 
-  // h4 heading for the decision
-  nodes.push(heading(4, [text(decisionLabel)], id));
+  // h4 heading for the decision; identifier follows the
+  // structural-element scheme `<kind>-<id>`. Tags ride along on the
+  // mdast `data` slot — surface for downstream consumers that want
+  // to group decisions, without imposing any grouping ourselves.
+  const head: any = heading(4, [text(decisionLabel)], `decision-${id}`);
+  if (decision.tags && decision.tags.length > 0) {
+    head.data = { ...(head.data ?? {}), tags: decision.tags };
+  }
+  nodes.push(head);
 
   // Build option tabs, tracking which is selected for reordering
   const tabs: any[] = [];
@@ -91,7 +114,7 @@ function renderDecision(
     const [optionId, option] = optionEntries[i];
     const isSelected = optionId === selectedOptionId;
     if (isSelected) selectedIndex = i;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights));
+    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem, doiCacheDir));
   }
 
   // Move selected tab to first position (book-theme defaults to first tab)
@@ -109,7 +132,10 @@ function renderDecision(
   ];
 
   if (decision.rationale) {
-    detailsChildren.push(paragraph([text(decision.rationale)]));
+    // Rationale parses as full Markdown with anchor resolution —
+    // narrative-grammar links inside rationales resolve to
+    // crossReferences against the host analysis.
+    detailsChildren.push(...prose.blocks(decision.rationale));
   }
 
   if (tabs.length > 0) {
@@ -132,6 +158,9 @@ function renderOptionTab(
   },
   isSelected: boolean,
   priorInsights: Record<string, ASTRAInsight>,
+  prose: ProseParser,
+  tabItem: TabItemFn,
+  doiCacheDir: string | null,
 ): any {
   // Tab title with selection marker
   let marker: string;
@@ -146,46 +175,66 @@ function renderOptionTab(
 
   const children: any[] = [];
 
-  // Description
+  // Description as full Markdown with anchor resolution.
   if (option.description) {
-    children.push(paragraph([text(option.description)]));
+    children.push(...prose.blocks(option.description));
   }
 
-  // Excluded reason
+  // Excluded reason: parsed as author prose with anchor resolution.
+  // The "Excluded:" prefix is dropped — the boolean `excluded`
+  // field already carries that semantics; the prose just explains
+  // why. Inline-only because we want the reason to read as a
+  // single emphasised line under the option.
   if (option.excluded && option.excluded_reason) {
     children.push(
-      paragraph([emphasis([text(`Excluded: ${option.excluded_reason}`)])]),
+      paragraph([emphasis(prose.inline(option.excluded_reason))]),
     );
   }
 
-  // Supporting insights — collapsible dropdown
+  // Supporting insights — emit crossReferences to the flat
+  // prior_insight blocks rendered elsewhere on the page. The flat
+  // block is the source of truth; the option tab only points at it
+  // (no inline expansion). Broken references emit a console.warn
+  // so unresolved insight ids don't silently disappear.
   if (option.insights && option.insights.length > 0) {
-    const insightNodes: any[] = [];
-
+    const refs: any[] = [];
     for (const insightId of option.insights) {
-      insightNodes.push(...renderInsight(insightId, priorInsights));
+      const insight = priorInsights[insightId];
+      if (!insight) {
+        console.warn(
+          `[mystra] Option references unknown prior_insight id "${insightId}" — broken reference dropped from output.`,
+        );
+        continue;
+      }
+      const linkText = insight.label ?? insight.claim ?? insightId;
+      refs.push(crossReference(`prior_insight-${insightId}`, [text(linkText)]));
     }
-
-    const count = option.insights.length;
-    const label = count === 1 ? 'Supporting insight' : `Supporting insights (${count})`;
-    children.push(details([summary([text(label)]), ...insightNodes], false));
+    if (refs.length > 0) {
+      const count = refs.length;
+      const label = count === 1 ? 'Supporting insight: ' : 'Supporting insights: ';
+      const para: any[] = [text(label)];
+      for (let i = 0; i < refs.length; i++) {
+        if (i > 0) para.push(text(', '));
+        para.push(refs[i]);
+      }
+      children.push(paragraph(para));
+    }
   }
 
   return tabItem(title, children, isSelected);
 }
 
 /**
- * Check if a `when` condition is satisfied by the universe.
+ * Check if a `when` condition is satisfied by the universe. `when` is
+ * multivalued in astra-spec — multiple conditions are AND'd together.
  */
 function isConditionMet(
-  when: string | string[] | undefined,
+  when: string[] | undefined,
   universe: ASTRAUniverse,
 ): boolean {
   if (when === undefined) return true;
 
-  const conditions = Array.isArray(when) ? when : [when];
-
-  for (const cond of conditions) {
+  for (const cond of when) {
     const negated = cond.startsWith('~');
     const ref = negated ? cond.slice(1) : cond;
     const dotIndex = ref.indexOf('.');
