@@ -204,3 +204,86 @@ decision is which page-file↔tree mapping to commit to. Risk: picking a
 convention that later conflicts with how authors organise multi-page sites, so
 prefer the explicit (frontmatter) or composable (dotted) option over inferring
 from directory layout.
+
+---
+
+## Appendix: how MyST renders reference popovers (and what it means for insights)
+
+Findings from reading the build output + the `myst-to-react` source. Relevant to
+§2 (citations) and to the future `lightcone-astra` theme.
+
+### The model: engine resolves, theme renders client-side
+
+MyST is engine + theme. The engine (`mystmd`) *resolves* references at build time
+and writes static JSON (`content/<page>.json`, `myst.xref.json`, …); the theme
+(the book-theme React app) *renders* the popovers **client-side**. The server —
+`myst start` or any static host — only serves those JSON files; no popover logic
+is server-side.
+
+There are **two distinct popover mechanisms**, sharing only the generic
+`HoverPopover` shell:
+
+**Citations — a key→table join, embedded per page.** The engine recognises a DOI
+(even a bare `https://doi.org/…` link — see below), fetches its metadata, rewrites
+the inline node to a `cite` node carrying a `label` (the DOI key) + author–year
+text, and bakes the full reference into the page's `references.cite.data[label]`
+(including a pre-rendered `html` string). `cite.tsx` then does
+`useReferences()?.cite?.data[label]` and renders `<HoverPopover card={<CiteChild
+html={html}/>}>` (the html via `dangerouslySetInnerHTML`). No fetch, no node
+lookup — a local key join.
+
+**Cross-references — an identifier→node resolve.** `crossReference.tsx` resolves
+the target *node* by identifier: for a remote page it fetches that page's mdast
+(`createExternalUrl({url, remoteBaseUrl, dataUrl, baseurl})` + SWR); for a local
+ref it uses `references?.article` (the current page's mdast). It then
+`selectMdastNodes(tree, identifier, 3)` and renders the located node via `<MyST
+ast={nodes}/>` inside `HoverPopover`. It never touches `references.cite`.
+
+### Correction to §2: DOIs already resolve to citations
+
+This revises the framing in §2 above. Because the engine auto-converts
+`doi.org` links into `cite` nodes, the prototype build already contains 39 `cite`
+nodes (author–year inline) and a populated `references.cite` table — so inline
+citations **and their hover popovers already work** (given network at build to
+fetch DOI metadata; offline it falls back to a link). The remaining work in §2 is
+narrower than stated: mainly rendering a **reference list** (a `{bibliography}`
+directive / placement) and offline-cache behaviour — not "wire up citations from
+scratch." (The prototype README's "citations are plain DOI links" note is stale
+and should be corrected.)
+
+### A theme can add a cite-like mechanism — and it's in bounds
+
+`cite.tsx` is **not** engine magic; it's a theme-layer component built from public
+extension points, so a new theme can replicate the pattern:
+
+- **Renderers are an open, node-type-keyed map.** `DEFAULT_RENDERERS =
+  mergeRenderers([ … CITE_RENDERERS, CROSS_REFERENCE_RENDERERS, … ])`; a theme
+  uses `mergeRenderers` to add a renderer for a new node type or override an
+  existing one, then passes the map to `<MyST>`.
+- **Its data is a plain React context.** `article.tsx` defines `ArticleContext` /
+  `ArticleProvider({references})` / `useReferences()`. A theme can define its own
+  provider + hook for an arbitrary data table.
+
+The boundary a theme must respect: it renders the engine's **build output**; it
+must not read source (`astra.yaml`) or invent content. Since the plugin already
+bakes the **resolved store** into the build, a theme reading that store and
+rendering popovers is doing exactly what `cite.tsx` does with `references` — fully
+in bounds.
+
+### Implication for insight previews
+
+- **Baseline (book-theme, no theme):** emit the referenced insights as hidden,
+  **same-page** `crossReference` targets. `selectMdastNodes` searches the mdast
+  *tree* (`references.article`), not the live DOM — so a `display:none` target is
+  still found and rendered → citation-quality popover, no fetch, no visible
+  appendix. (This is the "hidden-targets" approach.)
+- **Rich (`lightcone-astra`):** a dedicated, store-driven renderer is the 1:1
+  `cite.tsx` analog — `AstraStoreProvider` + `useAstraStore()` + a custom
+  `NodeRenderer` (keyed on an astra node type/class) + `HoverPopover`, looking the
+  element up in the resolved store by id. Same shape as citations, richer card.
+
+### Sources
+- `myst-to-react`: [`cite.tsx`](https://github.com/jupyter-book/myst-theme/blob/main/packages/myst-to-react/src/cite.tsx),
+  [`crossReference.tsx`](https://github.com/jupyter-book/myst-theme/blob/main/packages/myst-to-react/src/crossReference.tsx),
+  [`index.tsx`](https://github.com/jupyter-book/myst-theme/blob/main/packages/myst-to-react/src/index.tsx)
+- `providers`: [`article.tsx`](https://github.com/jupyter-book/myst-theme/blob/main/packages/providers/src/article.tsx)
