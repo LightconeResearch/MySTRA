@@ -1,6 +1,6 @@
 /**
- * Tests for narrative-parser: Markdown → mdast and anchor → crossRef
- * resolution per the v0.0.6 narrative grammar.
+ * Tests for the prose parser: Markdown → mdast and anchor → crossRef
+ * resolution per the ASTRA anchor grammar.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -10,7 +10,7 @@ import {
   parseProseInline,
   resolveNarrativeAnchors,
   resolveAnchorPath,
-} from '../src/transform/narrative-parser.js';
+} from '../src/transform/prose.js';
 
 /** Minimal Analysis fixture with one finding, one decision, one
  *  sub-analysis — enough to exercise every resolution branch. */
@@ -375,25 +375,6 @@ describe('resolveAnchorPath', () => {
     ).toEqual({ url: '/preprocessing#output-features' });
   });
 
-  it('resolves #narrative.<section> to the narrative chunk identifier', () => {
-    const withNarrative: Analysis = {
-      ...a,
-      narrative: { findings: 'Some findings prose.', summary: 'Hi.' },
-    };
-    expect(
-      resolveAnchorPath('#narrative.findings', withNarrative, 'index'),
-    ).toEqual({ identifier: 'narrative-findings' });
-    expect(
-      resolveAnchorPath('#narrative.summary', withNarrative, 'index'),
-    ).toEqual({ identifier: 'narrative-summary' });
-  });
-
-  it('falls back when #narrative.<section> targets an empty section', () => {
-    const onlySummary: Analysis = { ...a, narrative: { summary: 'Hi.' } };
-    expect(
-      resolveAnchorPath('#narrative.findings', onlySummary, 'index'),
-    ).toEqual({ url: '#narrative.findings' });
-  });
 });
 
 describe('resolveNarrativeAnchors', () => {

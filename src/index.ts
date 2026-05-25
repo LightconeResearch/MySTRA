@@ -51,12 +51,12 @@ import {
   makeProseParser,
   resolveNarrativeAnchors,
   firstParagraphText,
-} from './transform/narrative-parser.js';
+} from './transform/prose.js';
 import type {
   AnalysisScope,
   PriorInsightScope,
   ProseParser,
-} from './transform/narrative-parser.js';
+} from './transform/prose.js';
 import {
   admonition,
   admonitionTitle,

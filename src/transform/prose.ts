@@ -1,21 +1,18 @@
 /**
- * MyST Markdown parsing for ASTRA prose fields, plus the v0.0.6
- * narrative anchor resolver.
+ * The prose engine: parse the Markdown embedded in ASTRA *components*, and
+ * resolve ASTRA anchor links within it.
  *
- * All Markdown content (narrative sections, Insight.claim, Decision
- * .rationale, Option/Input/Output.description, captions, finding
- * notes, …) flows through `myst-parser` so MySTRA stays MyST-native;
- * the bespoke inline parser was retired. Output is `mdast` — the
- * same node shape MyST themes consume directly.
+ * Every Markdown field on a component — `Insight.claim`, `Decision.rationale`,
+ * `Option/Input/Output.description`, captions, finding notes — flows through
+ * `myst-parser`, so MySTRA stays MyST-native and emits the same `mdast` themes
+ * consume. (This is *not* about the `narrative:` field, which Strategy A leaves
+ * to the author's Markdown page.)
  *
- * Anchor links of the form `[text](#path.to.element)` use the ASTRA
- * tree-path grammar described in the Narrative class (astra-spec
- * v0.0.6, src/astra/schema/analysis.yaml). They are emitted by
- * myst-parser as ordinary `link` nodes; `resolveNarrativeAnchors`
- * walks the tree post-parse and rewrites in-scope anchors into MyST
- * `crossReference` nodes pointing at the corresponding ASTRA
- * element. Anchors that escape the host scope (`../` parent
- * traversal) fall back to plain link nodes with the original URL.
+ * Anchor links `[text](#path.to.element)` use the ASTRA tree-path grammar; they
+ * arrive from myst-parser as ordinary `link` nodes, and `resolveNarrativeAnchors`
+ * rewrites in-scope ones into MyST `crossReference` nodes pointing at the
+ * matching element. Anchors that escape the host scope (`../` parent traversal)
+ * fall back to plain links with the original URL.
  */
 
 import { mystParse } from 'myst-parser';
@@ -315,18 +312,8 @@ export function resolveAnchorPath(
       return rest.length === 1 && (analysis.outputs ?? []).some((o) => o.id === rest[0])
         ? { identifier: `output-${rest[0]}` }
         : { url: `#${ref}` };
-    // Narrative chunks: `#narrative.<section>` resolves to the
-    // chunk identifier published by render-narrative.
-    case 'narrative':
-      if (
-        rest.length === 1 &&
-        ['summary', 'findings', 'methods', 'inputs', 'outputs'].includes(rest[0]) &&
-        analysis.narrative &&
-        (analysis.narrative as any)[rest[0]]
-      ) {
-        return { identifier: `narrative-${rest[0]}` };
-      }
-      return { url: `#${ref}` };
+    // (`#narrative.<section>` is not resolved: Strategy A renders no narrative
+    // sections — the author writes that prose in the Markdown page itself.)
     default:
       return { url: `#${ref}` };
   }

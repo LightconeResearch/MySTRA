@@ -16,7 +16,7 @@ import {
   text,
   strong,
 } from './ast-helpers.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ProseParser } from './prose.js';
 
 export function renderInputsTable(inputs: Input[], prose: ProseParser): any {
   // Caller filters out the empty case so the page doesn't render a

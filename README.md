@@ -146,7 +146,7 @@ src/
 ├── loader.ts                 Load a project for one universe (via the SDK) + resolve result files
 └── transform/                Per-component renderers used by the plugin
     ├── ast-helpers.ts        Pure AST node constructors
-    ├── narrative-parser.ts   myst-parser wrapper + anchor-grammar resolver
+    ├── prose.ts              Parse component Markdown (myst-parser) + resolve ASTRA anchors
     ├── parse-table-data.ts   CSV/JSON table parser
     ├── resolve-output.ts     Resolves `from:` output/alias chains
     ├── resolved-store.ts     Builds the resolved data store for rich themes

@@ -38,7 +38,7 @@ import {
 } from './ast-helpers.js';
 import { parse as parsePath } from 'node:path';
 import type { ArtifactResolver } from '../loader.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ProseParser } from './prose.js';
 import { parseTableData, formatValue } from './parse-table-data.js';
 
 /**

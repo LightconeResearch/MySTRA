@@ -20,7 +20,7 @@ import {
   emphasis,
 } from './ast-helpers.js';
 import type { ArtifactResolver } from '../loader.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ProseParser } from './prose.js';
 import { renderEvidenceBlock } from './render-evidence.js';
 
 export function renderFinding(

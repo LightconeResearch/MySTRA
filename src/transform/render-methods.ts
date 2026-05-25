@@ -23,7 +23,7 @@ import {
   tabSet,
   crossReference,
 } from './ast-helpers.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ProseParser } from './prose.js';
 
 /**
  * tabItem factory bound to the current render pass. Created once per

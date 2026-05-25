@@ -127,7 +127,7 @@ The lower layers are reused; the server/orchestration layer is removed.
   and the `schema-coverage` guard test are all gone — the SDK is the single
   source of truth, pinned in `package.json`.
 - `src/transform/` per-component renderers actually used by the plugin:
-  `ast-helpers`, `narrative-parser` (prose + anchor grammar), `parse-table-data`,
+  `ast-helpers`, `prose` (component-prose parsing + anchor grammar), `parse-table-data`,
   `resolve-output`, `render-methods` (renderDecision), `render-findings`
   (renderFinding), `render-evidence` (renderOneOutput / evidence / tables),
   `render-data-sources` (inputs/outputs tables).
