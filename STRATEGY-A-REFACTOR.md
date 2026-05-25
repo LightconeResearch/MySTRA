@@ -253,8 +253,8 @@ the `astra-*` classes/identifiers; reveals the inline preview cards (built from
 the store, not from hidden AST spans); renders the rich figure/decision/insight
 treatments and any author-placed patterns. Start as a **light** theme (base theme
 + bundled stylesheet) since block content already renders; graduate to custom
-React renderers for true popovers/graphs. The prototype's `custom.css` is the
-seed of its stylesheet. Until it exists, book-theme is the (clean) baseline.
+React renderers for true popovers/graphs. Until it exists, book-theme is the
+(clean) baseline — the prototype runs plugin-only, no stylesheet.
 
 ## 10. Suggested phasing
 

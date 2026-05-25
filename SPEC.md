@@ -232,5 +232,5 @@ and an output is resolved only when actually rendered.
 - **Citation bibliography.** Emit a generated `references.bib` / project
   bibliography so MyST links the reference list.
 - **Packaging & the theme.** Publish the plugin (working name
-  `@lightcone/astra-myst`) and build the `lightcone-astra` theme (its stylesheet
-  seeded by `prototype/custom.css`).
+  `@lightcone/astra-myst`) and build the `lightcone-astra` theme that styles the
+  `astra-*` classes (glyphs, per-kind colour, hover cards from the store).

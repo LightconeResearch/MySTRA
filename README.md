@@ -64,9 +64,8 @@ site:
   cards, and "powerful patterns" (e.g. a product-dependency graph) are
   appearance keyed on the `astra-*` classes the plugin emits, driven from the
   resolved store. The only change is the `template:` line. (The theme is a
-  separate deliverable; until it ships, `book-theme` is the baseline. The
-  prototype's `custom.css` is a reference stylesheet that previews the rich mode
-  on book-theme via `site.options.style`.)
+  separate deliverable; until it ships, `book-theme` is the baseline — the
+  `prototype/` runs plugin-only, no stylesheet.)
 
 ## Authoring vocabulary
 
