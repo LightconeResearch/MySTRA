@@ -21,17 +21,17 @@
  * the spec themselves.
  */
 
-import type { ASTRAAnalysis, ASTRAOutput } from '../types/astra.js';
+import type { Analysis, Output } from '@astra-spec/sdk';
 
 export interface ResolvedOutput {
   /** The original output as declared in this scope. */
-  declared: ASTRAOutput;
+  declared: Output;
   /**
    * The resolved view: type, description, inputs, decisions, recipe
    * filled in from the source if `from:` chains were walked. When
    * `declared.from` is unset, this equals `declared`.
    */
-  resolved: ASTRAOutput;
+  resolved: Output;
   /**
    * The dot-separated chain that was walked, e.g.
    * `['preprocessing', 'features']` for `from: preprocessing.features`.
@@ -56,8 +56,8 @@ export interface ResolvedOutput {
  * Returns the original output if no `from:` is set.
  */
 export function resolveOutput(
-  output: ASTRAOutput,
-  scope: ASTRAAnalysis,
+  output: Output,
+  scope: Analysis,
 ): ResolvedOutput {
   if (!output.from) {
     return { declared: output, resolved: output, fromChain: [], unresolved: false };
@@ -73,7 +73,7 @@ export function resolveOutput(
     // violations and shouldn't be surfaced. Return an empty resolved
     // view so consumers see "no provenance" instead of inheriting
     // from a half-broken declaration.
-    const empty: ASTRAOutput = {
+    const empty: Output = {
       id: output.id,
       from: output.from,
       when: output.when,
@@ -104,7 +104,7 @@ export function resolveOutput(
 
   // Merge: declared keeps its id/from/when (and label, if explicit);
   // everything else is inherited.
-  const merged: ASTRAOutput = {
+  const merged: Output = {
     id: output.id,
     from: output.from,
     when: output.when,
@@ -132,11 +132,11 @@ export function resolveOutput(
  */
 function walkOutputPath(
   parts: string[],
-  scope: ASTRAAnalysis,
-): { output: ASTRAOutput; parent: ASTRAAnalysis } | null {
+  scope: Analysis,
+): { output: Output; parent: Analysis } | null {
   if (parts.length < 2) return null;
 
-  let current: ASTRAAnalysis = scope;
+  let current: Analysis = scope;
   // All segments but the last name nested sub-analyses.
   for (let i = 0; i < parts.length - 1; i++) {
     const segId = parts[i];
@@ -155,6 +155,6 @@ function walkOutputPath(
  * Resolve every Output in an analysis — convenience for renderers
  * that want the resolved view across the registry.
  */
-export function resolveOutputs(analysis: ASTRAAnalysis): ResolvedOutput[] {
+export function resolveOutputs(analysis: Analysis): ResolvedOutput[] {
   return (analysis.outputs ?? []).map((o) => resolveOutput(o, analysis));
 }

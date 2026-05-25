@@ -20,7 +20,8 @@
 
 import { mystParse } from 'myst-parser';
 import { parse as parsePath } from 'node:path';
-import type { ASTRAAnalysis, ASTRAInsight, ASTRAOutput } from '../types/astra.js';
+import type { Analysis, Insight, Output } from '@astra-spec/sdk';
+import type { ArtifactResolver } from '../loader.js';
 import { crossReference, link } from './ast-helpers.js';
 
 // ── Parsing ───────────────────────────────────────────────────────
@@ -142,25 +143,25 @@ function extractInline(node: any): any[] {
 
 /**
  * Resolution context carried through every render-* helper that
- * touches prose. Created once per page in `astraToMystAST` and
- * threaded into the renderers via the `ProseParser` factory.
+ * touches prose. Created once per scope (by the plugin's `resolveScope`)
+ * and threaded into the renderers via the `ProseParser` factory.
  */
 export interface ProseContext {
-  analysis: ASTRAAnalysis;
+  analysis: Analysis;
   slug: string;
   priorInsightScopes?: PriorInsightScope[];
   analysisScopes?: AnalysisScope[];
-  results?: Map<string, string>;
+  results?: ArtifactResolver;
 }
 
 export interface PriorInsightScope {
   slug: string;
-  priorInsights: Record<string, ASTRAInsight>;
+  priorInsights: Record<string, Insight>;
 }
 
 export interface AnalysisScope {
   slug: string;
-  analysis: ASTRAAnalysis;
+  analysis: Analysis;
 }
 
 /**
@@ -248,7 +249,7 @@ function stripPositions(node: any): any {
  */
 export function resolveAnchorPath(
   path: string,
-  analysis: ASTRAAnalysis,
+  analysis: Analysis,
   slug: string,
   priorInsightScopes: PriorInsightScope[] = [],
 ): { identifier: string } | { url: string } {
@@ -412,10 +413,10 @@ function astraPathToFragment(segments: string[]): string {
  */
 export function resolveNarrativeAnchors(
   nodes: any[],
-  analysis: ASTRAAnalysis,
+  analysis: Analysis,
   slug: string,
   priorInsightScopes: PriorInsightScope[] = [],
-  results?: Map<string, string>,
+  results?: ArtifactResolver,
   analysisScopes: AnalysisScope[] = [],
 ): any[] {
   return nodes.flatMap((node) =>
@@ -446,10 +447,10 @@ function flatten(r: any | any[] | null | undefined): any[] {
 
 function rewrite(
   node: any,
-  analysis: ASTRAAnalysis,
+  analysis: Analysis,
   slug: string,
   priorInsightScopes: PriorInsightScope[],
-  results: Map<string, string> | undefined,
+  results: ArtifactResolver | undefined,
   analysisScopes: AnalysisScope[],
 ): any | any[] | null {
   if (!node || typeof node !== 'object') return node;
@@ -500,8 +501,8 @@ function isOutputImageAnchor(url: unknown): url is string {
 
 function rewriteOutputImage(
   node: any,
-  analysis: ASTRAAnalysis,
-  results: Map<string, string> | undefined,
+  analysis: Analysis,
+  results: ArtifactResolver | undefined,
   analysisScopes: AnalysisScope[],
 ): any | null {
   if (!results) return node;
@@ -522,7 +523,7 @@ function rewriteOutputImage(
     return null;
   }
 
-  const resultPath = results.get(outputId);
+  const resultPath = results(outputId);
   if (!resultPath) {
     console.warn(
       `[mystra] Narrative image embed references unproduced output id "${outputId}" — dropping image.`,
@@ -536,9 +537,9 @@ function rewriteOutputImage(
 
 function resolveOutputTarget(
   path: string,
-  analysis: ASTRAAnalysis,
+  analysis: Analysis,
   analysisScopes: AnalysisScope[],
-): { id: string; output: ASTRAOutput | undefined } | undefined {
+): { id: string; output: Output | undefined } | undefined {
   const ref = path.replace(/^#/, '');
 
   if (ref.startsWith('../')) {
@@ -550,9 +551,9 @@ function resolveOutputTarget(
 }
 
 function outputTargetFromSegments(
-  analysis: ASTRAAnalysis,
+  analysis: Analysis,
   segments: string[],
-): { id: string; output: ASTRAOutput | undefined } | undefined {
+): { id: string; output: Output | undefined } | undefined {
   const [head, ...rest] = segments;
 
   if (head === 'outputs' && rest.length === 1) {
