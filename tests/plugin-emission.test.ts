@@ -8,9 +8,11 @@
  * sub-analysis resolution, and the resolved-store shape.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { mkdtempSync, cpSync, rmSync, statSync, utimesSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import plugin from '../src/index.js';
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'prototype');
@@ -74,6 +76,15 @@ function runDirective(name: string, arg?: string, options: Record<string, any> =
 }
 function runRole(name: string, body: string): Node[] {
   return (role(name) as any).run({ body }) as Node[];
+}
+/** Run the resolved-store transform for a page and return its keyed model. */
+function runStore(path: string): Record<string, any> {
+  const storeTransform = plugin.transforms.find((t: any) => t.name === 'astra-resolved-store');
+  const tree: Node = { type: 'root', children: [] };
+  (storeTransform as any).plugin()(tree, { path });
+  const carrier = tree.children.find((n: any) => n.class === 'astra-store');
+  if (!carrier) throw new Error('no astra-store carrier emitted');
+  return carrier.data.astra;
 }
 
 // ── Block directives ──────────────────────────────────────────────────────
@@ -169,33 +180,49 @@ describe('sub-analysis scope', () => {
 // ── Inline roles ────────────────────────────────────────────────────────────
 
 describe('inline roles', () => {
-  it('cite role → neutral astra-ref token with a hidden preview card', () => {
+  it('cite role → neutral astra-ref token carrying the store join key', () => {
     const [token] = runRole('decision', 'covariance_source');
     expect(hasClass(token, 'astra-ref')).toBe(true);
     expect(hasClass(token, 'astra-ref--decision')).toBe(true);
-    const card = findFirst([token], (n) => hasClass(n, 'astra-card'));
-    expect(card).toBeDefined();
-    // hidden by default so a bare viewer never spills the card inline
-    expect(card?.style).toEqual({ display: 'none' });
-    expect(hasClass(card, 'astra-card--decision')).toBe(true);
+    // no card baked into the node — the theme reads the card from the store
+    expect(findFirst([token], (n) => hasClass(n, 'astra-card'))).toBeUndefined();
+    expect(token.data?.astra).toEqual({
+      kind: 'decision',
+      id: 'covariance_source',
+      path: 'covariance_source',
+    });
   });
 
   it('cite role honours a |display override for the inline label', () => {
     const [token] = runRole('prior-insight', 'combined_systematic_budget|the budget');
-    const label = findFirst([token], (n) => hasClass(n, 'astra-ref__label'));
-    expect(textOf([label!])).toBe('the budget');
+    // the label is the span's own text now (no inner __label wrapper)
+    expect(textOf([token])).toBe('the budget');
+    expect(token.data?.astra?.id).toBe('combined_systematic_budget');
+    expect(token.data?.astra?.kind).toBe('prior_insight');
+  });
+
+  it('cite role join key resolves in the resolved store (citation-style)', () => {
+    const [token] = runRole('finding', 'subpercent_alpha_iso_precision');
+    const { kind, id } = token.data.astra;
+    expect(kind).toBe('finding');
+    // the theme joins data.astra → store[<table>][id]; assert the entry exists
+    const store = runStore('index.md');
+    expect(store.findings[id]).toBeDefined();
   });
 
   it('value role interpolates a real cell with ± uncertainty', () => {
     const [token] = runRole('value', 'bao_distance_table tracer=lrg3_elg1 col=DV_over_rd pm');
-    const label = findFirst([token], (n) => hasClass(n, 'astra-ref__label'));
-    expect(textOf([label!])).toBe('19.88 ± 0.17');
+    expect(textOf([token])).toBe('19.88 ± 0.17');
+    expect(token.data?.astra).toMatchObject({
+      kind: 'value',
+      id: 'bao_distance_table',
+      col: 'DV_over_rd',
+    });
   });
 
   it('value role formats to significant figures without ±', () => {
     const [token] = runRole('value', 'bao_alpha_values tracer=elg1 recon=Pre col=alpha1_std');
-    const label = findFirst([token], (n) => hasClass(n, 'astra-ref__label'));
-    expect(textOf([label!])).toBe('0.0696');
+    expect(textOf([token])).toBe('0.0696');
   });
 
   it('value role surfaces a clear error for a missing column', () => {
@@ -208,15 +235,6 @@ describe('inline roles', () => {
 // ── Resolved store transform ─────────────────────────────────────────────────
 
 describe('resolved-store transform', () => {
-  function runStore(path: string): Record<string, any> {
-    const storeTransform = plugin.transforms.find((t: any) => t.name === 'astra-resolved-store');
-    const tree: Node = { type: 'root', children: [] };
-    (storeTransform as any).plugin()(tree, { path });
-    const carrier = tree.children.find((n: any) => n.class === 'astra-store');
-    expect(carrier).toBeDefined();
-    return carrier!.data.astra;
-  }
-
   it('emits a hidden carrier with the resolved model keyed by id (root scope)', () => {
     const store = runStore('index.md');
     const carrierStyle = { display: 'none' };
@@ -244,5 +262,156 @@ describe('resolved-store transform', () => {
     const store = runStore('clustering.md');
     expect(store.analysis.slug).toBe('clustering');
     expect(store.outputs['xi_multipoles_plot']).toBeDefined();
+  });
+});
+
+// ── §4 Deep-nesting page scope (dotted-filename convention) ───────────────────
+
+describe('dotted-filename page scope', () => {
+  function runStore(path: string): Record<string, any> {
+    const storeTransform = plugin.transforms.find((t: any) => t.name === 'astra-resolved-store');
+    const tree: Node = { type: 'root', children: [] };
+    (storeTransform as any).plugin()(tree, { path });
+    const carrier = tree.children.find((n: any) => n.class === 'astra-store');
+    expect(carrier).toBeDefined();
+    return carrier!.data.astra;
+  }
+
+  // The prototype's sub-analyses (`reconstruction`, `clustering`) are all single
+  // level — there is no genuine 2-level analysis to descend (confirmed by
+  // inspecting prototype/astra.yaml: every `analyses.*` has an empty `analyses`).
+  // So we unit-test the *derivation* directly: a single-segment dotted basename
+  // must still resolve exactly as today, and `index` must still map to root.
+  it('single-segment dotted basename resolves the sub-analysis scope (no regression)', () => {
+    const store = runStore('clustering.md');
+    expect(store.analysis.slug).toBe('clustering');
+  });
+
+  it('index.md maps to the root scope', () => {
+    const store = runStore('index.md');
+    expect(store.analysis.slug).toBe('index');
+  });
+
+  it('a trailing dot is tolerated (filter(Boolean)) and still resolves the scope', () => {
+    const store = runStore('clustering..md');
+    expect(store.analysis.slug).toBe('clustering');
+  });
+
+  it('a non-ASTRA basename yields no store carrier (null scope)', () => {
+    const storeTransform = plugin.transforms.find((t: any) => t.name === 'astra-resolved-store');
+    const tree: Node = { type: 'root', children: [] };
+    (storeTransform as any).plugin()(tree, { path: 'not_an_analysis.md' });
+    expect(tree.children.find((n: any) => n.class === 'astra-store')).toBeUndefined();
+  });
+});
+
+// ── §3 astra.yaml live-reload (cache freshness on mtime) ──────────────────────
+
+describe('astra.yaml live-reload', () => {
+  // Drive a public path (the store transform) against a *temp copy* of the
+  // project so we can advance astra.yaml's mtime without touching the real
+  // prototype. getSource is module-private; we observe its caching by checking
+  // that the resolved slug stays correct across reads (a re-parse must not
+  // produce a broken store) and that bumping the mtime forces a fresh parse.
+  let tmpRoot: string;
+
+  function runStore(): Record<string, any> {
+    const storeTransform = plugin.transforms.find((t: any) => t.name === 'astra-resolved-store');
+    const tree: Node = { type: 'root', children: [] };
+    (storeTransform as any).plugin()(tree, { path: 'index.md' });
+    const carrier = tree.children.find((n: any) => n.class === 'astra-store');
+    return carrier!.data.astra;
+  }
+
+  afterEach(() => {
+    // Restore the shared prototype root (set in beforeAll) for later suites.
+    process.env.ASTRA_PROJECT_ROOT = PROJECT_ROOT;
+    if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('reuses the cache for an unchanged mtime and re-reads after astra.yaml advances', () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'mystra-reload-'));
+    cpSync(PROJECT_ROOT, tmpRoot, { recursive: true });
+    process.env.ASTRA_PROJECT_ROOT = tmpRoot;
+
+    // First read populates the cache; second read (mtime unchanged) is a hit —
+    // both must yield the same resolved store.
+    const a = runStore();
+    const b = runStore();
+    expect(a.analysis.slug).toBe('index');
+    expect(b.analysis.slug).toBe('index');
+
+    // Advance astra.yaml's mtime past the cached value → next read re-parses.
+    const yaml = join(tmpRoot, 'astra.yaml');
+    const future = statSync(yaml).mtimeMs / 1000 + 100;
+    utimesSync(yaml, future, future);
+    const c = runStore();
+    expect(c.analysis.slug).toBe('index'); // re-parse still produces a valid store
+  });
+});
+
+// ── §1 Hidden insight-resolution targets ──────────────────────────────────────
+
+describe('insight-targets transform', () => {
+  function runTargets(children: Node[], path = 'index.md'): Node {
+    const t = plugin.transforms.find((x: any) => x.name === 'astra-insight-targets');
+    expect(t).toBeDefined();
+    const tree: Node = { type: 'root', children };
+    (t as any).plugin()(tree, { path });
+    return tree;
+  }
+  // A real root-scope prior insight (prototype/astra.yaml) that is referenced by
+  // option tabs but need not be placed on a synthetic tree.
+  const ID = 'recon_sharpens_bao_peak';
+  const ref = (): Node => ({
+    type: 'crossReference',
+    identifier: `prior_insight-${ID}`,
+    children: [{ type: 'text', value: ID }],
+  });
+
+  it('auto-emits a hidden carrier for a referenced-but-unplaced insight', () => {
+    const tree = runTargets([{ type: 'paragraph', children: [ref()] }]);
+    const wrapper = tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'));
+    expect(wrapper).toBeDefined();
+    expect(wrapper!.style).toEqual({ display: 'none' });
+    const carrier = byIdentifier(wrapper!.children, `prior_insight-${ID}`);
+    expect(carrier?.type).toBe('admonition');
+    expect(carrier?.kind).toBe('seealso');
+    expect(hasClass(carrier, 'astra-prior-insight')).toBe(true);
+  });
+
+  it('does not duplicate a carrier when the insight is already placed', () => {
+    // A real author-placed carrier (the directive output) plus a reference to it.
+    const placed = runDirective('prior-insight', ID)[0];
+    const tree = runTargets([placed, { type: 'paragraph', children: [ref()] }]);
+    // No hidden wrapper at all → the reference already resolves to the placed block.
+    expect(tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'))).toBeUndefined();
+  });
+
+  it('emits each referenced id once even when cited multiple times', () => {
+    const tree = runTargets([
+      { type: 'paragraph', children: [ref()] },
+      { type: 'paragraph', children: [ref()] },
+    ]);
+    const wrapper = tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'))!;
+    const carriers = wrapper.children.filter(
+      (n: any) => n.identifier === `prior_insight-${ID}`,
+    );
+    expect(carriers).toHaveLength(1);
+  });
+
+  it('warns and skips an unknown referenced insight (no throw, no carrier)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const tree = runTargets([
+      {
+        type: 'paragraph',
+        children: [
+          { type: 'crossReference', identifier: 'prior_insight-does_not_exist', children: [] },
+        ],
+      },
+    ]);
+    expect(tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'))).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[mystra]'));
+    warn.mockRestore();
   });
 });

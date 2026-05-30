@@ -45,6 +45,7 @@
  */
 
 import { basename, join, relative, sep } from 'node:path';
+import { statSync } from 'node:fs';
 import { loadASTRASource, resolveArtifact, type ArtifactResolver } from './loader.js';
 import type { Analysis, Input, Insight, Output, Universe } from '@astra-spec/sdk';
 import {
@@ -93,16 +94,34 @@ function universeName(): string | undefined {
 
 type Source = ReturnType<typeof loadASTRASource>;
 
-const projectCache = new Map<string, Source>();
+/** Cached project source + the `astra.yaml` mtime it was parsed from. */
+interface CachedSource {
+  source: Source;
+  mtimeMs: number;
+}
+
+const projectCache = new Map<string, CachedSource>();
 
 function getSource(root: string, universe?: string): Source {
   const key = `${root}::${universe ?? ''}`;
-  let src = projectCache.get(key);
-  if (!src) {
-    src = loadASTRASource(root, universe);
-    projectCache.set(key, src);
+  const cached = projectCache.get(key);
+  // Freshness check keyed on `astra.yaml`'s mtime: `myst start` watches `.md`
+  // files, not the spec, so without this a manual rebuild would keep serving a
+  // stale parse after `astra.yaml` is edited. A failed stat (file missing /
+  // transient race) falls through to a reload rather than serving stale data.
+  let mtimeMs = NaN;
+  try {
+    mtimeMs = statSync(join(root, 'astra.yaml')).mtimeMs;
+  } catch {
+    mtimeMs = NaN;
   }
-  return src;
+  if (cached && Number.isFinite(mtimeMs) && mtimeMs <= cached.mtimeMs) {
+    return cached.source;
+  }
+  const source = loadASTRASource(root, universe);
+  // Overwrite the same key on reload so the cache never grows unbounded.
+  projectCache.set(key, { source, mtimeMs });
+  return source;
 }
 
 // ── Scope resolution ────────────────────────────────────────────────────
@@ -451,19 +470,24 @@ const findingDirective = componentDirective(
   { compact: { type: Boolean, doc: 'Render claim + notes + scope only (no evidence figures).' } },
 );
 
-const priorInsightDirective = componentDirective('prior-insight', (id, scope) => {
-  const insight = scope.analysis.prior_insights?.[id] ?? scope.priorInsights[id];
-  if (!insight) throw new Error(`no prior_insight "${id}" in this scope`);
-  // MySTRA's renderPriorInsight emits a `container[kind=prior-insight]`,
-  // which the stock theme rejects ("no valid content besides caption").
-  // For stock rendering we wrap the same content (claim + evidence) in a
-  // `seealso` admonition — a node every MyST theme renders cleanly — and
-  // carry the `prior_insight-<id>` identifier so cross-references resolve.
+/**
+ * Build the cross-reference target node for one prior insight: the claim +
+ * evidence wrapped in a `seealso` admonition (a node every MyST theme renders
+ * cleanly), carrying the `prior_insight-<id>` identifier so option-tab
+ * "Supporting insights" cross-references resolve to a hover popover.
+ *
+ * MySTRA's `renderPriorInsight` emits a `container[kind=prior-insight]`, which
+ * the stock theme rejects ("no valid content besides caption"); this is the
+ * stock-friendly equivalent. Shared by the `:::{astra:prior-insight}` directive
+ * (author-placed) and `insightTargetsTransform` (auto-emitted) so the placed
+ * and emitted carriers are byte-identical.
+ */
+function renderPriorInsightTarget(id: string, insight: Insight, prose: ProseParser): any {
   const titleBits = ['Prior insight'];
   if (insight.label) titleBits.push(insight.label);
   else if (insight.scope) titleBits.push(insight.scope);
   const body = [
-    paragraph(scope.prose.inline(insight.claim)),
+    paragraph(prose.inline(insight.claim)),
     ...renderInsightEvidence(insight),
   ];
   const node: any = admonition('seealso', [admonitionTitle([text(titleBits.join(' — '))]), ...body], {
@@ -471,7 +495,13 @@ const priorInsightDirective = componentDirective('prior-insight', (id, scope) =>
   });
   node.identifier = `prior_insight-${id}`;
   node.label = node.identifier;
-  return [node];
+  return node;
+}
+
+const priorInsightDirective = componentDirective('prior-insight', (id, scope) => {
+  const insight = scope.analysis.prior_insights?.[id] ?? scope.priorInsights[id];
+  if (!insight) throw new Error(`no prior_insight "${id}" in this scope`);
+  return [renderPriorInsightTarget(id, insight, scope.prose)];
 });
 
 const inputsDirective = tableDirective('inputs', (scope) => {
@@ -525,148 +555,91 @@ const subAnalysisDirective = {
   },
 };
 
-// ── Inline reference tokens with hover preview cards (Tier 1/2) ──
+// ── Inline reference tokens (store-driven) ──
 //
-// Each inline ASTRA reference renders as a small token — a kind glyph + the
-// element's label — carrying a self-contained hover card built from
-// `astra.yaml`. The card is plain inline `span` nodes (which the stock theme
-// renders) revealed on hover by custom CSS (`prototype/custom.css`): no theme
-// fork, no graph views, just a focused preview of the referenced element.
+// Each inline ASTRA reference renders as a neutral `astra-ref` span: the best
+// available label as text, plus the join key (`kind`/`id`/`path`) on
+// `data.astra`. The hover card is NOT baked into the node — a rich theme
+// (`lightcone-astra`) joins the key to the resolved store carrier
+// (`.astra-store`, keyed by id) and renders the card, the same mechanism MyST
+// uses for citations (a `cite` node's label → `references.cite.data`). On a bare
+// theme (no renderer) the span degrades to plain label text. See the resolved
+// store (`./transform/resolved-store.ts`) for the data the theme reads.
 
 type CiteKind = 'decision' | 'output' | 'finding' | 'prior_insight' | 'analysis';
 
-const KIND_NAME: Record<string, string> = {
-  decision: 'Decision',
-  finding: 'Finding',
-  prior_insight: 'Prior insight',
-  analysis: 'Sub-analysis',
-  output: 'Output',
-  value: 'Value',
-};
-
 function span(cls: string, children: any[]): any {
   return { type: 'span', class: cls, children };
-}
-function tspan(cls: string, value: string): any {
-  return span(cls, [text(value)]);
-}
-function clip(s: string | undefined, n = 220): string {
-  if (!s) return '';
-  const t = s.replace(/\s+/g, ' ').trim();
-  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
 /** snake_case id → readable words, for the inline label when nothing better. */
 function humanize(id: string): string {
   return id.replace(/_/g, ' ');
 }
 
-// Neutral by design: tokens and cards carry ONLY semantic classes
-// (`astra-ref`/`astra-card` + `--<kind>` / `--<subtype>` modifiers) and text.
-// No glyphs, colours, or inline styles are baked into the AST — all appearance
-// is left to CSS keyed on these classes, so any theme can restyle the overlays.
+// The inline node carries ONLY semantic classes (`astra-ref` + `--<kind>` /
+// `--<subtype>` modifiers), the label as text, and the join key on `data.astra`.
+// `kind` maps to a resolved-store table — decision→decisions, output→outputs,
+// finding→findings, prior_insight→prior_insights, analysis→subanalyses — which a
+// theme reads by id (`value` is self-describing; see the value role). No card,
+// glyph, colour, or style is baked in: appearance is entirely the theme's.
 
-/** A hover preview card: eyebrow + title + optional labelled body lines. */
-function refCard(
-  kinds: string[],
-  kindName: string,
+/**
+ * A store-driven inline reference: a neutral `astra-ref` span whose text is the
+ * label and whose `data.astra` carries the join key (`kind`/`id`/`path`) the
+ * theme renderer uses to look the element up in the resolved store.
+ */
+function refNode(
+  kind: string,
   id: string,
-  title: string,
-  lines: Array<{ cls: string; text: string }>,
+  path: string,
+  label: string,
+  subtype?: string,
 ): any {
-  const cls = ['astra-card', ...kinds.map((k) => `astra-card--${k}`)].join(' ');
-  const kids: any[] = [
-    tspan('astra-card__eyebrow', `${kindName} · ${id}`),
-    tspan('astra-card__title', title),
-  ];
-  for (const l of lines) if (l.text) kids.push(tspan(l.cls, l.text));
-  const node: any = span(cls, kids);
-  // Hidden by default so a bare viewer (plugin only, no theme CSS) shows just
-  // the clean label — never the card content inline. A theme/stylesheet reveals
-  // it on hover (overriding this with `display:… !important`). `style` must be
-  // an object — the React renderer rejects a string.
-  node.style = { display: 'none' };
+  const mods = subtype ? [kind, subtype] : [kind];
+  const cls = ['astra-ref', ...mods.map((k) => `astra-ref--${k}`)].join(' ');
+  const node: any = span(cls, [text(label)]);
+  node.data = { astra: { kind, id, path } };
   return node;
 }
 
-/** An inline token: label + hover card; kind/subtype carried as classes. */
-function refToken(kinds: string[], label: string, card: any): any {
-  const cls = ['astra-ref', ...kinds.map((k) => `astra-ref--${k}`)].join(' ');
-  return span(cls, [tspan('astra-ref__label', label), card]);
+/** Resolve the best inline label (and output subtype) for a cited element. */
+function citeLabel(
+  kind: CiteKind,
+  id: string,
+  scope: Scope,
+  display?: string | null,
+): { label: string; subtype?: string } {
+  switch (kind) {
+    case 'decision': {
+      const dec = scope.analysis.decisions?.[id];
+      return { label: display ?? dec?.label ?? humanize(id) };
+    }
+    case 'finding': {
+      const f = scope.analysis.findings?.[id];
+      return { label: display ?? f?.label ?? humanize(id) };
+    }
+    case 'prior_insight': {
+      const ins = scope.analysis.prior_insights?.[id] ?? scope.priorInsights[id];
+      return { label: display ?? ins?.label ?? humanize(id) };
+    }
+    case 'analysis': {
+      const sub = scope.analysis.analyses?.[id];
+      return { label: display ?? sub?.name ?? humanize(id) };
+    }
+    default: {
+      // output — `subtype` (figure/table/metric/…) is a second modifier class so
+      // a theme can give each output type its own glyph/treatment.
+      const o = scope.outputsById.get(id);
+      return { label: display ?? o?.label ?? humanize(id), subtype: o?.type ?? 'output' };
+    }
+  }
 }
 
-/** Build the inline token + preview card for one cited element. */
-function buildCite(kind: CiteKind, id: string, scope: Scope, display?: string | null): any {
-  if (kind === 'decision') {
-    const dec = scope.analysis.decisions?.[id];
-    if (!dec) return tspan('astra-ref astra-ref--decision', display ?? humanize(id));
-    const sel = scope.universe.decisions?.[id] ?? dec.default;
-    const selLabel = sel ? dec.options?.[sel]?.label ?? sel : null;
-    const label = display ?? dec.label ?? humanize(id);
-    const card = refCard(['decision'], KIND_NAME['decision'], id, label, [
-      { cls: 'astra-card__pick', text: selLabel ? `Selected: ${selLabel}` : '' },
-      { cls: 'astra-card__body', text: clip(dec.rationale) },
-    ]);
-    return refToken(['decision'], label, card);
-  }
-  if (kind === 'finding') {
-    const f = scope.analysis.findings?.[id];
-    if (!f) return tspan('astra-ref astra-ref--finding', display ?? humanize(id));
-    const label = display ?? f.label ?? humanize(id);
-    const card = refCard(['finding'], KIND_NAME['finding'], id, clip(f.claim, 160), [
-      { cls: 'astra-card__body', text: clip(f.notes, 200) },
-      { cls: 'astra-card__meta', text: f.scope ? `Scope: ${f.scope}` : '' },
-    ]);
-    return refToken(['finding'], label, card);
-  }
-  if (kind === 'prior_insight') {
-    const ins = scope.analysis.prior_insights?.[id] ?? scope.priorInsights[id];
-    if (!ins) return tspan('astra-ref astra-ref--prior_insight', display ?? humanize(id));
-    const label = display ?? ins.label ?? humanize(id);
-    const ev = (ins.evidence ?? []).find((e) => e.doi && e.quote?.exact);
-    // Citation hint is the bare DOI; MyST owns author–year resolution.
-    const card = refCard(['prior_insight'], KIND_NAME['prior_insight'], id, label, [
-      { cls: 'astra-card__body', text: clip(ins.claim, 200) },
-      { cls: 'astra-card__quote', text: ev?.quote?.exact ? `“${ev.quote.exact}”` : '' },
-      { cls: 'astra-card__meta', text: ev?.doi ?? '' },
-    ]);
-    return refToken(['prior_insight'], label, card);
-  }
-  if (kind === 'analysis') {
-    const sub = scope.analysis.analyses?.[id];
-    if (!sub) return tspan('astra-ref astra-ref--analysis', display ?? humanize(id));
-    const label = display ?? sub.name ?? humanize(id);
-    const counts = [
-      Object.keys(sub.decisions ?? {}).length
-        ? `${Object.keys(sub.decisions ?? {}).length} decisions`
-        : '',
-      (sub.outputs ?? []).length ? `${(sub.outputs ?? []).length} outputs` : '',
-    ]
-      .filter(Boolean)
-      .join(' · ');
-    const card = refCard(['analysis'], KIND_NAME['analysis'], id, label, [
-      { cls: 'astra-card__body', text: clip(firstParagraphText(sub.narrative?.summary), 200) },
-      { cls: 'astra-card__meta', text: counts },
-    ]);
-    return refToken(['analysis'], label, card);
-  }
-  // output — `subtype` (figure/table/metric/…) is a second modifier class so a
-  // theme can give each output type its own glyph/treatment.
-  const o = scope.outputsById.get(id);
-  if (!o) return tspan('astra-ref astra-ref--output', display ?? humanize(id));
-  const subtype = o.type ?? 'output';
-  const label = display ?? o.label ?? humanize(id);
-  const card = refCard(['output', subtype], KIND_NAME['output'], id, label, [
-    { cls: 'astra-card__body', text: clip(o.description, 200) },
-    { cls: 'astra-card__meta', text: `${o.type ?? 'output'} product` },
-  ]);
-  return refToken(['output', subtype], label, card);
-}
-
-/** Inline citation → glyph token + hover preview card. */
+/** Inline citation → neutral `astra-ref` token carrying the store join key. */
 function citeRole(name: string, kind: CiteKind) {
   return {
     name: `astra:${name}`,
-    doc: `Inline reference to an ASTRA ${name}, with a hover preview card.`,
+    doc: `Inline reference to an ASTRA ${name} (a theme renders its card from the store).`,
     body: {
       type: String,
       required: true,
@@ -679,11 +652,13 @@ function citeRole(name: string, kind: CiteKind) {
       const display = rest.join('|').trim() || null;
       const { analysisPath, id } = splitPath(pathPart);
       if (!id) return [text(String(data?.body ?? ''))];
+      const path = [...analysisPath, id].join('.');
       try {
         const scope = resolveScope(projectRoot(), universeName(), analysisPath);
-        return [buildCite(kind, id, scope, display)];
+        const { label, subtype } = citeLabel(kind, id, scope, display);
+        return [refNode(kind, id, path, label, subtype)];
       } catch {
-        return [tspan(`astra-ref astra-ref--${kind}`, display ?? humanize(id))];
+        return [refNode(kind, id, path, display ?? humanize(id))];
       }
     },
   };
@@ -770,21 +745,30 @@ const valueRole = {
           out += ` ± ${fmtNum(row[ei], 2)}`;
         }
       }
-      // Render the number as a token with a focused hover card naming its
-      // source product, column, and row — so the reader sees the value is
-      // sourced data and exactly where it comes from (no whole-table overlay).
+      // A value isn't a standalone store element, so its node is self-describing:
+      // the computed number is the text, and `data.astra` carries the source
+      // product id + column + row filter the theme renders as provenance (it can
+      // still join `store.outputs[id]` for the product's label/type). No
+      // whole-table overlay — just where this number came from.
       const output = scope.outputsById.get(id);
       const subtype = output?.type ?? 'table';
       const filterDesc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ');
-      const card = refCard(['value', subtype], KIND_NAME['value'], id, out, [
-        { cls: 'astra-card__pick', text: `Column ${col}` },
-        { cls: 'astra-card__body', text: filterDesc ? `Row: ${filterDesc}` : '' },
-        {
-          cls: 'astra-card__meta',
-          text: `${output?.type ?? 'table'} product${output?.label ? ` · ${output.label}` : ''}`,
+      const node: any = span(
+        ['astra-ref', 'astra-ref--value', `astra-ref--${subtype}`].join(' '),
+        [text(out)],
+      );
+      node.data = {
+        astra: {
+          kind: 'value',
+          id,
+          path: [...analysisPath, id].join('.'),
+          col,
+          filter: filterDesc,
+          type: output?.type ?? 'table',
+          product: output?.label,
         },
-      ]);
-      return [refToken(['value', subtype], out, card)];
+      };
+      return [node];
     } catch (err) {
       return [valueError((err as Error).message)];
     }
@@ -795,13 +779,30 @@ const valueRole = {
 
 /**
  * The ASTRA scope a page maps to, or `null` for non-ASTRA pages (e.g. an
- * `about.md`). Scope is derived from the file's basename: `index` → root,
- * `<name>` → the `<name>` sub-analysis. (For deeper nesting, declare scope
- * explicitly via paths in roles/directives.)
+ * `about.md`). Scope is derived from the file's basename using the
+ * **dotted-filename convention**, which composes to any nesting depth with
+ * zero config: each `.`-segment is one analysis level, so `index.md` → root,
+ * `reconstruction.md` → `[reconstruction]`, and
+ * `reconstruction.features.md` → `[reconstruction, features]`. A page may also
+ * override this explicitly via the `astra_scope` frontmatter key (a dotted
+ * string `'reconstruction.features'` or an already-split `string[]`).
  */
 function scopeForFile(vfile: any): Scope | null {
   const base = basename(vfile?.path ?? '', '.md');
-  const analysisPath = base && base !== 'index' ? [base] : [];
+  // Dotted basename is the canonical, always-available derivation; `index`
+  // maps to the root scope (empty path), every other dot-segment descends one
+  // analysis level. `.filter(Boolean)` drops empties from a leading/trailing
+  // dot so a stray `.` never yields an unknown-sub-analysis throw.
+  let analysisPath = base && base !== 'index' ? base.split('.').filter(Boolean) : [];
+  // Best-effort frontmatter override: if the page declares `astra_scope`, prefer
+  // it. Guarded defensively — the transform harness passes a bare `{ path }`
+  // vfile with no `data`/`frontmatter`, so this stays a bonus over the basename.
+  const explicit = vfile?.data?.frontmatter?.astra_scope;
+  if (Array.isArray(explicit)) {
+    analysisPath = explicit.map((s) => String(s)).filter(Boolean);
+  } else if (typeof explicit === 'string') {
+    analysisPath = explicit.split('.').filter(Boolean);
+  }
   try {
     return resolveScope(projectRoot(), universeName(), analysisPath);
   } catch {
@@ -835,6 +836,68 @@ const anchorTransform = {
       scope.analysisScopes,
     );
     tree.children = rewriteStaticImages(resolved, scope);
+  },
+};
+
+// ── Transform: auto-emit hidden prior-insight cross-reference targets ────────
+//
+// Decision option tabs (`renderOptionTab`) emit `crossReference` nodes to
+// `prior_insight-<id>` for their "Supporting insights" popovers. A popover only
+// resolves when a node bearing that identifier exists in the page mdast — so
+// without help the author must hand-place a `:::{astra:prior-insight}` block for
+// every referenced insight (the prototype's 32-block index.md appendix). This
+// transform auto-emits the missing carriers, hidden, so the references resolve
+// without the appendix. Targets resolve over the MDAST tree (per followup.md
+// Appendix: `crossReference.tsx` selects via `selectMdastNodes`, not the DOM),
+// so wrapping them in a `display:none` div does not suppress the popover.
+
+const insightTargetsTransform = {
+  name: 'astra-insight-targets',
+  doc: 'Auto-emit hidden prior_insight-<id> carriers for unresolved option-tab references.',
+  stage: 'document',
+  plugin: () => (tree: any, vfile: any) => {
+    const scope = scopeForFile(vfile);
+    if (!scope) return;
+    const PREFIX = 'prior_insight-';
+    const referenced = new Set<string>(); // ids cited by a crossReference
+    const placed = new Set<string>(); // ids already carried on the page
+    const walk = (n: any): void => {
+      if (!n || typeof n !== 'object') return;
+      if (typeof n.identifier === 'string' && n.identifier.startsWith(PREFIX)) {
+        const id = n.identifier.slice(PREFIX.length);
+        if (n.type === 'crossReference') {
+          referenced.add(id);
+        } else if (placed.has(id)) {
+          // A second real carrier for the same id is a latent collision (two
+          // popovers fighting for one anchor) — flag it, don't silently dedupe.
+          console.warn(`[mystra] duplicate prior-insight carrier "${n.identifier}" on this page`);
+        } else {
+          placed.add(id);
+        }
+      }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    };
+    (tree.children ?? []).forEach(walk);
+
+    const carriers: any[] = [];
+    for (const id of referenced) {
+      if (placed.has(id)) continue; // already resolves to an author-placed block
+      const insight = scope.priorInsights[id] ?? scope.analysis.prior_insights?.[id];
+      if (!insight) {
+        console.warn(`[mystra] referenced prior_insight "${id}" not found in this scope`);
+        continue;
+      }
+      carriers.push(renderPriorInsightTarget(id, insight, scope.prose));
+    }
+    if (carriers.length === 0) return;
+    // One hidden wrapper holds every auto-emitted carrier. `display:none` keeps
+    // it off book-theme while the popover still resolves over the MDAST tree.
+    (tree.children ??= []).push({
+      type: 'div',
+      class: 'astra-insight-targets',
+      style: { display: 'none' },
+      children: carriers,
+    });
   },
 };
 
@@ -904,7 +967,7 @@ const plugin = {
     citeRole('analysis', 'analysis'),
     valueRole,
   ],
-  transforms: [anchorTransform, storeTransform],
+  transforms: [anchorTransform, insightTargetsTransform, storeTransform],
 };
 
 export default plugin;

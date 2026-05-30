@@ -6,7 +6,9 @@
  * projection of the analysis into the build — keyed by id — and a rich theme
  * (e.g. `lightcone-astra`) joins `node identifier → store entry` to render
  * cards, dependency graphs, or alternative layouts without re-implementing any
- * ASTRA semantics. See STRATEGY-A-REFACTOR.md §5.
+ * ASTRA semantics. Placed blocks join by `identifier` (`output-<id>`, …); inline
+ * references join by `data.astra` (`{kind,id}` → the matching table below) — the
+ * same key→table join MyST uses for citations. See STRATEGY-A-REFACTOR.md §5.
  *
  * This is the salvaged core of the old `/astra/<slug>.json` server route
  * (`resolveOutputs`, `table_data`, `readMetric`, input aliasing) — but emitted
