@@ -18,7 +18,7 @@ import { loadASTRASource } from '../loader/index.js';
 import { buildAllPages } from '../transform/index.js';
 import { resolveAllDOIs, type DOIMetadata } from '../doi/resolver.js';
 import { buildPaperMetadata, resolvePaperCacheDir } from '../papers/index.js';
-import type { ASTRAAnalysis } from '../types/astra.js';
+import type { Analysis as ASTRAAnalysis } from '@astra-spec/sdk';
 import type { PageData, References } from '../types/content-server.js';
 
 export interface ServerOptions {

@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import yaml from 'js-yaml';
-import type { ASTRAAnalysis } from '../types/astra.js';
+import type { Analysis as ASTRAAnalysis } from '@astra-spec/sdk';
 
 /**
  * Load an astra.yaml file, recursively resolving sub-analyses with `path` fields.

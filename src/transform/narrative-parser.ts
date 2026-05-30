@@ -20,7 +20,11 @@
 
 import { mystParse } from 'myst-parser';
 import { parse as parsePath } from 'node:path';
-import type { ASTRAAnalysis, ASTRAInsight, ASTRAOutput } from '../types/astra.js';
+import type {
+  Analysis as ASTRAAnalysis,
+  Insight as ASTRAInsight,
+  Output as ASTRAOutput,
+} from '@astra-spec/sdk';
 import { crossReference, link } from './ast-helpers.js';
 
 // ── Parsing ───────────────────────────────────────────────────────

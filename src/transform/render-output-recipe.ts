@@ -59,10 +59,10 @@
  */
 
 import type {
-  ASTRAAnalysis,
-  ASTRARecipe,
-  ASTRAResources,
-} from '../types/astra.js';
+  Analysis as ASTRAAnalysis,
+  Recipe as ASTRARecipe,
+  Resources as ASTRAResources,
+} from '@astra-spec/sdk';
 import {
   paragraph,
   text,

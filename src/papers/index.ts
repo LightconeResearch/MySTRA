@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { DOIMetadata } from '../doi/resolver.js';
-import type { ASTRAAnalysis } from '../types/astra.js';
+import type { Analysis as ASTRAAnalysis } from '@astra-spec/sdk';
 import type { PaperDecisionLink, PaperInsightSummary } from '../types/papers.js';
 
 interface CachedPaperMeta {

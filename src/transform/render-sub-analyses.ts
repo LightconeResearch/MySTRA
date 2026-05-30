@@ -7,7 +7,7 @@
  * destination page already exposes.
  */
 
-import type { ASTRAAnalysis } from '../types/astra.js';
+import type { Analysis as ASTRAAnalysis } from '@astra-spec/sdk';
 import { card } from './ast-helpers.js';
 import { renderNarrativeSection } from './render-narrative.js';
 import type { AnalysisScope, PriorInsightScope } from './narrative-parser.js';

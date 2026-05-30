@@ -13,4 +13,9 @@ export { createContentServer } from './server/index.js';
 export type { ServerOptions, ContentServer } from './server/index.js';
 
 export type { PageData, SiteManifest, PageContent } from './types/content-server.js';
-export type { ASTRAAnalysis, ASTRAUniverse, ASTRADecision, ASTRAInsight } from './types/astra.js';
+export type {
+  Analysis as ASTRAAnalysis,
+  Universe as ASTRAUniverse,
+  Decision as ASTRADecision,
+  Insight as ASTRAInsight,
+} from '@astra-spec/sdk';

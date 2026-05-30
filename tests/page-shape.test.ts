@@ -11,7 +11,10 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { astraToMystAST, buildAllPages } from '../src/transform/index.js';
-import type { ASTRAAnalysis, ASTRAUniverse } from '../src/types/astra.js';
+import type {
+  Analysis as ASTRAAnalysis,
+  Universe as ASTRAUniverse,
+} from '@astra-spec/sdk';
 
 function emptyUniverse(): ASTRAUniverse {
   return { id: 'baseline', decisions: {} };

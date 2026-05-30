@@ -3,7 +3,10 @@
  * Collapsible details with a table of decision → selected option.
  */
 
-import type { ASTRAUniverse, ASTRADecision } from '../types/astra.js';
+import type {
+  Decision as ASTRADecision,
+  Universe as ASTRAUniverse,
+} from '@astra-spec/sdk';
 import {
   details,
   summary,
@@ -23,7 +26,7 @@ export function renderUniverseBanner(
 ): any {
   const rows: any[] = [];
 
-  for (const [decisionId, selectedOptionId] of Object.entries(universe.decisions)) {
+  for (const [decisionId, selectedOptionId] of Object.entries(universe.decisions ?? {})) {
     const decision = decisions[decisionId];
     if (!decision?.options) continue;
 

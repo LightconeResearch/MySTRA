@@ -12,7 +12,10 @@
  * description); the renderer doesn't synthesise them.
  */
 
-import type { ASTRAInsight, ASTRAOutput } from '../types/astra.js';
+import type {
+  Insight as ASTRAInsight,
+  Output as ASTRAOutput,
+} from '@astra-spec/sdk';
 import {
   heading,
   paragraph,

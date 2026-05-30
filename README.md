@@ -89,7 +89,7 @@ src/
 ├── doi/                     DOI resolution, caching, citation formatting
 ├── papers/                  Cached-paper enrichment + DOI insight backlinks
 ├── theme/                   MyST book-theme launcher
-├── types/                   TypeScript interfaces (ASTRA, content-server API)
+├── types/                   TypeScript interfaces for the content-server API
 └── cli.ts                   CLI entry point
 ```
 

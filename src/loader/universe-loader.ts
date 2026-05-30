@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
-import type { ASTRAUniverse } from '../types/astra.js';
+import type { Universe as ASTRAUniverse } from '@astra-spec/sdk';
 
 /**
  * Load all universe files from a directory.

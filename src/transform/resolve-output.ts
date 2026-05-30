@@ -21,7 +21,10 @@
  * the spec themselves.
  */
 
-import type { ASTRAAnalysis, ASTRAOutput } from '../types/astra.js';
+import type {
+  Analysis as ASTRAAnalysis,
+  Output as ASTRAOutput,
+} from '@astra-spec/sdk';
 
 export interface ResolvedOutput {
   /** The original output as declared in this scope. */

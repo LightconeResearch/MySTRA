@@ -24,7 +24,7 @@
  * conventions live next to each other on the same node.
  */
 
-import type { ASTRAInsight } from '../types/astra.js';
+import type { Insight as ASTRAInsight } from '@astra-spec/sdk';
 import { paragraph } from './ast-helpers.js';
 import { renderInsightEvidence } from './render-evidence.js';
 import type { ProseParser } from './narrative-parser.js';

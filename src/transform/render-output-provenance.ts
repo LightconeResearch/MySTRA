@@ -44,7 +44,7 @@
  * "this is a re-export of X" if they want.
  */
 
-import type { ASTRAAnalysis } from '../types/astra.js';
+import type { Analysis as ASTRAAnalysis } from '@astra-spec/sdk';
 import {
   paragraph,
   text,

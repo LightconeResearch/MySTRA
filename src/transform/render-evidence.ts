@@ -17,7 +17,10 @@
  *     > "quoted text"
  */
 
-import type { ASTRAEvidence, ASTRAOutput } from '../types/astra.js';
+import type {
+  Evidence as ASTRAEvidence,
+  Output as ASTRAOutput,
+} from '@astra-spec/sdk';
 import {
   paragraph,
   text,

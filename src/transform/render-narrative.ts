@@ -20,7 +20,10 @@
  * resolution live in `narrative-parser.ts`.
  */
 
-import type { ASTRAAnalysis, ASTRANarrative } from '../types/astra.js';
+import type {
+  Analysis as ASTRAAnalysis,
+  Narrative as ASTRANarrative,
+} from '@astra-spec/sdk';
 import { parseProseBlocks } from './narrative-parser.js';
 import type { ProseContext } from './narrative-parser.js';
 import { paragraph } from './ast-helpers.js';

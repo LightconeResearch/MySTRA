@@ -5,7 +5,12 @@
  * buildAllPages() handles recursive sub-analysis page generation.
  */
 
-import type { ASTRAAnalysis, ASTRAInsight, ASTRAUniverse, ASTRAUniverseNode } from '../types/astra.js';
+import type {
+  Analysis as ASTRAAnalysis,
+  Insight as ASTRAInsight,
+  Universe as ASTRAUniverse,
+  UniverseNode as ASTRAUniverseNode,
+} from '@astra-spec/sdk';
 import type { PageData, PageFrontmatter, XRefEntry } from '../types/content-server.js';
 import { join } from 'node:path';
 import { blockBreak, makeTabItem } from './ast-helpers.js';

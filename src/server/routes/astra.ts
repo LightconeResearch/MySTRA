@@ -19,7 +19,11 @@
 import { basename } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import type { RequestHandler } from 'express';
-import type { ASTRAAnalysis, ASTRAInput, ASTRAOutput } from '../../types/astra.js';
+import type {
+  Analysis as ASTRAAnalysis,
+  Input as ASTRAInput,
+  Output as ASTRAOutput,
+} from '@astra-spec/sdk';
 import { resolveOutputs } from '../../transform/resolve-output.js';
 import { parseTableData, type TableData } from '../../transform/parse-table-data.js';
 

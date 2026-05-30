@@ -10,7 +10,11 @@
  * has no opinion about how decisions are organised.
  */
 
-import type { ASTRADecision, ASTRAInsight, ASTRAUniverse } from '../types/astra.js';
+import type {
+  Decision as ASTRADecision,
+  Insight as ASTRAInsight,
+  Universe as ASTRAUniverse,
+} from '@astra-spec/sdk';
 import {
   heading,
   paragraph,
@@ -89,7 +93,7 @@ function renderDecision(
   doiCacheDir: string | null,
 ): any[] {
   const options = decision.options!;
-  const selectedOptionId = universe.decisions[id] ?? decision.default;
+  const selectedOptionId = universe.decisions?.[id] ?? decision.default;
   const selectedOption = selectedOptionId ? options[selectedOptionId] : undefined;
   const selectedLabel = selectedOption?.label ?? selectedOptionId ?? '(none)';
   const decisionLabel = decision.label ?? id;
@@ -242,7 +246,7 @@ function isConditionMet(
 
     const decisionId = ref.slice(0, dotIndex);
     const optionId = ref.slice(dotIndex + 1);
-    const selected = universe.decisions[decisionId];
+    const selected = universe.decisions?.[decisionId];
 
     if (negated) {
       if (selected === optionId) return false;

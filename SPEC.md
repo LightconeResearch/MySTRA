@@ -1,7 +1,7 @@
 # MySTRA — Live ASTRA Document Rendering via MyST
 
-> Tracks **astra-spec v0.0.7** (commit `ed13f48`). Notable v0.0.6→v0.0.7
-> deltas reflected in the transform's type surface (`src/types/astra.ts`):
+> Tracks **astra-spec v0.0.7** (commit `ed13f48`) through the published
+> `@astra-spec/sdk` TypeScript surface. Notable v0.0.6→v0.0.7 deltas:
 > `Output.inputs` and `Output.decisions` now carry the per-output
 > provenance contract (PR #19); `Recipe` shrinks to pure *how*
 > (`command`, `resources`, `container`); `Resources` gains `disk`. The

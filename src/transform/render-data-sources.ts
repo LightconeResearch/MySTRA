@@ -8,7 +8,10 @@
  * exists whether or not any evidence references the output.
  */
 
-import type { ASTRAInput, ASTRAOutput } from '../types/astra.js';
+import type {
+  Input as ASTRAInput,
+  Output as ASTRAOutput,
+} from '@astra-spec/sdk';
 import {
   table,
   tableRow,

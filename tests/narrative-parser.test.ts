@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { ASTRAAnalysis } from '../src/types/astra.js';
+import type { Analysis as ASTRAAnalysis } from '@astra-spec/sdk';
 import {
   parseProseBlocks,
   parseProseInline,
