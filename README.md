@@ -235,4 +235,4 @@ npm test         # plugin-emission + store + parser tests (vitest)
 
 ## License
 
-MIT
+BSD 3-Clause
