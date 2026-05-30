@@ -31,6 +31,7 @@ import type {
 import type { ArtifactResolver } from '../loader.js';
 import { resolveOutputs } from './resolve-output.js';
 import { isDecisionRendered } from './render-methods.js';
+import { firstParagraphText } from './prose.js';
 import { parseTableData, type TableData } from './parse-table-data.js';
 
 // ── Serialized shapes ───────────────────────────────────────────────────────
@@ -144,6 +145,8 @@ export interface ResolvedStore {
  * @param slug          the page slug (`index` for root)
  * @param resultUrl     absolute result path → project-relative URL
  * @param parentInputs  ancestor input maps (innermost-last) for `from:` aliases
+ * @param priorInsights this scope's prior_insights merged over its ancestors'
+ *                      (so option-tab references to inherited insights resolve)
  */
 export function buildResolvedStore(
   analysis: Analysis,
@@ -152,6 +155,7 @@ export function buildResolvedStore(
   slug: string,
   resultUrl: (absPath: string) => string,
   parentInputs: Map<string, Input>[] = [],
+  priorInsights: Record<string, Insight> = analysis.prior_insights ?? {},
 ): ResolvedStore {
   const outputs: Record<string, SerializedOutput> = {};
   for (const { declared, resolved } of resolveOutputs(analysis)) {
@@ -199,7 +203,7 @@ export function buildResolvedStore(
   }
 
   const prior_insights: Record<string, SerializedInsight> = {};
-  for (const [id, ins] of Object.entries(analysis.prior_insights ?? {})) {
+  for (const [id, ins] of Object.entries(priorInsights)) {
     prior_insights[id] = serializeInsight(id, ins);
   }
 
@@ -209,7 +213,7 @@ export function buildResolvedStore(
     subanalyses[id] = {
       id,
       name: sub.name,
-      summary: firstParagraph(sub.narrative?.summary),
+      summary: firstParagraphText(sub.narrative?.summary),
       url: '/' + (base ? `${base}/${id}` : id),
       decisions: Object.keys(sub.decisions ?? {}).length,
       outputs: (sub.outputs ?? []).length,
@@ -330,11 +334,4 @@ function readMetric(absPath: string): SerializedMetric | undefined {
   } catch {
     return undefined;
   }
-}
-
-/** First paragraph of a narrative chunk as plain text (best-effort). */
-function firstParagraph(md: string | undefined): string | undefined {
-  if (!md) return undefined;
-  const para = md.split(/\n\s*\n/)[0]?.replace(/\s+/g, ' ').trim();
-  return para || undefined;
 }

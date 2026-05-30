@@ -8,7 +8,7 @@
  * sub-analysis resolution, and the resolved-store shape.
  */
 
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, cpSync, rmSync, statSync, utimesSync } from 'node:fs';
@@ -350,68 +350,32 @@ describe('astra.yaml live-reload', () => {
   });
 });
 
-// ── §1 Hidden insight-resolution targets ──────────────────────────────────────
+// ── Decision option tabs: store-driven supporting-insight tokens ──────────────
 
-describe('insight-targets transform', () => {
-  function runTargets(children: Node[], path = 'index.md'): Node {
-    const t = plugin.transforms.find((x: any) => x.name === 'astra-insight-targets');
-    expect(t).toBeDefined();
-    const tree: Node = { type: 'root', children };
-    (t as any).plugin()(tree, { path });
-    return tree;
-  }
-  // A real root-scope prior insight (prototype/astra.yaml) that is referenced by
-  // option tabs but need not be placed on a synthetic tree.
-  const ID = 'recon_sharpens_bao_peak';
-  const ref = (): Node => ({
-    type: 'crossReference',
-    identifier: `prior_insight-${ID}`,
-    children: [{ type: 'text', value: ID }],
+describe('decision option-tab supporting insights', () => {
+  // `broadband` has an option (`spline`) carrying insights: [spline_broadband_fiducial].
+  it('emits store-driven astra-ref tokens, not native crossReferences', () => {
+    const nodes = runDirective('decision', 'broadband');
+    const tok = findFirst(nodes, (n) => hasClass(n, 'astra-ref--prior_insight'));
+    expect(tok).toBeDefined();
+    expect(tok!.data?.astra).toMatchObject({
+      kind: 'prior_insight',
+      id: 'spline_broadband_fiducial',
+    });
+    // the old crossReference-to-hidden-carrier mechanism is gone
+    expect(
+      findFirst(
+        nodes,
+        (n) =>
+          n.type === 'crossReference' &&
+          typeof n.identifier === 'string' &&
+          n.identifier.startsWith('prior_insight-'),
+      ),
+    ).toBeUndefined();
   });
 
-  it('auto-emits a hidden carrier for a referenced-but-unplaced insight', () => {
-    const tree = runTargets([{ type: 'paragraph', children: [ref()] }]);
-    const wrapper = tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'));
-    expect(wrapper).toBeDefined();
-    expect(wrapper!.style).toEqual({ display: 'none' });
-    const carrier = byIdentifier(wrapper!.children, `prior_insight-${ID}`);
-    expect(carrier?.type).toBe('admonition');
-    expect(carrier?.kind).toBe('seealso');
-    expect(hasClass(carrier, 'astra-prior-insight')).toBe(true);
-  });
-
-  it('does not duplicate a carrier when the insight is already placed', () => {
-    // A real author-placed carrier (the directive output) plus a reference to it.
-    const placed = runDirective('prior-insight', ID)[0];
-    const tree = runTargets([placed, { type: 'paragraph', children: [ref()] }]);
-    // No hidden wrapper at all → the reference already resolves to the placed block.
-    expect(tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'))).toBeUndefined();
-  });
-
-  it('emits each referenced id once even when cited multiple times', () => {
-    const tree = runTargets([
-      { type: 'paragraph', children: [ref()] },
-      { type: 'paragraph', children: [ref()] },
-    ]);
-    const wrapper = tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'))!;
-    const carriers = wrapper.children.filter(
-      (n: any) => n.identifier === `prior_insight-${ID}`,
-    );
-    expect(carriers).toHaveLength(1);
-  });
-
-  it('warns and skips an unknown referenced insight (no throw, no carrier)', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const tree = runTargets([
-      {
-        type: 'paragraph',
-        children: [
-          { type: 'crossReference', identifier: 'prior_insight-does_not_exist', children: [] },
-        ],
-      },
-    ]);
-    expect(tree.children.find((n: any) => hasClass(n, 'astra-insight-targets'))).toBeUndefined();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[mystra]'));
-    warn.mockRestore();
+  it('the referenced insight resolves in the page store', () => {
+    const store = runStore('index.md');
+    expect(store.prior_insights['spline_broadband_fiducial']).toBeDefined();
   });
 });

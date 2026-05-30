@@ -21,7 +21,7 @@ import {
   details,
   summary,
   tabSet,
-  crossReference,
+  refNode,
 } from './ast-helpers.js';
 import type { ProseParser } from './prose.js';
 
@@ -164,11 +164,11 @@ function renderOptionTab(
     );
   }
 
-  // Supporting insights — emit crossReferences to the flat
-  // prior_insight blocks rendered elsewhere on the page. The flat
-  // block is the source of truth; the option tab only points at it
-  // (no inline expansion). Broken references emit a console.warn
-  // so unresolved insight ids don't silently disappear.
+  // Supporting insights — emit store-driven `astra-ref` tokens (the same inline
+  // reference the `{astra:prior-insight}` role produces). A rich theme renders
+  // each one's card from the resolved store by id; a bare theme shows the label.
+  // Broken references emit a console.warn so unresolved insight ids don't
+  // silently disappear.
   if (option.insights && option.insights.length > 0) {
     const refs: any[] = [];
     for (const insightId of option.insights) {
@@ -180,7 +180,7 @@ function renderOptionTab(
         continue;
       }
       const linkText = insight.label ?? insight.claim ?? insightId;
-      refs.push(crossReference(`prior_insight-${insightId}`, [text(linkText)]));
+      refs.push(refNode('prior_insight', insightId, insightId, linkText));
     }
     if (refs.length > 0) {
       const count = refs.length;

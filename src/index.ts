@@ -67,12 +67,15 @@ import {
   details,
   emphasis,
   heading,
+  hiddenDiv,
   inlineCode,
   makeTabItem,
   paragraph,
+  refNode,
   strong,
   summary,
   text,
+  walkNodes,
 } from './transform/ast-helpers.js';
 import { renderDecision, isDecisionRendered } from './transform/render-methods.js';
 import { renderFinding } from './transform/render-findings.js';
@@ -244,16 +247,13 @@ function resultUrl(root: string): (absPath: string) => string {
  * output as a final pass; covers figures embedded as finding evidence.
  */
 function rewriteStaticImages(nodes: any[], scope: Scope): any[] {
-  const walk = (n: any): void => {
-    if (!n || typeof n !== 'object') return;
+  walkNodes(nodes, (n) => {
     if (n.type === 'image' && typeof n.url === 'string' && n.url.startsWith('/static/')) {
       const stem = n.url.slice('/static/'.length).replace(/\.[^.]+$/, '');
       const abs = scope.results(stem);
       if (abs) n.url = projectRelative(scope.root, abs);
     }
-    if (Array.isArray(n.children)) n.children.forEach(walk);
-  };
-  nodes.forEach(walk);
+  });
   return nodes;
 }
 
@@ -471,18 +471,15 @@ const findingDirective = componentDirective(
 );
 
 /**
- * Build the cross-reference target node for one prior insight: the claim +
- * evidence wrapped in a `seealso` admonition (a node every MyST theme renders
- * cleanly), carrying the `prior_insight-<id>` identifier so option-tab
- * "Supporting insights" cross-references resolve to a hover popover.
+ * Render an author-placed prior insight (the `:::{astra:prior-insight}` block):
+ * the claim + evidence wrapped in a `seealso` admonition (a node every MyST
+ * theme renders cleanly), carrying the `prior_insight-<id>` identifier.
  *
- * MySTRA's `renderPriorInsight` emits a `container[kind=prior-insight]`, which
- * the stock theme rejects ("no valid content besides caption"); this is the
- * stock-friendly equivalent. Shared by the `:::{astra:prior-insight}` directive
- * (author-placed) and `insightTargetsTransform` (auto-emitted) so the placed
- * and emitted carriers are byte-identical.
+ * A `container[kind=prior-insight]` would be the natural node, but the stock
+ * theme rejects it ("no valid content besides caption"); the `seealso`
+ * admonition is the stock-friendly equivalent.
  */
-function renderPriorInsightTarget(id: string, insight: Insight, prose: ProseParser): any {
+function renderPriorInsightBlock(id: string, insight: Insight, prose: ProseParser): any {
   const titleBits = ['Prior insight'];
   if (insight.label) titleBits.push(insight.label);
   else if (insight.scope) titleBits.push(insight.scope);
@@ -499,9 +496,11 @@ function renderPriorInsightTarget(id: string, insight: Insight, prose: ProsePars
 }
 
 const priorInsightDirective = componentDirective('prior-insight', (id, scope) => {
-  const insight = scope.analysis.prior_insights?.[id] ?? scope.priorInsights[id];
+  // `scope.priorInsights` already merges this analysis's own prior_insights over
+  // its ancestors' (see resolveScope), so it's the single lookup to use.
+  const insight = scope.priorInsights[id];
   if (!insight) throw new Error(`no prior_insight "${id}" in this scope`);
-  return [renderPriorInsightTarget(id, insight, scope.prose)];
+  return [renderPriorInsightBlock(id, insight, scope.prose)];
 });
 
 const inputsDirective = tableDirective('inputs', (scope) => {
@@ -568,39 +567,14 @@ const subAnalysisDirective = {
 
 type CiteKind = 'decision' | 'output' | 'finding' | 'prior_insight' | 'analysis';
 
-function span(cls: string, children: any[]): any {
-  return { type: 'span', class: cls, children };
-}
 /** snake_case id → readable words, for the inline label when nothing better. */
 function humanize(id: string): string {
   return id.replace(/_/g, ' ');
 }
 
-// The inline node carries ONLY semantic classes (`astra-ref` + `--<kind>` /
-// `--<subtype>` modifiers), the label as text, and the join key on `data.astra`.
-// `kind` maps to a resolved-store table — decision→decisions, output→outputs,
-// finding→findings, prior_insight→prior_insights, analysis→subanalyses — which a
-// theme reads by id (`value` is self-describing; see the value role). No card,
-// glyph, colour, or style is baked in: appearance is entirely the theme's.
-
-/**
- * A store-driven inline reference: a neutral `astra-ref` span whose text is the
- * label and whose `data.astra` carries the join key (`kind`/`id`/`path`) the
- * theme renderer uses to look the element up in the resolved store.
- */
-function refNode(
-  kind: string,
-  id: string,
-  path: string,
-  label: string,
-  subtype?: string,
-): any {
-  const mods = subtype ? [kind, subtype] : [kind];
-  const cls = ['astra-ref', ...mods.map((k) => `astra-ref--${k}`)].join(' ');
-  const node: any = span(cls, [text(label)]);
-  node.data = { astra: { kind, id, path } };
-  return node;
-}
+// The store-driven inline node (`refNode`, in ast-helpers) carries only semantic
+// classes, the label as text, and the join key on `data.astra`; a rich theme
+// renders the card from the store. `value` is self-describing — see the value role.
 
 /** Resolve the best inline label (and output subtype) for a cited element. */
 function citeLabel(
@@ -619,7 +593,7 @@ function citeLabel(
       return { label: display ?? f?.label ?? humanize(id) };
     }
     case 'prior_insight': {
-      const ins = scope.analysis.prior_insights?.[id] ?? scope.priorInsights[id];
+      const ins = scope.priorInsights[id]; // already merged over ancestor scopes
       return { label: display ?? ins?.label ?? humanize(id) };
     }
     case 'analysis': {
@@ -753,21 +727,16 @@ const valueRole = {
       const output = scope.outputsById.get(id);
       const subtype = output?.type ?? 'table';
       const filterDesc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ');
-      const node: any = span(
-        ['astra-ref', 'astra-ref--value', `astra-ref--${subtype}`].join(' '),
-        [text(out)],
-      );
-      node.data = {
-        astra: {
-          kind: 'value',
-          id,
-          path: [...analysisPath, id].join('.'),
-          col,
-          filter: filterDesc,
-          type: output?.type ?? 'table',
-          product: output?.label,
-        },
-      };
+      // Same `astra-ref` node shape as the cite roles (built by `refNode`), plus
+      // the value-specific provenance the theme renders: column, row filter, and
+      // the source product's type/label.
+      const node = refNode('value', id, [...analysisPath, id].join('.'), out, subtype);
+      Object.assign(node.data.astra, {
+        col,
+        filter: filterDesc,
+        type: output?.type ?? 'table',
+        product: output?.label,
+      });
       return [node];
     } catch (err) {
       return [valueError((err as Error).message)];
@@ -839,68 +808,6 @@ const anchorTransform = {
   },
 };
 
-// ── Transform: auto-emit hidden prior-insight cross-reference targets ────────
-//
-// Decision option tabs (`renderOptionTab`) emit `crossReference` nodes to
-// `prior_insight-<id>` for their "Supporting insights" popovers. A popover only
-// resolves when a node bearing that identifier exists in the page mdast — so
-// without help the author must hand-place a `:::{astra:prior-insight}` block for
-// every referenced insight (the prototype's 32-block index.md appendix). This
-// transform auto-emits the missing carriers, hidden, so the references resolve
-// without the appendix. Targets resolve over the MDAST tree (per followup.md
-// Appendix: `crossReference.tsx` selects via `selectMdastNodes`, not the DOM),
-// so wrapping them in a `display:none` div does not suppress the popover.
-
-const insightTargetsTransform = {
-  name: 'astra-insight-targets',
-  doc: 'Auto-emit hidden prior_insight-<id> carriers for unresolved option-tab references.',
-  stage: 'document',
-  plugin: () => (tree: any, vfile: any) => {
-    const scope = scopeForFile(vfile);
-    if (!scope) return;
-    const PREFIX = 'prior_insight-';
-    const referenced = new Set<string>(); // ids cited by a crossReference
-    const placed = new Set<string>(); // ids already carried on the page
-    const walk = (n: any): void => {
-      if (!n || typeof n !== 'object') return;
-      if (typeof n.identifier === 'string' && n.identifier.startsWith(PREFIX)) {
-        const id = n.identifier.slice(PREFIX.length);
-        if (n.type === 'crossReference') {
-          referenced.add(id);
-        } else if (placed.has(id)) {
-          // A second real carrier for the same id is a latent collision (two
-          // popovers fighting for one anchor) — flag it, don't silently dedupe.
-          console.warn(`[mystra] duplicate prior-insight carrier "${n.identifier}" on this page`);
-        } else {
-          placed.add(id);
-        }
-      }
-      if (Array.isArray(n.children)) n.children.forEach(walk);
-    };
-    (tree.children ?? []).forEach(walk);
-
-    const carriers: any[] = [];
-    for (const id of referenced) {
-      if (placed.has(id)) continue; // already resolves to an author-placed block
-      const insight = scope.priorInsights[id] ?? scope.analysis.prior_insights?.[id];
-      if (!insight) {
-        console.warn(`[mystra] referenced prior_insight "${id}" not found in this scope`);
-        continue;
-      }
-      carriers.push(renderPriorInsightTarget(id, insight, scope.prose));
-    }
-    if (carriers.length === 0) return;
-    // One hidden wrapper holds every auto-emitted carrier. `display:none` keeps
-    // it off book-theme while the popover still resolves over the MDAST tree.
-    (tree.children ??= []).push({
-      type: 'div',
-      class: 'astra-insight-targets',
-      style: { display: 'none' },
-      children: carriers,
-    });
-  },
-};
-
 // ── Transform: emit the resolved ASTRA store for rich themes ─────────────────
 //
 // The theme cannot read `astra.yaml` (it only sees the build output), so the
@@ -933,15 +840,11 @@ const storeTransform = {
       scope.slug,
       resultUrl(scope.root),
       parentInputMaps(scope),
+      scope.priorInsights,
     );
-    const carrier: any = {
-      type: 'div',
-      class: 'astra-store',
-      identifier: 'astra-store',
-      style: { display: 'none' },
-      data: { astra: store },
-      children: [],
-    };
+    const carrier: any = hiddenDiv('astra-store');
+    carrier.identifier = 'astra-store';
+    carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
   },
 };
@@ -967,7 +870,7 @@ const plugin = {
     citeRole('analysis', 'analysis'),
     valueRole,
   ],
-  transforms: [anchorTransform, insightTargetsTransform, storeTransform],
+  transforms: [anchorTransform, storeTransform],
 };
 
 export default plugin;
