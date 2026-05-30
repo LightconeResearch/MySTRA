@@ -1,99 +1,114 @@
 # MySTRA
 
-**A MyST plugin that imports/cites [ASTRA](https://github.com/LightconeResearch/ASTRA) analysis components into Markdown reports.**
+**A [MyST](https://mystmd.org/) plugin for writing publications on top of [ASTRA](https://github.com/LightconeResearch/ASTRA) analyses.**
 
-You write a normal [MyST](https://mystmd.org/) Markdown report and pull in ASTRA
-components — decisions, outputs, findings, prior insights, data tables — *by
-reference*. They stay single-sourced in `astra.yaml`. MySTRA is a MyST plugin
-(directives + roles + transforms) that reads `astra.yaml` at build time and
-emits standard MyST AST, so it runs on the **stock `myst` CLI and themes** — no
-custom server.
+You write a normal MyST Markdown document and pull in ASTRA components —
+decisions, outputs, findings, prior insights, data tables, live numbers — *by
+reference*. The components stay single-sourced in your `astra.yaml`; MySTRA
+reads it at build time and emits standard MyST AST. It runs on the **stock
+`myst` CLI and themes** — no custom server, no copy-pasted numbers, no figures
+that drift out of sync with the analysis.
 
-> This is the "Strategy A" architecture. It replaces an earlier
-> generate-everything content server; see
-> [`STRATEGY-A-REFACTOR.md`](./STRATEGY-A-REFACTOR.md) for the full rationale and
-> [`SPEC.md`](./SPEC.md) for the design.
+```markdown
+The combined LRG3+ELG1 bin reaches
+$D_V/r_d =$ {astra:value}`bao_distance_table tracer=lrg3_elg1 col=DV_over_rd pm`
+at $z_\mathrm{eff} =$ {astra:value}`bao_distance_table tracer=lrg3_elg1 col=z_eff`,
+consistent with the {astra:finding}`bao_detected_post_recon` detection.
 
-## The idea: three single sources
+:::{astra:output} bao_fit_plot
+:::
+```
+
+→ the values are interpolated live from the result product, the finding renders
+as a card with its full record, and the figure is pulled in with its provenance.
+Edit `astra.yaml` and rerun the analysis; the report updates itself.
+
+## Why
+
+ASTRA already holds the *truth* of an analysis — every decision, the inputs and
+outputs of each step, the findings, and the materialised result products. A
+write-up usually re-types all of that into prose, where it immediately starts to
+rot: a number gets stale, a figure is from an old run, a stated assumption no
+longer matches the spec.
+
+MySTRA removes the duplication. The report references the analysis instead of
+restating it, so there is **one source of truth for the data** and the prose can
+focus on the argument.
 
 | Concern | Single source of truth |
 |---|---|
 | **Data** — what a decision/output/finding *is* | `astra.yaml` (+ `universes/`, `results/`) |
 | **Composition** — what appears, where, in what order | your `index.md` |
-| **Presentation** — how it looks | the theme |
+| **Presentation** — how it looks | the MyST theme |
 
-The plugin is a pure **projector**: it reads the data and emits (a) rendered,
-neutral semantic AST for the elements you placed (the baseline any theme shows)
-and (b) — for rich themes — the resolved ASTRA data, once, keyed by id. It makes
-no authoring or styling decisions.
+The plugin is a pure **projector** between data and document: it renders the
+elements you place, fills in the numbers, and makes no authoring or styling
+decisions of its own.
 
 ## Quick start
 
-```bash
-npm install
-npm run build         # compiles the plugin to dist/
+Install the plugin from npm:
 
-cd prototype          # a worked DESI DR1 BAO example
-ASTRA_PROJECT_ROOT="$PWD" npx mystmd start    # → http://localhost:3000
+```bash
+npm install @astra-spec/mystra
 ```
 
-Register the plugin in your project's `myst.yml` and point `ASTRA_PROJECT_ROOT`
-at the ASTRA project (defaults to the working directory; pick a universe with
-`ASTRA_UNIVERSE`):
+Reference it in your ASTRA project's `myst.yml` and list your pages:
 
 ```yaml
 version: 1
 project:
   plugins:
-    - mystra            # or a local path to dist/index.js
+    - '@astra-spec/mystra'
   toc:
     - file: index.md
 site:
-  template: book-theme  # the clean baseline; swap for a rich ASTRA theme later
+  template: book-theme
 ```
 
-## Two render modes
+Then run the stock MyST CLI from the project directory:
 
-- **Basic — plugin only.** Registering the plugin is all you need. On the stock
-  `book-theme` with no stylesheet the document is clean and readable: decisions
-  render as dropdowns with tabbed options, outputs as real figures/tables,
-  findings and prior insights as cards, interpolated numbers show their value,
-  and inline references show a plain label. Preview cards are hidden by default,
-  so a bare viewer never spills card content inline. **No user CSS required.**
-- **Rich — a `lightcone-astra` theme.** Glyphs, per-kind colours, hover preview
-  cards, and "powerful patterns" (e.g. a product-dependency graph) are
-  appearance keyed on the `astra-*` classes the plugin emits, driven from the
-  resolved store. The only change is the `template:` line. (The theme is a
-  separate deliverable; until it ships, `book-theme` is the baseline — the
-  `prototype/` runs plugin-only, no stylesheet.)
+```bash
+myst start        # → http://localhost:3000
+```
 
-## Authoring vocabulary
+That's it — no custom server and no build step of your own. MySTRA reads
+`astra.yaml` from the working directory and resolves the first universe in
+`universes/`. Two optional environment variables override those defaults:
 
-**Block "import" directives** (one component, by id):
+| Variable | Default | Purpose |
+|---|---|---|
+| `ASTRA_PROJECT_ROOT` | `process.cwd()` | The ASTRA project directory (where `astra.yaml` lives) |
+| `ASTRA_UNIVERSE` | first in `universes/` | Which universe's decision selections to resolve |
+
+## Authoring
+
+The directive and role vocabulary below *is* your compositional surface — what
+you place is what appears.
+
+### Block directives — import a component by id
 
 ```markdown
 :::{astra:decision} covariance_source
-:::
+:::                                   # dropdown: the choice + tabbed options
 :::{astra:output} bao_fit_plot
-:::
+:::                                   # the figure (or table), with provenance
 :::{astra:finding} bao_detected_post_recon
-:::
+:::                                   # claim + notes + scope + evidence  (:compact: trims to claim only)
 :::{astra:prior-insight} recon_sharpens_bao_peak
-:::
+:::                                   # the prior insight as an admonition
 :::{astra:inputs}
-:::                                   # full inputs registry table (root scope)
+:::                                   # the inputs registry table (root scope)
 :::{astra:outputs} clustering
-:::                                   # outputs table for the clustering sub-analysis
+:::                                   # outputs table for the `clustering` sub-analysis
 :::{astra:subanalysis} reconstruction
-:::                                   # nav card to the sub-analysis page
+:::                                   # a nav card linking to the sub-analysis page
 ```
 
-`:::{astra:output}` figures carry the `output-<id>` anchor and a collapsed
-provenance disclosure (type, upstream products, decisions, recipe); tables
-render as a clean numbered `container[table]`. `:::{astra:finding}` accepts
-`:compact:` to render claim + notes + scope only.
+### Inline roles — cite a component in a sentence
 
-**Inline "cite" roles** — a neutral token (label) carrying a hidden preview card:
+Each renders as a neutral text label (a rich theme adds a kind glyph and a hover
+preview card):
 
 ```markdown
 {astra:decision}`covariance_source`
@@ -103,60 +118,30 @@ render as a clean numbered `container[table]`. `:::{astra:finding}` accepts
 {astra:analysis}`reconstruction`
 ```
 
-**Inline value interpolation** — never hard-type a measured number; pull it live
-from a result product at build time:
+### Live values — never hard-type a measured number
+
+Pull a cell straight from a materialised result product at build time:
 
 ```markdown
 {astra:value}`bao_distance_table tracer=lrg3_elg1 col=DV_over_rd pm`   → 19.88 ± 0.17
 {astra:value}`bao_alpha_values tracer=elg1 recon=Pre col=alpha1_std`   → 0.0696
 ```
 
-Grammar: `<output-path> col=<col> [<key>=<val> …] [pm] [err=<col>] [sig=N]`. It
-reads the materialised CSV/JSON, filters rows by `key=val`, and renders the cell
-(with `± std` via `pm`/`err=`).
+Grammar: `<output-path> col=<col> [<key>=<val> …] [pm] [err=<col>] [sig=N]`.
+It reads the output's CSV/JSON, filters rows by each `key=val`, and renders the
+selected cell — append `pm` (or `err=<col>`) to show `± std`, `sig=N` to set
+significant figures.
 
-**Anchor grammar** — `[text](#decisions.x)`, `#outputs.y`, `#analyses.sub.…`
-resolve to cross-references, alongside plain MyST `[](#output-bao_fit_plot)`.
+### Cross-references and scoping
 
-**Scoping** — a path is `<id>` (root analysis) or `<sub>.<id>` (sub-analysis),
-e.g. `reconstruction.algorithm`, `clustering.xi_multipoles_plot`. Each
-sub-analysis is its own page (`reconstruction.md`, `clustering.md`).
+- **Anchors**: `[text](#decisions.x)`, `#outputs.y`, `#analyses.sub.…` resolve
+  to cross-references, alongside plain MyST `[](#output-bao_fit_plot)`.
+- **Scoping**: a component path is `<id>` for the root analysis or `<sub>.<id>`
+  for a sub-analysis (e.g. `reconstruction.algorithm`), and can nest
+  (`a.b.id`). Each sub-analysis is typically its own page.
 
-## Recognition markers & the resolved store
-
-Every placed block carries a stable `astra-<kind>` class (`astra-decision`,
-`astra-output`/`--figure`, `astra-finding`, `astra-prior-insight`,
-`astra-inputs`/`astra-outputs`, `astra-subanalysis`) on the node bearing its
-`<kind>-<id>` identifier. Inline tokens are neutral
-(`span.astra-ref--<kind>` + label + a hidden `span.astra-card`).
-
-For rich themes, the plugin bakes a **resolved store** onto a hidden
-`div.astra-store` carrier's `data` (per page scope): the resolved outputs
-(project-relative paths, parsed table/metric values, recipes, provenance),
-inputs, decisions (selected option), findings, prior insights, and
-sub-analyses — all keyed by id. A theme selects a placed node by
-`identifier`/class and joins it to the store; it never reads `astra.yaml`.
-
-## Project structure
-
-```
-src/
-├── index.ts                  The MyST plugin + package entry (default export = the plugin)
-├── loader.ts                 Load a project for one universe (via the SDK) + resolve result files
-└── transform/                Per-component renderers used by the plugin
-    ├── ast-helpers.ts        Pure AST node constructors
-    ├── prose.ts              Parse component Markdown (myst-parser) + resolve ASTRA anchors
-    ├── parse-table-data.ts   CSV/JSON table parser
-    ├── resolve-output.ts     Resolves `from:` output/alias chains
-    ├── resolved-store.ts     Builds the resolved data store for rich themes
-    ├── render-methods.ts     renderDecision (details/summary + tabbed options)
-    ├── render-findings.ts    renderFinding (claim + notes + scope + evidence)
-    ├── render-evidence.ts    renderOneOutput + evidence/table rendering (Output.type)
-    └── render-data-sources.ts  Inputs/outputs registry tables
-```
-
-Data-model types are imported directly from **`@astra-spec/sdk`** (`Analysis`,
-`Decision`, `Output`, …) — MySTRA defines none of its own.
+Everything else — prose, math, figures you author yourself, the table of
+contents, multi-page structure — is ordinary MyST.
 
 ## ASTRA project layout
 
@@ -168,30 +153,80 @@ my-analysis/
 ├── results/
 │   └── baseline/<output-id>/<output-id>.png   Materialised result artifacts
 ├── myst.yml            Registers the plugin; lists pages
-└── index.md (+ sub-analysis pages)            Your report
+└── index.md            Your report (+ optional sub-analysis pages)
 ```
 
-A sub-analysis that declares `path: ./analyses/<sub>` roots its own
-`results/<universe>/` there. MySTRA never scans the results tree: it computes
-each output's directory deterministically from this convention (the analysis's
-`path:` + universe + output id) and resolves the artifact file lazily, on render.
+MySTRA never scans the results tree: it computes each output's directory
+deterministically from the convention above (the analysis's `path:` + universe +
+output id) and resolves the artifact file lazily, as it renders. A sub-analysis
+that declares `path: ./analyses/<sub>` roots its own `results/<universe>/` there.
 
-## What MyST does for us
+## Two render modes
 
-We lean on the stock `myst` engine for everything it already does: building,
-serving, asset hashing/copying (it rewrites the plugin's project-relative image
-paths into hashed assets), live reload of Markdown, numbering, cross-references,
-and search. We write only the ASTRA→AST bridge.
+- **Basic — plugin only.** On the stock `book-theme` with no stylesheet, the
+  document is already clean and readable: decisions are dropdowns, outputs are
+  real figures/tables, findings and prior insights are cards, numbers show their
+  value, and inline references show a plain label. **No user CSS required.**
+- **Rich — a dedicated ASTRA theme.** A MyST theme keyed on the `astra-*`
+  classes the plugin emits can add glyphs, per-kind colours, hover preview
+  cards, and richer patterns (e.g. a product-dependency graph), all driven from
+  the resolved data the plugin bakes into the build. The only change is the
+  `site.template:` line. (This theme is a separate deliverable; until it ships,
+  `book-theme` is the baseline.)
 
-**Citations** are delegated to MyST. DOI evidence renders as a plain `doi.org`
-link; MySTRA carries no DOI resolver or cache of its own. Author–year labels and
-a linked reference list come for free once a project bibliography is wired — a
-clean follow-up (see the citation note in the spec).
+## What MyST handles for you
 
-## Development
+MySTRA writes only the ASTRA→AST bridge and leans on the stock `myst` engine for
+everything else: building, serving, asset hashing/copying (it rewrites the
+plugin's project-relative image paths into hashed assets), live reload of
+Markdown, numbering, cross-references, and search. **Citations** are delegated to
+MyST too — DOI evidence renders as a `doi.org` link, and a linked reference list
+comes for free once a project bibliography is wired.
+
+## How it works (for theme authors)
+
+Every placed block carries a stable `astra-<kind>` class
+(`astra-decision`, `astra-output`/`--figure`, `astra-finding`,
+`astra-prior-insight`, `astra-inputs`/`astra-outputs`, `astra-subanalysis`) on
+the node bearing its `<kind>-<id>` identifier; inline tokens are neutral
+(`span.astra-ref--<kind>`). For rich rendering the plugin also bakes a **resolved
+store** onto a hidden `div.astra-store` carrier's `data` (per page): the fully
+resolved outputs (project-relative paths, parsed table/metric values, recipes,
+provenance), inputs, decisions, findings, prior insights, and sub-analyses, all
+keyed by id. A theme selects a placed node by class/identifier and joins it to
+the store — it never reads `astra.yaml`.
+
+See [`SPEC.md`](./SPEC.md) for the architecture and
+[`STRATEGY-A-REFACTOR.md`](./STRATEGY-A-REFACTOR.md) for the design rationale.
+
+## Project structure
+
+```
+src/
+├── index.ts                  The MyST plugin + package entry (default export = the plugin)
+├── loader.ts                 Load a project for one universe (via the SDK) + resolve result files
+└── transform/                Per-component renderers used by the plugin
+    ├── ast-helpers.ts        Pure AST node constructors
+    ├── prose.ts              Parse component Markdown + resolve ASTRA anchors
+    ├── parse-table-data.ts   CSV/JSON table parser
+    ├── resolve-output.ts     Resolves `from:` output/alias chains
+    ├── resolved-store.ts     Builds the resolved data store for rich themes
+    ├── render-methods.ts     renderDecision (details/summary + tabbed options)
+    ├── render-findings.ts    renderFinding (claim + notes + scope + evidence)
+    ├── render-evidence.ts    renderOneOutput + evidence/table rendering
+    └── render-data-sources.ts  Inputs/outputs registry tables
+```
+
+Data-model types come directly from **`@astra-spec/sdk`** (`Analysis`,
+`Decision`, `Output`, …) — MySTRA defines none of its own.
+
+## Developing MySTRA
+
+Working on the plugin itself (not needed to *use* it):
 
 ```bash
-npm run build    # compile the plugin
+npm install
+npm run build    # compile src/ → dist/index.js
 npm test         # plugin-emission + store + parser tests (vitest)
 ```
 

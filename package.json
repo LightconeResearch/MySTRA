@@ -1,6 +1,6 @@
 {
-  "name": "mystra",
-  "version": "0.2.0",
+  "name": "@astra-spec/mystra",
+  "version": "0.0.1",
   "description": "A MyST plugin that imports/cites ASTRA analysis components into Markdown reports",
   "type": "module",
   "main": "./dist/index.js",
