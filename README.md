@@ -194,7 +194,10 @@ store** onto a hidden `div.astra-store` carrier's `data` (per page): the fully
 resolved outputs (project-relative paths, parsed table/metric values, recipes,
 provenance), inputs, decisions, findings, prior insights, and sub-analyses, all
 keyed by id. A theme selects a placed node by class/identifier and joins it to
-the store — it never reads `astra.yaml`.
+the store — it never reads `astra.yaml`. Insight DOIs are additionally emitted
+as hidden `cite` nodes (a `div.astra-cites` carrier) so MyST's citation
+pipeline resolves them at build time and a theme can render the formatted
+citation (author–year + bibliography entry) instead of the raw DOI.
 
 See [`SPEC.md`](./SPEC.md) for the architecture and
 [`STRATEGY-A-REFACTOR.md`](./STRATEGY-A-REFACTOR.md) for the design rationale.

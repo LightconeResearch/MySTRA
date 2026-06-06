@@ -263,6 +263,29 @@ describe('resolved-store transform', () => {
     expect(store.analysis.slug).toBe('clustering');
     expect(store.outputs['xi_multipoles_plot']).toBeDefined();
   });
+
+  it('emits a hidden astra-cites carrier with a cite node per unique insight DOI', () => {
+    const storeTransform = plugin.transforms.find((t: any) => t.name === 'astra-resolved-store');
+    const tree: Node = { type: 'root', children: [] };
+    (storeTransform as any).plugin()(tree, { path: 'index.md' });
+    const store = tree.children.find((n: any) => n.class === 'astra-store')!.data.astra;
+    const expected = [
+      ...new Set(
+        Object.values(store.prior_insights as Record<string, { doi?: string }>)
+          .map((i) => i.doi)
+          .filter(Boolean),
+      ),
+    ];
+    expect(expected.length).toBeGreaterThan(0); // fixture sanity: prototype insights cite DOIs
+    const carrier = tree.children.find((n: any) => n.class === 'astra-cites');
+    expect(carrier).toBeDefined();
+    expect(carrier!.style).toEqual({ display: 'none' }); // invisible on book-theme
+    // One cite node per unique DOI, labelled by the raw DOI so MyST's
+    // transformLinkedDOIs resolves it into the page's citation data.
+    const cites = carrier!.children[0].children;
+    expect(cites.map((c: any) => c.label).sort()).toEqual([...expected].sort());
+    expect(cites.every((c: any) => c.type === 'cite')).toBe(true);
+  });
 });
 
 // ── §4 Deep-nesting page scope (dotted-filename convention) ───────────────────

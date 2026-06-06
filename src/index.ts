@@ -62,6 +62,7 @@ import {
   admonition,
   admonitionTitle,
   card,
+  cite,
   code,
   crossReference,
   details,
@@ -846,6 +847,27 @@ const storeTransform = {
     carrier.identifier = 'astra-store';
     carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
+
+    // Register every insight DOI with MyST's citation pipeline. The store only
+    // carries the raw DOI string; emitting a hidden `cite` node per DOI (label
+    // = the DOI) lets MyST's own transforms resolve it (transformLinkedDOIs →
+    // transformCitations), so `references.cite.data` carries the formatted
+    // citation and the theme's hover cards render the same author–year
+    // citation as main-text DOIs — with the source listed in the bibliography.
+    const dois = [
+      ...new Set(
+        Object.values(store.prior_insights)
+          .map((insight) => insight.doi)
+          .filter((d): d is string => !!d),
+      ),
+    ];
+    if (dois.length > 0) {
+      (tree.children ??= []).push(
+        hiddenDiv('astra-cites', [
+          paragraph(dois.map((d) => cite(d, [], 'narrative'))),
+        ]),
+      );
+    }
   },
 };
 
