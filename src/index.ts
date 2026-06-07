@@ -63,18 +63,13 @@ import {
   admonitionTitle,
   card,
   cite,
-  code,
-  crossReference,
-  details,
   emphasis,
   heading,
   hiddenDiv,
-  inlineCode,
   makeTabItem,
   paragraph,
   refNode,
   strong,
-  summary,
   text,
   walkNodes,
 } from './transform/ast-helpers.js';
@@ -344,42 +339,6 @@ function componentDirective(
   };
 }
 
-/**
- * A collapsed "ASTRA provenance" disclosure for an output: its id + type, the
- * upstream products it was derived from, the decisions that parameterise it,
- * and the recipe command. Emitted as a sibling after the figure/table so the
- * embedded output reads as a first-class, traceable analysis product.
- */
-function outputProvenance(output: Output, id: string): any {
-  const inner: any[] = [
-    summary([strong([text('ASTRA provenance')]), text(` — ${id} · ${output.type ?? 'output'}`)]),
-  ];
-  const inputs = output.inputs ?? [];
-  if (inputs.length > 0) {
-    const shown = inputs.slice(0, 6).join(', ') + (inputs.length > 6 ? ', …' : '');
-    inner.push(
-      paragraph([
-        strong([text('Derived from: ')]),
-        text(`${inputs.length} upstream product${inputs.length === 1 ? '' : 's'} — `),
-        inlineCode(shown),
-      ]),
-    );
-  }
-  const decisions = output.decisions ?? [];
-  if (decisions.length > 0) {
-    const parts: any[] = [strong([text('Decisions: ')])];
-    decisions.forEach((d, i) => {
-      if (i > 0) parts.push(text(', '));
-      parts.push(crossReference(`decision-${d}`, [text(d)]));
-    });
-    inner.push(paragraph(parts));
-  }
-  if (output.recipe?.command) {
-    inner.push(code('bash', output.recipe.command));
-  }
-  return details(inner, false);
-}
-
 /** Directive whose whole arg is a scope path (no trailing component). */
 function tableDirective(name: string, render: (scope: Scope) => any[]) {
   return {
@@ -430,10 +389,11 @@ const outputDirective = componentDirective('output', (id, scope) => {
   const figure = renderOneOutput(output, id, scope.results, scope.prose, {
     resultUrl: resultUrl(scope.root),
   });
-  // Rich representation: the rendered artifact + a collapsed ASTRA provenance
-  // disclosure (id/type, upstream products, decisions, recipe). The carrier
-  // (figure/table) is tagged `astra-output[ --<type>]` for theme recognition.
-  return tagComponent([...figure, outputProvenance(output, id)], 'output', 'output', id, output.type);
+  // The carrier (figure/table) is tagged `astra-output[ --<type>]` for theme
+  // recognition; provenance UI is the rich theme's job (it reads the store —
+  // see astra-theme's AstraOutput ProvenanceDrawer). Plain themes show just
+  // the figure.
+  return tagComponent(figure, 'output', 'output', id, output.type);
 });
 
 const findingDirective = componentDirective(
