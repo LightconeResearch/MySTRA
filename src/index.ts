@@ -80,6 +80,7 @@ import { renderInputsTable, renderOutputsTable } from './transform/render-data-s
 import { parseTableData } from './transform/parse-table-data.js';
 import { resolveOutputs } from './transform/resolve-output.js';
 import { buildResolvedStore } from './transform/resolved-store.js';
+import { pageFrames, type ProvFrame } from './transform/provenance.js';
 
 // ── Project loading + cache ─────────────────────────────────────────────
 
@@ -787,6 +788,19 @@ function parentInputMaps(scope: Scope): Map<string, Input>[] {
   );
 }
 
+/**
+ * The page scope's provenance frame, parent-linked up to the root analysis —
+ * lets the output tracer resolve sibling references (`reconstruction.…` seen
+ * from `clustering`) and `../` decision aliases. Universe narrowing per
+ * descent mirrors `resolveScope`.
+ */
+function pageProvFrame(scope: Scope): ProvFrame {
+  const rootUniverse = getSource(scope.root, universeName()).universe;
+  const segs = scope.slug === 'index' ? [] : scope.slug.split('/');
+  const analyses = [...scope.analysisScopes.map((s) => s.analysis), scope.analysis];
+  return pageFrames(analyses, rootUniverse, segs);
+}
+
 const storeTransform = {
   name: 'astra-resolved-store',
   doc: 'Emit the resolved ASTRA data store (keyed by id) for rich themes.',
@@ -802,6 +816,7 @@ const storeTransform = {
       resultUrl(scope.root),
       parentInputMaps(scope),
       scope.priorInsights,
+      pageProvFrame(scope),
     );
     const carrier: any = hiddenDiv('astra-store');
     carrier.identifier = 'astra-store';

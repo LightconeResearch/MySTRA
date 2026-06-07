@@ -30,6 +30,13 @@ import type {
 } from '@astra-spec/sdk';
 import type { ArtifactResolver } from '../loader.js';
 import { resolveOutputs } from './resolve-output.js';
+import { traceProvenance, type ProvFrame } from './provenance.js';
+import type {
+  SerializedProvenanceDecision,
+  SerializedRootInput,
+} from './provenance.js';
+
+export type { SerializedProvenanceDecision, SerializedRootInput };
 import { isDecisionRendered } from './render-methods.js';
 import { firstParagraphText } from './prose.js';
 import { parseTableData, type TableData } from './parse-table-data.js';
@@ -69,6 +76,10 @@ export interface SerializedOutput {
   table_data?: TableData;
   /** Inlined value for metric outputs whose result file parses as JSON. */
   metric?: SerializedMetric;
+  /** Analysis-level source inputs at the roots of the provenance chain. */
+  inputs_root?: SerializedRootInput[];
+  /** Every decision affecting this output, direct or via another scope. */
+  decisions_transitive?: SerializedProvenanceDecision[];
 }
 
 export interface SerializedInput {
@@ -147,6 +158,9 @@ export interface ResolvedStore {
  * @param parentInputs  ancestor input maps (innermost-last) for `from:` aliases
  * @param priorInsights this scope's prior_insights merged over its ancestors'
  *                      (so option-tab references to inherited insights resolve)
+ * @param pageFrame     this scope's provenance frame (parent-linked to the
+ *                      root) — enables the transitive inputs_root /
+ *                      decisions_transitive fields on outputs
  */
 export function buildResolvedStore(
   analysis: Analysis,
@@ -156,10 +170,12 @@ export function buildResolvedStore(
   resultUrl: (absPath: string) => string,
   parentInputs: Map<string, Input>[] = [],
   priorInsights: Record<string, Insight> = analysis.prior_insights ?? {},
+  pageFrame: ProvFrame = { analysis, universe, where: [] },
 ): ResolvedStore {
   const outputs: Record<string, SerializedOutput> = {};
   for (const { declared, resolved } of resolveOutputs(analysis)) {
     const absPath = results(declared.id);
+    const traced = traceProvenance(declared, pageFrame);
     outputs[declared.id] = {
       id: declared.id,
       label: resolved.label,
@@ -175,6 +191,8 @@ export function buildResolvedStore(
       table_data:
         resolved.type === 'table' && absPath ? (parseTableData(absPath) ?? undefined) : undefined,
       metric: resolved.type === 'metric' && absPath ? readMetric(absPath) : undefined,
+      inputs_root: traced.inputs_root,
+      decisions_transitive: traced.decisions_transitive,
     };
   }
 
