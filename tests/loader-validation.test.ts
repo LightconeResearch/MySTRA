@@ -2,7 +2,7 @@
  * §2 — advisory spec validation in `loadASTRASource`.
  *
  * These tests drive the loader against tiny hand-built astra.yaml files in a
- * temp dir (no prototype fixtures), to pin down the contract that matters: a
+ * temp dir built per test, to pin down the contract that matters: a
  * malformed spec is *reported, never fatal*. We assert that loading a spec with
  * an obvious semantic error (an output `when:` naming a decision that doesn't
  * exist) still returns a source and routes a `[mystra]` warning through

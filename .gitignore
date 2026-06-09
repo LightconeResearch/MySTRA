@@ -11,6 +11,3 @@ _build/
 snapshot.md
 # local fibers / notes are not part of the public repo
 .felt/
-
-prototype/
-dev/
