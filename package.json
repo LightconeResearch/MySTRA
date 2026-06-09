@@ -44,14 +44,12 @@
   "dependencies": {
     "@astra-spec/sdk": "^0.0.3",
     "myst-parser": "^1.7.1",
-    "myst-spec": "^0.0.5",
     "papaparse": "^5.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/papaparse": "^5.3.0",
     "esbuild": "^0.28.0",
-    "tsx": "^4.0.0",
     "typescript": "^5.5.0",
     "vitest": "4.1.6"
   }
