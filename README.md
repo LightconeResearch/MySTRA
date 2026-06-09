@@ -74,24 +74,24 @@ decisions of its own.
 
 ## Quick start
 
-Install the plugin from npm:
-
-```bash
-npm install @astra-spec/mystra
-```
-
-Reference it in your ASTRA project's `myst.yml` and list your pages:
+MyST loads a plugin from a single bundled `.mjs` file referenced by URL — there
+is nothing to `npm install`. Point your ASTRA project's `myst.yml` at the latest
+release artifact and list your pages:
 
 ```yaml
 version: 1
 project:
   plugins:
-    - '@astra-spec/mystra'
+    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
 site:
   template: book-theme
 ```
+
+The `…/releases/latest/download/…` URL always tracks the newest release; pin a
+specific version by swapping `latest` for a tag (e.g. `download/v0.0.1/`). MyST
+fetches and caches the file on the first build.
 
 Then run the stock MyST CLI from the project directory:
 
@@ -258,12 +258,28 @@ Working on the plugin itself (not needed to *use* it):
 
 ```bash
 npm install
-npm run build    # compile src/ → dist/index.js
+npm run build    # type-check + compile src/ → dist/ (tsc)
+npm run bundle   # bundle the single-file plugin → dist/mystra.mjs
 npm test         # plugin-emission + store + parser tests (vitest)
 ```
 
 `astra.yaml` is parsed once and cached; `myst start` watches Markdown, not
 `astra.yaml`, so editing the spec needs a server restart.
+
+### Releasing
+
+Distribution is a single bundled `.mjs` attached to a GitHub Release — MyST does
+not consume npm packages ([why](https://mystmd.org/guide/plugins-distribute)).
+Cutting a release is just pushing a tag:
+
+```bash
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+The [`release`](./.github/workflows/release.yml) workflow then tests, bundles
+`dist/mystra.mjs`, and publishes a GitHub Release with that file attached — which
+is the URL users reference in `myst.yml` (above).
 
 ## License
 

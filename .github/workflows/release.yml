@@ -1,0 +1,33 @@
+name: Release
+
+# MyST loads plugins from a single bundled .mjs file referenced by URL, not from
+# npm (https://mystmd.org/guide/plugins-distribute). On a `v*` tag we bundle the
+# plugin and attach it to a GitHub Release, so users can reference it via:
+#   https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+# (or pin a specific tag in place of `latest`).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # create the release + upload the asset
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run bundle
+      - name: Publish GitHub Release with the bundled plugin
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/mystra.mjs
+          generate_release_notes: true

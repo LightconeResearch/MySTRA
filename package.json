@@ -4,9 +4,8 @@
   "description": "A MyST plugin that imports/cites ASTRA analysis components into Markdown reports",
   "type": "module",
   "license": "BSD-3-Clause",
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
+  "comment": "Not an npm package — MyST loads the bundled dist/mystra.mjs by URL (see scripts/bundle.mjs). `main`/`exports` are for local programmatic use of the library exports only.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -15,17 +14,13 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "dist",
-    "src"
-  ],
   "scripts": {
     "build": "tsc",
+    "bundle": "node scripts/bundle.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "clean": "rm -rf dist"
   },
   "engines": {
     "node": ">=18"
@@ -55,6 +50,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/papaparse": "^5.3.0",
+    "esbuild": "^0.28.0",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0",
     "vitest": "4.1.6"
