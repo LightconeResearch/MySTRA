@@ -93,14 +93,21 @@ export function traceProvenance(output: Output, page: ProvFrame): TracedProvenan
   const pageWhere = page.where.join('.');
 
   const addDecision = (id: string, frame: ProvFrame) => {
-    // `from: ../x` decision aliases live in an ancestor scope — climb.
+    // `from: ../x` decision aliases live in an ancestor scope — climb. Each
+    // leading `../` is exactly one level up, so strip them one at a time and
+    // climb per `../` (a single greedy strip would collapse `../../x` to one
+    // climb and resolve it in the wrong scope). A chained alias on the resolved
+    // decision is followed by the outer loop.
     let dec: Decision | undefined = frame.analysis.decisions?.[id];
     let at = frame;
     while (dec?.from?.startsWith('../') && at.parent) {
-      const target = dec.from.replace(/^(\.\.\/)+/, '');
-      at = at.parent;
-      dec = at.analysis.decisions?.[target];
-      id = target;
+      let rel = dec.from;
+      while (rel.startsWith('../') && at.parent) {
+        rel = rel.slice(3);
+        at = at.parent;
+      }
+      id = rel;
+      dec = at.analysis.decisions?.[id];
     }
     const selectedId = at.universe.decisions?.[id] ?? dec?.default;
     const selection =

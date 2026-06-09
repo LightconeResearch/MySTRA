@@ -46,7 +46,12 @@
 
 import { basename, join, relative, sep } from 'node:path';
 import { statSync } from 'node:fs';
-import { loadASTRASource, resolveArtifact, type ArtifactResolver } from './loader.js';
+import {
+  loadASTRASource,
+  resolveArtifact,
+  universeFilePath,
+  type ArtifactResolver,
+} from './loader.js';
 import type { Analysis, Input, Insight, Output, Universe } from '@astra-spec/sdk';
 import {
   makeProseParser,
@@ -102,19 +107,35 @@ interface CachedSource {
 
 const projectCache = new Map<string, CachedSource>();
 
+/**
+ * Newest mtime across the files a parse depends on: `astra.yaml` and the active
+ * universe file. `myst start` watches `.md` files, not the spec, so without this
+ * a manual rebuild would keep serving a stale parse after either is edited —
+ * and editing a `universes/*.yaml` file changes decision selections just as much
+ * as editing `astra.yaml` does. A failed stat (file missing / transient race)
+ * contributes nothing, so a vanished file falls through to a reload rather than
+ * pinning the cache. (Result artifacts are not watched: they are many small
+ * files and a rebuild that regenerates them is the expected re-entry point.)
+ */
+function sourceMtimeMs(root: string, universe?: string): number {
+  const paths = [join(root, 'astra.yaml'), universeFilePath(root, universe)];
+  let newest = NaN;
+  for (const p of paths) {
+    if (!p) continue;
+    try {
+      const m = statSync(p).mtimeMs;
+      newest = Number.isFinite(newest) ? Math.max(newest, m) : m;
+    } catch {
+      // ignore — a missing dependency leaves `newest` as-is
+    }
+  }
+  return newest;
+}
+
 function getSource(root: string, universe?: string): Source {
   const key = `${root}::${universe ?? ''}`;
   const cached = projectCache.get(key);
-  // Freshness check keyed on `astra.yaml`'s mtime: `myst start` watches `.md`
-  // files, not the spec, so without this a manual rebuild would keep serving a
-  // stale parse after `astra.yaml` is edited. A failed stat (file missing /
-  // transient race) falls through to a reload rather than serving stale data.
-  let mtimeMs = NaN;
-  try {
-    mtimeMs = statSync(join(root, 'astra.yaml')).mtimeMs;
-  } catch {
-    mtimeMs = NaN;
-  }
+  const mtimeMs = sourceMtimeMs(root, universe);
   if (cached && Number.isFinite(mtimeMs) && mtimeMs <= cached.mtimeMs) {
     return cached.source;
   }

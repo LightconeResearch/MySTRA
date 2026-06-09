@@ -122,7 +122,7 @@ export function renderOneOutput(
   artifactId: string,
   results: ArtifactResolver,
   prose: ProseParser,
-  opts?: { resultUrl?: (absPath: string, outputId: string) => string },
+  opts?: { resultUrl?: (absPath: string) => string },
 ): any[] {
   const resultPath = results(artifactId);
   if (!resultPath) {
@@ -140,7 +140,7 @@ export function renderOneOutput(
     case 'figure': {
       const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
       const url = opts?.resultUrl
-        ? opts.resultUrl(resultPath, artifactId)
+        ? opts.resultUrl(resultPath)
         : `/static/${artifactId}.${ext}`;
       const figureLabel = output.label ?? artifactId;
       const captionChildren = output.description

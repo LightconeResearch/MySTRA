@@ -16,8 +16,8 @@
  * (MyST's asset pipeline copies them) rather than the old `/static` mount.
  *
  * The store is built once per page scope and carried on a hidden node's `data`
- * (see `astra-plugin.ts`); it is resolved, not raw YAML, so the theme never
- * touches `astra.yaml`.
+ * (see the `astra-resolved-store` transform in `index.ts`); it is resolved, not
+ * raw YAML, so the theme never touches `astra.yaml`.
  */
 
 import { existsSync, readFileSync } from 'node:fs';

@@ -108,22 +108,36 @@ function reportValidation(projectDir: string, raw: RawSpec): void {
 }
 
 /**
- * Load one universe from `universes/<name>.yaml` (the file stem is the universe
- * id, per the lightcone convention), or the first file when no name is given,
- * or a synthetic empty universe when there are none.
+ * Resolve the active universe file's absolute path: `universes/<name>.yaml` when
+ * a name is given, else the first `.ya?ml` file in `universes/` (sorted), or
+ * `undefined` when the directory has none (a synthetic empty universe is used).
+ * Shared by `loadUniverse` and the freshness check in `getSource` so both agree
+ * on which file backs the active universe.
  */
-function loadUniverse(projectDir: string, name?: string): Universe {
+export function universeFilePath(projectDir: string, name?: string): string | undefined {
   const dir = join(projectDir, 'universes');
   const file = name
     ? `${name}.yaml`
     : existsSync(dir)
       ? readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort()[0]
       : undefined;
-  if (!file || !existsSync(join(dir, file))) {
-    if (name) throw new Error(`Universe "${name}" not found in ${dir}`);
+  if (!file) return undefined;
+  const path = join(dir, file);
+  return existsSync(path) ? path : undefined;
+}
+
+/**
+ * Load one universe from `universes/<name>.yaml` (the file stem is the universe
+ * id, per the lightcone convention), or the first file when no name is given,
+ * or a synthetic empty universe when there are none.
+ */
+function loadUniverse(projectDir: string, name?: string): Universe {
+  const path = universeFilePath(projectDir, name);
+  if (!path) {
+    if (name) throw new Error(`Universe "${name}" not found in ${join(projectDir, 'universes')}`);
     return { id: 'default', decisions: {} };
   }
-  return loadYaml(join(dir, file)) as unknown as Universe;
+  return loadYaml(path) as unknown as Universe;
 }
 
 /**
