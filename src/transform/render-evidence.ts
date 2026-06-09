@@ -39,7 +39,7 @@ import {
 import { parse as parsePath } from 'node:path';
 import type { ArtifactResolver } from '../loader.js';
 import type { ProseParser } from './prose.js';
-import { parseTableData, formatValue } from './parse-table-data.js';
+import { parseTableData } from './parse-table-data.js';
 
 /**
  * Render a single evidence item as AST nodes.
@@ -77,25 +77,26 @@ function formatCiteNode(doi: string): any {
   return link(`https://doi.org/${doi}`, [text(doi)]);
 }
 
-function renderLiteratureEvidence(evidence: Evidence): any[] {
-  const nodes: any[] = [];
-  const doi = evidence.doi!;
-
-  // Citation + quote as attributed blockquote. There is no
-  // figure/table selector on Evidence in astra-spec v0.0.6 — the
-  // author cites a paper here; if they want to point at a specific
-  // figure or table, narrative prose ("see Figure 3 in [Smith
-  // (2020)](#findings.foo)") is the route.
-  if (evidence.quote) {
-    nodes.push(blockquote([
-      paragraph([text(evidence.quote.exact)]),
-    ]));
-    nodes.push(paragraph([text('— '), formatCiteNode(doi)]));
-  } else {
-    nodes.push(paragraph([formatCiteNode(doi)]));
+/**
+ * A DOI cite, optionally preceded by an attributed quote blockquote. Shared by
+ * standalone literature evidence and per-insight evidence so both render the
+ * same `> "quote"` / `— DOI` shape. There is no figure/table selector on
+ * Evidence in astra-spec v0.0.6 — the author cites a paper here; to point at a
+ * specific figure, narrative prose ("see Figure 3 in [Smith (2020)](…)") is the
+ * route.
+ */
+function renderDoiEvidence(doi: string, quote?: { exact: string }): any[] {
+  if (quote) {
+    return [
+      blockquote([paragraph([text(quote.exact)])]),
+      paragraph([text('— '), formatCiteNode(doi)]),
+    ];
   }
+  return [paragraph([formatCiteNode(doi)])];
+}
 
-  return nodes;
+function renderLiteratureEvidence(evidence: Evidence): any[] {
+  return renderDoiEvidence(evidence.doi!, evidence.quote);
 }
 
 /**
@@ -269,8 +270,7 @@ function renderTableArtifact(
 ): any[] {
   const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
   const tableLabel = output.label ?? artifactId;
-  if (ext === 'json') return renderJSONTable(resultPath, artifactId, tableLabel);
-  if (ext === 'csv') return renderCSVTable(resultPath, artifactId, tableLabel);
+  if (ext === 'json' || ext === 'csv') return renderTabularFile(resultPath, artifactId, tableLabel);
   // Output declared as a table but the produced artifact isn't
   // a known tabular extension — fall back to a labelled reference.
   return [paragraph([text('Table: '), inlineCode(artifactId)])];
@@ -286,11 +286,8 @@ function renderInlineArtifact(
   // Metric / data / report types use the file extension as a hint
   // for tabular display; otherwise emit a labelled reference and
   // (when present) the author's quote as a blockquote.
-  if (ext === 'json') {
-    return renderJSONTable(resultPath, artifactId, output.label ?? artifactId);
-  }
-  if (ext === 'csv') {
-    return renderCSVTable(resultPath, artifactId, output.label ?? artifactId);
+  if (ext === 'json' || ext === 'csv') {
+    return renderTabularFile(resultPath, artifactId, output.label ?? artifactId);
   }
 
   const nodes: any[] = [];
@@ -309,35 +306,26 @@ function renderInlineArtifact(
 }
 
 /**
- * Render a JSON result file as a table inside a collapsible details element.
- * Delegates parsing to `parseTableData`; builds MDAST from the result.
+ * Render a JSON or CSV result file as a table inside a collapsible details
+ * element. Delegates parsing to `parseTableData`; builds MDAST from the result.
+ * When the file can't be rendered the fallback depends on the extension: an
+ * unrenderable JSON shape is the likely cause for `.json` (so it warns), while
+ * a `.csv` that can't be read falls back quietly.
  */
-function renderJSONTable(
+function renderTabularFile(
   filePath: string,
   artifactId: string,
   tableLabel: string,
 ): any[] {
   const data = parseTableData(filePath);
   if (!data) {
-    console.warn(
-      `[mystra] JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
-    );
-    return [paragraph([text('Output: '), inlineCode(artifactId)])];
-  }
-  return renderTableDataAsMDAST(data, tableLabel, artifactId);
-}
-
-/**
- * Render a CSV result file as a table inside a collapsible details element.
- * Delegates parsing to `parseTableData`; builds MDAST from the result.
- */
-function renderCSVTable(
-  filePath: string,
-  artifactId: string,
-  tableLabel: string,
-): any[] {
-  const data = parseTableData(filePath);
-  if (!data) {
+    const ext = parsePath(filePath).ext.slice(1).toLowerCase();
+    if (ext === 'json') {
+      console.warn(
+        `[mystra] JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
+      );
+      return [paragraph([text('Output: '), inlineCode(artifactId)])];
+    }
     return [paragraph([text(`Could not read ${artifactId}.csv`)])];
   }
   return renderTableDataAsMDAST(data, tableLabel, artifactId);
@@ -406,16 +394,7 @@ export function renderInsightEvidence(
 
   for (const ev of insight.evidence ?? []) {
     if (ev.doi) {
-      if (ev.quote) {
-        // Quote → attribution pattern
-        nodes.push(blockquote([
-          paragraph([text(ev.quote.exact)]),
-        ]));
-        nodes.push(paragraph([text('— '), formatCiteNode(ev.doi)]));
-      } else {
-        // No quote, just cite the source
-        nodes.push(paragraph([formatCiteNode(ev.doi)]));
-      }
+      nodes.push(...renderDoiEvidence(ev.doi, ev.quote));
     } else if (ev.artifact) {
       if (ev.quote) {
         nodes.push(blockquote([paragraph([text(ev.quote.exact)])]));

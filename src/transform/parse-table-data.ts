@@ -48,7 +48,7 @@ export function parseTableData(filePath: string): TableData | null {
 
 // ── Format helper (used by both CSV and JSON parsers) ─────────────────────────
 
-export function formatValue(val: unknown): string {
+function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '—';
   if (typeof val === 'number') {
     if (Number.isNaN(val)) return 'NaN';

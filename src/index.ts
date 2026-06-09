@@ -74,7 +74,6 @@ import {
   makeTabItem,
   paragraph,
   refNode,
-  strong,
   text,
   walkNodes,
 } from './transform/ast-helpers.js';
@@ -119,16 +118,17 @@ const projectCache = new Map<string, CachedSource>();
  */
 function sourceMtimeMs(root: string, universe?: string): number {
   const paths = [join(root, 'astra.yaml'), universeFilePath(root, universe)];
-  let newest = NaN;
+  let newest = -Infinity;
   for (const p of paths) {
     if (!p) continue;
     try {
-      const m = statSync(p).mtimeMs;
-      newest = Number.isFinite(newest) ? Math.max(newest, m) : m;
+      newest = Math.max(newest, statSync(p).mtimeMs);
     } catch {
       // ignore — a missing dependency leaves `newest` as-is
     }
   }
+  // `-Infinity` (no dependency could be stat'd) is non-finite, so the caller's
+  // `Number.isFinite` guard falls through to a reload just as `NaN` would.
   return newest;
 }
 
@@ -315,18 +315,17 @@ function addClass(node: any, cls: string): void {
 }
 
 /**
- * Tag the carrier node of a rendered component (the one bearing
- * `<idPrefix>-<id>`, else the first node) with `astra-<kind>` and, when given,
+ * Tag the carrier node of a rendered component (the one bearing `<kind>-<id>`,
+ * else the first node) with `astra-<kind>` and, when given,
  * `astra-<kind>--<subtype>`. Returns the same node array for chaining.
  */
 function tagComponent(
   nodes: any[],
   kind: string,
-  idPrefix: string,
   id: string,
   subtype?: string,
 ): any[] {
-  const ident = `${idPrefix}-${id}`;
+  const ident = `${kind}-${id}`;
   const carrier = nodes.find((n) => n?.identifier === ident) ?? nodes[0];
   if (carrier) {
     addClass(carrier, `astra-${kind}`);
@@ -400,7 +399,6 @@ const decisionDirective = componentDirective('decision', (id, scope) => {
       scope.tabItem,
     ),
     'decision',
-    'decision',
     id,
   );
 });
@@ -415,7 +413,7 @@ const outputDirective = componentDirective('output', (id, scope) => {
   // recognition; provenance UI is the rich theme's job (it reads the store —
   // see astra-theme's AstraOutput ProvenanceDrawer). Plain themes show just
   // the figure.
-  return tagComponent(figure, 'output', 'output', id, output.type);
+  return tagComponent(figure, 'output', id, output.type);
 });
 
 const findingDirective = componentDirective(
@@ -434,7 +432,7 @@ const findingDirective = componentDirective(
       ];
       if (finding.notes) nodes.push(...scope.prose.blocks(finding.notes));
       if (finding.scope) nodes.push(paragraph([emphasis([text(`Scope: ${finding.scope}`)])]));
-      return tagComponent(nodes, 'finding', 'finding', id);
+      return tagComponent(nodes, 'finding', id);
     }
     return tagComponent(
       renderFinding(
@@ -445,7 +443,6 @@ const findingDirective = componentDirective(
         scope.outputsById,
         scope.prose,
       ),
-      'finding',
       'finding',
       id,
     );
@@ -717,7 +714,7 @@ const valueRole = {
       Object.assign(node.data.astra, {
         col,
         filter: filterDesc,
-        type: output?.type ?? 'table',
+        type: subtype,
         product: output?.label,
       });
       return [node];

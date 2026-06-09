@@ -80,22 +80,15 @@ export function renderDecision(
   }
   nodes.push(head);
 
-  // Build option tabs, tracking which is selected for reordering
-  const tabs: any[] = [];
-  let selectedIndex = -1;
-  const optionEntries = Object.entries(options);
-  for (let i = 0; i < optionEntries.length; i++) {
-    const [optionId, option] = optionEntries[i];
-    const isSelected = optionId === selectedOptionId;
-    if (isSelected) selectedIndex = i;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem));
-  }
-
-  // Move selected tab to first position (book-theme defaults to first tab)
-  if (selectedIndex > 0) {
-    const [selected] = tabs.splice(selectedIndex, 1);
-    tabs.unshift(selected);
-  }
+  // Build option tabs in declaration order…
+  const tabs = Object.entries(options).map(([optionId, option]) =>
+    renderOptionTab(optionId, option, optionId === selectedOptionId, priorInsights, prose, tabItem),
+  );
+  // …then move the selected tab to first position (book-theme defaults to the
+  // first tab). `indexOf` returns -1 when nothing is selected, so the splice
+  // is skipped.
+  const selectedIndex = Object.keys(options).indexOf(selectedOptionId ?? '');
+  if (selectedIndex > 0) tabs.unshift(...tabs.splice(selectedIndex, 1));
 
   // Build details/summary dropdown (neutral styling, not admonition)
   const detailsChildren: any[] = [
