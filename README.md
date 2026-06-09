@@ -1,13 +1,27 @@
+<div align="center">
+
 # MySTRA
 
-**A [MyST](https://mystmd.org/) plugin for writing publications on top of [ASTRA](https://github.com/LightconeResearch/ASTRA) analyses.**
+**Write publications on top of [ASTRA](https://github.com/LightconeResearch/ASTRA) analyses — in plain [MyST](https://mystmd.org/) Markdown.**
 
-You write a normal MyST Markdown document and pull in ASTRA components —
-decisions, outputs, findings, prior insights, data tables, live numbers — *by
-reference*. The components stay single-sourced in your `astra.yaml`; MySTRA
-reads it at build time and emits standard MyST AST. It runs on the **stock
-`myst` CLI and themes** — no custom server, no copy-pasted numbers, no figures
-that drift out of sync with the analysis.
+Pull your decisions, outputs, findings, and live numbers in *by reference*.
+One source of truth, no copy-pasted values, no figures that drift out of sync.
+
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](./LICENSE)
+[![MyST](https://img.shields.io/badge/MyST-plugin-DE5C42.svg)](https://mystmd.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![status](https://img.shields.io/badge/status-alpha-orange.svg)](#)
+
+</div>
+
+---
+
+You write a normal MyST Markdown document and reference ASTRA components —
+decisions, outputs, findings, prior insights, data tables, live numbers. The
+components stay single-sourced in your `astra.yaml`; MySTRA reads it at build
+time and emits standard MyST AST. It runs on the **stock `myst` CLI and themes**
+— no custom server, no copy-pasted numbers, no figures that drift out of sync
+with the analysis.
 
 ```markdown
 The combined LRG3+ELG1 bin reaches
@@ -22,6 +36,19 @@ consistent with the {astra:finding}`bao_detected_post_recon` detection.
 → the values are interpolated live from the result product, the finding renders
 as a card with its full record, and the figure is pulled in with its provenance.
 Edit `astra.yaml` and rerun the analysis; the report updates itself.
+
+## Contents
+
+- [Why](#why)
+- [Quick start](#quick-start)
+- [Authoring](#authoring)
+- [ASTRA project layout](#astra-project-layout)
+- [Two render modes](#two-render-modes)
+- [What MyST handles for you](#what-myst-handles-for-you)
+- [How it works (for theme authors)](#how-it-works-for-theme-authors)
+- [Project structure](#project-structure)
+- [Developing MySTRA](#developing-mystra)
+- [License](#license)
 
 ## Why
 
@@ -199,8 +226,9 @@ as hidden `cite` nodes (a `div.astra-cites` carrier) so MyST's citation
 pipeline resolves them at build time and a theme can render the formatted
 citation (author–year + bibliography entry) instead of the raw DOI.
 
-See [`SPEC.md`](./SPEC.md) for the architecture and
-[`STRATEGY-A-REFACTOR.md`](./STRATEGY-A-REFACTOR.md) for the design rationale.
+The exact shape a theme consumes is defined by
+[`src/transform/resolved-store.ts`](./src/transform/resolved-store.ts) and its
+exported `ResolvedStore` / `Serialized*` types.
 
 ## Project structure
 
@@ -213,6 +241,7 @@ src/
     ├── prose.ts              Parse component Markdown + resolve ASTRA anchors
     ├── parse-table-data.ts   CSV/JSON table parser
     ├── resolve-output.ts     Resolves `from:` output/alias chains
+    ├── provenance.ts         Traces an output's decision/input provenance frames
     ├── resolved-store.ts     Builds the resolved data store for rich themes
     ├── render-methods.ts     renderDecision (details/summary + tabbed options)
     ├── render-findings.ts    renderFinding (claim + notes + scope + evidence)
@@ -238,4 +267,4 @@ npm test         # plugin-emission + store + parser tests (vitest)
 
 ## License
 
-BSD 3-Clause
+[BSD 3-Clause](./LICENSE)
