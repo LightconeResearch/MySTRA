@@ -8,7 +8,7 @@
  * exists whether or not any evidence references the output.
  */
 
-import type { ASTRAInput, ASTRAOutput } from '../types/astra.js';
+import type { Input, Output } from '@astra-spec/sdk';
 import {
   table,
   tableRow,
@@ -16,9 +16,9 @@ import {
   text,
   strong,
 } from './ast-helpers.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ProseParser } from './prose.js';
 
-export function renderInputsTable(inputs: ASTRAInput[], prose: ProseParser): any {
+export function renderInputsTable(inputs: Input[], prose: ProseParser): any {
   // Caller filters out the empty case so the page doesn't render a
   // stray "no inputs" sentence without a section heading to anchor it.
 
@@ -68,7 +68,7 @@ export function renderInputsTable(inputs: ASTRAInput[], prose: ProseParser): any
  * still appears wherever it's structurally referenced (typically
  * under a finding); the row here is the stable anchor target.
  */
-export function renderOutputsTable(outputs: ASTRAOutput[], prose: ProseParser): any {
+export function renderOutputsTable(outputs: Output[], prose: ProseParser): any {
   const headerRow = tableRow(
     [
       tableCell([text('Output')], true),

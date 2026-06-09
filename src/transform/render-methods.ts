@@ -10,7 +10,8 @@
  * has no opinion about how decisions are organised.
  */
 
-import type { ASTRADecision, ASTRAInsight, ASTRAUniverse } from '../types/astra.js';
+import { isConditionMet } from '@astra-spec/sdk';
+import type { Decision, Insight, Universe } from '@astra-spec/sdk';
 import {
   heading,
   paragraph,
@@ -20,15 +21,14 @@ import {
   details,
   summary,
   tabSet,
-  thematicBreak,
-  crossReference,
+  refNode,
 } from './ast-helpers.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ProseParser } from './prose.js';
 
 /**
- * tabItem factory bound to the current transform pass. Created once
- * by astraToMystAST and threaded through to every renderer that
- * mints tab keys, so the counter is per-transform, not global.
+ * tabItem factory bound to the current render pass. Created once per
+ * scope (by the plugin) and threaded through to every renderer that
+ * mints tab keys, so the counter is per-pass, not global.
  */
 export type TabItemFn = (title: string, children: any[], selected?: boolean) => any;
 
@@ -45,51 +45,25 @@ export type TabItemFn = (title: string, children: any[], selected?: boolean) => 
  * land on nothing.
  */
 export function isDecisionRendered(
-  decision: ASTRADecision,
-  universe: ASTRAUniverse,
+  decision: Decision,
+  universe: Universe,
 ): boolean {
   if (decision.from) return false;
   if (!decision.options) return false;
-  if (!isConditionMet(decision.when, universe)) return false;
+  if (!isConditionMet(decision.when, universe.decisions ?? {})) return false;
   return true;
 }
 
-export function renderMethodsSections(
-  decisions: Record<string, ASTRADecision>,
-  priorInsights: Record<string, ASTRAInsight>,
-  universe: ASTRAUniverse,
-  prose: ProseParser,
-  tabItem: TabItemFn,
-  doiCacheDir: string | null,
-): any[] {
-  const nodes: any[] = [];
-  const entries = Object.entries(decisions).filter(([, d]) =>
-    isDecisionRendered(d, universe),
-  );
-
-  for (let i = 0; i < entries.length; i++) {
-    const [id, decision] = entries[i];
-    nodes.push(...renderDecision(id, decision, priorInsights, universe, prose, tabItem, doiCacheDir));
-    // Thematic break between decisions (not after the last one).
-    if (i < entries.length - 1) {
-      nodes.push(thematicBreak());
-    }
-  }
-
-  return nodes;
-}
-
-function renderDecision(
+export function renderDecision(
   id: string,
-  decision: ASTRADecision,
-  priorInsights: Record<string, ASTRAInsight>,
-  universe: ASTRAUniverse,
+  decision: Decision,
+  priorInsights: Record<string, Insight>,
+  universe: Universe,
   prose: ProseParser,
   tabItem: TabItemFn,
-  doiCacheDir: string | null,
 ): any[] {
   const options = decision.options!;
-  const selectedOptionId = universe.decisions[id] ?? decision.default;
+  const selectedOptionId = universe.decisions?.[id] ?? decision.default;
   const selectedOption = selectedOptionId ? options[selectedOptionId] : undefined;
   const selectedLabel = selectedOption?.label ?? selectedOptionId ?? '(none)';
   const decisionLabel = decision.label ?? id;
@@ -114,7 +88,7 @@ function renderDecision(
     const [optionId, option] = optionEntries[i];
     const isSelected = optionId === selectedOptionId;
     if (isSelected) selectedIndex = i;
-    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem, doiCacheDir));
+    tabs.push(renderOptionTab(optionId, option, isSelected, priorInsights, prose, tabItem));
   }
 
   // Move selected tab to first position (book-theme defaults to first tab)
@@ -157,10 +131,9 @@ function renderOptionTab(
     excluded_reason?: string;
   },
   isSelected: boolean,
-  priorInsights: Record<string, ASTRAInsight>,
+  priorInsights: Record<string, Insight>,
   prose: ProseParser,
   tabItem: TabItemFn,
-  doiCacheDir: string | null,
 ): any {
   // Tab title with selection marker
   let marker: string;
@@ -191,11 +164,11 @@ function renderOptionTab(
     );
   }
 
-  // Supporting insights — emit crossReferences to the flat
-  // prior_insight blocks rendered elsewhere on the page. The flat
-  // block is the source of truth; the option tab only points at it
-  // (no inline expansion). Broken references emit a console.warn
-  // so unresolved insight ids don't silently disappear.
+  // Supporting insights — emit store-driven `astra-ref` tokens (the same inline
+  // reference the `{astra:prior-insight}` role produces). A rich theme renders
+  // each one's card from the resolved store by id; a bare theme shows the label.
+  // Broken references emit a console.warn so unresolved insight ids don't
+  // silently disappear.
   if (option.insights && option.insights.length > 0) {
     const refs: any[] = [];
     for (const insightId of option.insights) {
@@ -207,7 +180,7 @@ function renderOptionTab(
         continue;
       }
       const linkText = insight.label ?? insight.claim ?? insightId;
-      refs.push(crossReference(`prior_insight-${insightId}`, [text(linkText)]));
+      refs.push(refNode('prior_insight', insightId, insightId, linkText));
     }
     if (refs.length > 0) {
       const count = refs.length;
@@ -222,34 +195,4 @@ function renderOptionTab(
   }
 
   return tabItem(title, children, isSelected);
-}
-
-/**
- * Check if a `when` condition is satisfied by the universe. `when` is
- * multivalued in astra-spec — multiple conditions are AND'd together.
- */
-function isConditionMet(
-  when: string[] | undefined,
-  universe: ASTRAUniverse,
-): boolean {
-  if (when === undefined) return true;
-
-  for (const cond of when) {
-    const negated = cond.startsWith('~');
-    const ref = negated ? cond.slice(1) : cond;
-    const dotIndex = ref.indexOf('.');
-    if (dotIndex === -1) continue;
-
-    const decisionId = ref.slice(0, dotIndex);
-    const optionId = ref.slice(dotIndex + 1);
-    const selected = universe.decisions[decisionId];
-
-    if (negated) {
-      if (selected === optionId) return false;
-    } else {
-      if (selected !== optionId) return false;
-    }
-  }
-
-  return true;
 }

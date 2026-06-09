@@ -17,7 +17,7 @@
  *     > "quoted text"
  */
 
-import type { ASTRAEvidence, ASTRAOutput } from '../types/astra.js';
+import type { Evidence, Output } from '@astra-spec/sdk';
 import {
   paragraph,
   text,
@@ -35,12 +35,10 @@ import {
   table,
   tableRow,
   tableCell,
-  cite,
-  citeGroup,
 } from './ast-helpers.js';
 import { parse as parsePath } from 'node:path';
-import { getCachedMetadata } from '../doi/resolver.js';
-import type { ProseParser } from './narrative-parser.js';
+import type { ArtifactResolver } from '../loader.js';
+import type { ProseParser } from './prose.js';
 import { parseTableData, formatValue } from './parse-table-data.js';
 
 /**
@@ -51,19 +49,18 @@ import { parseTableData, formatValue } from './parse-table-data.js';
  * references (artifact id not declared) emit a console.warn
  * rather than silently rendering nothing.
  *
- * `doiCacheDir` is the on-disk cache used by `formatCiteNode` for
- * hover-preview metadata. Threaded through the transform context;
- * `null` falls back to a plain DOI link.
+ * DOI evidence renders as a plain DOI link. Resolving the citation
+ * (author–year text, a reference list) is delegated to MyST natively;
+ * MySTRA no longer carries its own DOI resolver/cache.
  */
 export function renderEvidenceBlock(
-  evidence: ASTRAEvidence,
-  results: Map<string, string>,
-  outputs: Map<string, ASTRAOutput>,
+  evidence: Evidence,
+  results: ArtifactResolver,
+  outputs: Map<string, Output>,
   prose: ProseParser,
-  doiCacheDir: string | null,
 ): any[] {
   if (evidence.doi) {
-    return renderLiteratureEvidence(evidence, doiCacheDir);
+    return renderLiteratureEvidence(evidence);
   }
   if (evidence.artifact) {
     return renderArtifactEvidence(evidence, results, outputs, prose);
@@ -72,28 +69,15 @@ export function renderEvidenceBlock(
 }
 
 /**
- * Format a DOI citation as a cite node for hover previews.
- * Returns a single citeGroup node that the book-theme renders
- * with a hover tooltip showing the full citation.
- * Falls back to a plain DOI link if not resolved.
+ * Format a DOI as a plain link to `doi.org`. (Citation resolution — a
+ * reference list, author–year labels — is MyST's job once a bibliography
+ * is wired; see SPEC.md §6.)
  */
-function formatCiteNode(doi: string, doiCacheDir: string | null): any {
-  const meta = doiCacheDir ? getCachedMetadata(doi, doiCacheDir) : null;
-
-  if (meta && meta.authorShort) {
-    let authorYear = meta.authorShort;
-    if (meta.year) authorYear += ` (${meta.year})`;
-    return citeGroup([cite(meta.label, [text(authorYear)], 'narrative')], 'narrative');
-  }
-
-  // Fallback: plain DOI link
+function formatCiteNode(doi: string): any {
   return link(`https://doi.org/${doi}`, [text(doi)]);
 }
 
-function renderLiteratureEvidence(
-  evidence: ASTRAEvidence,
-  doiCacheDir: string | null,
-): any[] {
+function renderLiteratureEvidence(evidence: Evidence): any[] {
   const nodes: any[] = [];
   const doi = evidence.doi!;
 
@@ -106,18 +90,103 @@ function renderLiteratureEvidence(
     nodes.push(blockquote([
       paragraph([text(evidence.quote.exact)]),
     ]));
-    nodes.push(paragraph([text('— '), formatCiteNode(doi, doiCacheDir)]));
+    nodes.push(paragraph([text('— '), formatCiteNode(doi)]));
   } else {
-    nodes.push(paragraph([formatCiteNode(doi, doiCacheDir)]));
+    nodes.push(paragraph([formatCiteNode(doi)]));
   }
 
   return nodes;
 }
 
+/**
+ * Render a single Output as a standalone block (not as evidence under a
+ * finding). Used by the `astra:output` MyST directive: an author imports
+ * one output by id and gets the figure / table / metric rendering inline
+ * in their prose.
+ *
+ * Differences from `renderArtifactEvidence`:
+ *   - The figure container carries the `output-<id>` identifier so the
+ *     block is the cross-reference anchor (in evidence context the table
+ *     row is the carrier; in directive context the rich block is).
+ *   - The figure image URL is built via the optional `resultUrl` callback
+ *     so callers outside the content server (the plugin) can emit a real
+ *     project-relative path instead of the `/static/<basename>` mount.
+ *     Defaults to the `/static/` scheme when no callback is given.
+ *   - There is no Evidence, so metric/data/report render without a quote.
+ *
+ * A declared-but-unproduced output renders the same "Pending Output"
+ * admonition as evidence rendering.
+ */
+export function renderOneOutput(
+  output: Output,
+  artifactId: string,
+  results: ArtifactResolver,
+  prose: ProseParser,
+  opts?: { resultUrl?: (absPath: string) => string },
+): any[] {
+  const resultPath = results(artifactId);
+  if (!resultPath) {
+    return [
+      admonition('warning', [
+        admonitionTitle([text('Pending Output')]),
+        paragraph([text(`Output "${artifactId}" has not been produced yet.`)]),
+      ]),
+    ];
+  }
+
+  const identifier = `output-${artifactId}`;
+
+  switch (output.type) {
+    case 'figure': {
+      const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
+      const url = opts?.resultUrl
+        ? opts.resultUrl(resultPath)
+        : `/static/${artifactId}.${ext}`;
+      const figureLabel = output.label ?? artifactId;
+      const captionChildren = output.description
+        ? prose.inline(output.description)
+        : [text(figureLabel)];
+      return [
+        container(
+          'figure',
+          [image(url, figureLabel, '100%'), caption([paragraph(captionChildren)])],
+          identifier,
+        ),
+      ];
+    }
+    case 'table': {
+      // Standalone table output: render as a clean, numbered `container[table]`
+      // with a caption (not the collapsible `details` used in evidence context).
+      const data = parseTableData(resultPath);
+      if (data && data.headers.length > 0 && data.rows.length > 0) {
+        const tableLabel = output.label ?? artifactId;
+        const captionChildren = output.description ? prose.inline(output.description) : [text(tableLabel)];
+        return [
+          container('table', [tableNodeFromData(data), caption([paragraph(captionChildren)])], identifier),
+        ];
+      }
+      const fallback: any = paragraph([text('Table: '), inlineCode(artifactId)]);
+      fallback.identifier = identifier;
+      fallback.label = identifier;
+      return [fallback];
+    }
+    default: {
+      // metric / data / report: render inline, then tag the first node with
+      // the `output-<id>` carrier so cross-references resolve to it.
+      const nodes = renderInlineArtifact(output, {} as Evidence, artifactId, resultPath);
+      if (nodes.length > 0 && !nodes[0].identifier) {
+        nodes[0].identifier = identifier;
+        nodes[0].label = identifier;
+      }
+      return nodes;
+    }
+  }
+}
+
 function renderArtifactEvidence(
-  evidence: ASTRAEvidence,
-  results: Map<string, string>,
-  outputs: Map<string, ASTRAOutput>,
+  evidence: Evidence,
+  results: ArtifactResolver,
+  outputs: Map<string, Output>,
   prose: ProseParser,
 ): any[] {
   const nodes: any[] = [];
@@ -134,7 +203,7 @@ function renderArtifactEvidence(
     return nodes;
   }
 
-  const resultPath = results.get(artifactId);
+  const resultPath = results(artifactId);
   if (!resultPath) {
     // Output is declared but the artifact file hasn't been produced
     // yet. Render a "Pending Output" admonition so the page makes
@@ -170,7 +239,7 @@ function renderArtifactEvidence(
 }
 
 function renderFigureArtifact(
-  output: ASTRAOutput,
+  output: Output,
   artifactId: string,
   resultPath: string,
   prose: ProseParser,
@@ -194,7 +263,7 @@ function renderFigureArtifact(
 }
 
 function renderTableArtifact(
-  output: ASTRAOutput,
+  output: Output,
   artifactId: string,
   resultPath: string,
 ): any[] {
@@ -208,8 +277,8 @@ function renderTableArtifact(
 }
 
 function renderInlineArtifact(
-  output: ASTRAOutput,
-  evidence: ASTRAEvidence,
+  output: Output,
+  evidence: Evidence,
   artifactId: string,
   resultPath: string,
 ): any[] {
@@ -286,14 +355,20 @@ function renderTableDataAsMDAST(
   if (data.headers.length === 0 || data.rows.length === 0) {
     return [paragraph([text(`Empty table: ${artifactId}`)])];
   }
+  // Evidence context keeps the collapsible wrapper; standalone output tables
+  // (renderOneOutput) use `tableNodeFromData` directly for a clean render.
+  return [details([summary([text(tableLabel)]), tableNodeFromData(data)], false)];
+}
 
-  // First column in nested-object tables is the outer key — render in strong.
-  // We detect this heuristically: headers[0] === '' (parseTableData sets it).
+/**
+ * Build a plain MyST `table` node from parsed `TableData`. Nested-object
+ * tables (parseTableData sets `headers[0] === ''`) render the outer key in
+ * the first column as bold. No wrapper — callers decide whether to place it
+ * in a `details`, a `container[table]`, etc.
+ */
+export function tableNodeFromData(data: ReturnType<typeof parseTableData> & {}): any {
   const isNestedObject = data.headers[0] === '';
-  const displayHeaders = isNestedObject
-    ? ['', ...data.headers.slice(1)]
-    : data.headers;
-
+  const displayHeaders = isNestedObject ? ['', ...data.headers.slice(1)] : data.headers;
   const headerRow = tableRow(
     displayHeaders.map((c) => tableCell([text(c)], true)),
     true,
@@ -301,14 +376,11 @@ function renderTableDataAsMDAST(
   const rows = data.rows.map((row) =>
     tableRow(
       row.map((cell, i) =>
-        isNestedObject && i === 0
-          ? tableCell([strong([text(cell)])])
-          : tableCell([text(cell)]),
+        isNestedObject && i === 0 ? tableCell([strong([text(cell)])]) : tableCell([text(cell)]),
       ),
     ),
   );
-
-  return [details([summary([text(tableLabel)]), table([headerRow, ...rows])], false)];
+  return table([headerRow, ...rows]);
 }
 
 /**
@@ -318,32 +390,31 @@ function renderTableDataAsMDAST(
  * a bare citation / artifact reference, depending on populated fields.
  *
  *   > "quoted text from paper"
- *   — Author et al. (Year)        ← cite node with hover preview
+ *   — https://doi.org/…           ← plain DOI link (MyST resolves citations)
  *   > "another quote"
- *   — Author2 et al. (Year)
+ *   — https://doi.org/…
  *
- * Used by both render-findings.ts and render-prior-insights.ts;
+ * Used by render-findings.ts and the plugin's prior-insight directive;
  * each provides its own carrier heading. Cross-references from
  * option tabs / decisions / narrative point at those carrier ids,
  * not at the body returned here.
  */
 export function renderInsightEvidence(
-  insight: { evidence: ASTRAEvidence[] },
-  doiCacheDir: string | null,
+  insight: { evidence?: Evidence[] },
 ): any[] {
   const nodes: any[] = [];
 
-  for (const ev of insight.evidence) {
+  for (const ev of insight.evidence ?? []) {
     if (ev.doi) {
       if (ev.quote) {
         // Quote → attribution pattern
         nodes.push(blockquote([
           paragraph([text(ev.quote.exact)]),
         ]));
-        nodes.push(paragraph([text('— '), formatCiteNode(ev.doi, doiCacheDir)]));
+        nodes.push(paragraph([text('— '), formatCiteNode(ev.doi)]));
       } else {
         // No quote, just cite the source
-        nodes.push(paragraph([formatCiteNode(ev.doi, doiCacheDir)]));
+        nodes.push(paragraph([formatCiteNode(ev.doi)]));
       }
     } else if (ev.artifact) {
       if (ev.quote) {

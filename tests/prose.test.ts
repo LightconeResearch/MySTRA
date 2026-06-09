@@ -1,20 +1,20 @@
 /**
- * Tests for narrative-parser: Markdown → mdast and anchor → crossRef
- * resolution per the v0.0.6 narrative grammar.
+ * Tests for the prose parser: Markdown → mdast and anchor → crossRef
+ * resolution per the ASTRA anchor grammar.
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { ASTRAAnalysis } from '../src/types/astra.js';
+import type { Analysis } from '@astra-spec/sdk';
 import {
   parseProseBlocks,
   parseProseInline,
   resolveNarrativeAnchors,
   resolveAnchorPath,
-} from '../src/transform/narrative-parser.js';
+} from '../src/transform/prose.js';
 
 /** Minimal Analysis fixture with one finding, one decision, one
  *  sub-analysis — enough to exercise every resolution branch. */
-function fixtureAnalysis(): ASTRAAnalysis {
+function fixtureAnalysis(): Analysis {
   return {
     name: 'Test',
     decisions: {
@@ -246,7 +246,7 @@ describe('resolveAnchorPath', () => {
   });
 
   it('resolves #prior_insights.<id> to a prior_insight-<id> identifier', () => {
-    const aWithPrior: ASTRAAnalysis = {
+    const aWithPrior: Analysis = {
       ...a,
       prior_insights: {
         compute_scaling: {
@@ -375,25 +375,6 @@ describe('resolveAnchorPath', () => {
     ).toEqual({ url: '/preprocessing#output-features' });
   });
 
-  it('resolves #narrative.<section> to the narrative chunk identifier', () => {
-    const withNarrative: ASTRAAnalysis = {
-      ...a,
-      narrative: { findings: 'Some findings prose.', summary: 'Hi.' },
-    };
-    expect(
-      resolveAnchorPath('#narrative.findings', withNarrative, 'index'),
-    ).toEqual({ identifier: 'narrative-findings' });
-    expect(
-      resolveAnchorPath('#narrative.summary', withNarrative, 'index'),
-    ).toEqual({ identifier: 'narrative-summary' });
-  });
-
-  it('falls back when #narrative.<section> targets an empty section', () => {
-    const onlySummary: ASTRAAnalysis = { ...a, narrative: { summary: 'Hi.' } };
-    expect(
-      resolveAnchorPath('#narrative.findings', onlySummary, 'index'),
-    ).toEqual({ url: '#narrative.findings' });
-  });
 });
 
 describe('resolveNarrativeAnchors', () => {
@@ -437,7 +418,7 @@ describe('resolveNarrativeAnchors', () => {
     const resolved = parseProseBlocks('![Accuracy](#outputs.accuracy_plot)', {
       analysis: a,
       slug: 'index',
-      results: new Map([['accuracy_plot', '/tmp/accuracy_plot.PNG']]),
+      results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.PNG' : undefined),
     });
     const images = collectNodes(resolved, 'image');
     expect(images).toHaveLength(1);
@@ -451,7 +432,7 @@ describe('resolveNarrativeAnchors', () => {
       {
         analysis: a,
         slug: 'index',
-        results: new Map([['accuracy_plot', '/tmp/accuracy_plot.svg']]),
+        results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.svg' : undefined),
       },
     );
     const images = collectNodes(resolved, 'image');
@@ -465,7 +446,7 @@ describe('resolveNarrativeAnchors', () => {
     const resolved = parseProseBlocks('![Table](#outputs.results_table)', {
       analysis: a,
       slug: 'index',
-      results: new Map([['results_table', '/tmp/results_table.csv']]),
+      results: (id) => (id === 'results_table' ? '/tmp/results_table.csv' : undefined),
     });
 
     expect(collectNodes(resolved, 'image')).toHaveLength(0);

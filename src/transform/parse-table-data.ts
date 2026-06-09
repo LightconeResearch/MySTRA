@@ -4,9 +4,8 @@
  * Used by two consumers:
  *   - `render-evidence.ts`: builds MDAST table nodes for narrative
  *     evidence rendering (citations, artifact cross-references).
- *   - `server/routes/astra.ts`: populates `SerializedOutput.table_data`
- *     so the React renderer can display inline table data on the per-output
- *     spec page without constructing MDAST.
+ *   - `resolved-store.ts`: populates `SerializedOutput.table_data` so a rich
+ *     theme can display inline table data without constructing MDAST.
  *
  * Keeping the parser here rather than in each consumer prevents a second
  * CSV/JSON reader from appearing in the system (constitution constraint).

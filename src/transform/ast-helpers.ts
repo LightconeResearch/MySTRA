@@ -185,3 +185,52 @@ export function summary(children: any[]) {
 export function blockBreak(meta?: string) {
   return { type: 'blockBreak' as const, ...(meta ? { meta } : {}) };
 }
+
+// ── Generic nodes & tree utilities ──
+
+/**
+ * A hidden carrier `<div style="display:none">` — invisible on every theme, but
+ * its subtree and `data` survive into the build for a rich theme to read. Used
+ * for the resolved-store and auto-emitted insight-target carriers.
+ */
+export function hiddenDiv(cls: string, children: any[] = []) {
+  return { type: 'div' as const, class: cls, style: { display: 'none' }, children };
+}
+
+/**
+ * Depth-first visit of an mdast node (or array of nodes): call `visit` on every
+ * object node and recurse into its `children`. Non-objects are skipped.
+ */
+export function walkNodes(node: any, visit: (n: any) => void): void {
+  if (Array.isArray(node)) {
+    for (const n of node) walkNodes(n, visit);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  visit(node);
+  if (Array.isArray(node.children)) for (const c of node.children) walkNodes(c, visit);
+}
+
+// ── ASTRA store-driven reference ──
+
+/** Generic inline `span` with a class and children. */
+export function span(cls: string, children: any[]) {
+  return { type: 'span' as const, class: cls, children };
+}
+
+/**
+ * A store-driven inline ASTRA reference: a neutral `astra-ref` span whose text
+ * is the label and whose `data.astra` carries the join key (`kind`/`id`/`path`)
+ * a rich theme uses to look the element up in the resolved store carrier
+ * (`.astra-store`) and render its card — the same key→table join MyST uses for
+ * citations. On a bare theme the span degrades to the plain label text. `kind`
+ * maps to a store table: decision→decisions, output→outputs, finding→findings,
+ * prior_insight→prior_insights, analysis→subanalyses (`value` is self-describing).
+ */
+export function refNode(kind: string, id: string, path: string, label: string, subtype?: string) {
+  const mods = subtype ? [kind, subtype] : [kind];
+  const cls = ['astra-ref', ...mods.map((k) => `astra-ref--${k}`)].join(' ');
+  const node: any = span(cls, [text(label)]);
+  node.data = { astra: { kind, id, path } };
+  return node;
+}
