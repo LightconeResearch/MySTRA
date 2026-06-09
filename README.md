@@ -2,7 +2,7 @@
 
 # MySTRA
 
-**Write publications on top of [ASTRA](https://github.com/LightconeResearch/ASTRA) analyses — in plain [MyST](https://mystmd.org/) Markdown.**
+**Write publications on top of [ASTRA](https://github.com/LightconeResearch/astra-spec) analyses — in plain [MyST](https://mystmd.org/) Markdown.**
 
 Pull your decisions, outputs, findings, and live numbers in *by reference*.
 One source of truth, no copy-pasted values, no figures that drift out of sync.
