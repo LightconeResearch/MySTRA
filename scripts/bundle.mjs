@@ -19,6 +19,11 @@ await build({
   platform: 'node',
   target: 'node18',
   outfile: OUTFILE,
+  // markdown-it (via myst-parser) does `require('punycode')`, which esbuild
+  // leaves pointing at Node's deprecated builtin (DEP0040 at load time). Alias
+  // it to the maintained userland package so that copy is bundled in instead.
+  // The trailing slash forces npm-package resolution over the builtin.
+  alias: { punycode: 'punycode/' },
   // Some bundled CJS deps (e.g. `yaml`) call `require()` at runtime. esbuild's
   // ESM output stubs `require` to throw "Dynamic require not supported" unless a
   // real one is in scope, so inject Node's `createRequire`.
