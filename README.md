@@ -16,6 +16,13 @@ One source of truth, no copy-pasted values, no figures that drift out of sync.
 
 ---
 
+> [!WARNING]
+> **Early development.** MySTRA is in active, pre-1.0 development. The plugin
+> vocabulary, the resolved-store shape, and the public API may change without
+> notice between releases, and there are rough edges. Pin a specific release
+> tag in your `myst.yml` rather than tracking `latest`, and expect breaking
+> changes. Feedback and issues are very welcome.
+
 You write a normal MyST Markdown document and reference ASTRA components —
 decisions, outputs, findings, prior insights, data tables, live numbers. The
 components stay single-sourced in your `astra.yaml`; MySTRA reads it at build
