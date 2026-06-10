@@ -841,6 +841,27 @@ const storeTransform = {
     carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
 
+    // Route output artifacts through MyST's asset pipeline. The store's
+    // `resolved_path` is a project-relative path that MyST only copies (and
+    // url-rewrites) for image NODES — a JSON field is opaque to it, so a card
+    // <img> pointing at the raw path 404s. Emitting one hidden image node per
+    // image-typed result lets MyST's own transforms produce a servable URL;
+    // each node is tagged `data.astraAsset = <output id>` so the theme can
+    // join the rewritten url back onto the store entry.
+    const assetImages = Object.values(store.outputs)
+      .filter(
+        (o) => o.resolved_path && /\.(png|jpe?g|gif|webp|svg)$/i.test(o.resolved_path),
+      )
+      .map((o) => ({
+        type: 'image',
+        url: o.resolved_path,
+        alt: o.label ?? o.id,
+        data: { astraAsset: o.id },
+      }));
+    if (assetImages.length > 0) {
+      (tree.children ??= []).push(hiddenDiv('astra-assets', assetImages));
+    }
+
     // Register every insight DOI with MyST's citation pipeline. The store only
     // carries the raw DOI string; emitting a hidden `cite` node per DOI (label
     // = the DOI) lets MyST's own transforms resolve it (transformLinkedDOIs →

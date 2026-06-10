@@ -123,7 +123,7 @@ analyses:
         label: "Sub decision"
         default: alpha
         options:
-          alpha: { label: "Alpha" }
+          alpha: { label: "Alpha", insights: [prior_literature_result] }
           beta: { label: "Beta" }
       inherited_method:
         from: ../method
@@ -481,6 +481,41 @@ describe('resolved-store transform', () => {
     expect(store.findings['signal_detected']).toBeDefined();
     expect(store.prior_insights['prior_literature_result'].doi).toBe('10.1234/example.doi');
     expect(store.subanalyses['sub'].url).toBe('/sub');
+  });
+
+  it('serializes finding evidence and strips the universe clause from scope', () => {
+    const finding = runStore('index.md').findings['signal_detected'];
+    expect(finding.evidence).toEqual([
+      { artifact: 'scatter_plot', doi: undefined, quote: 'A clear peak appears.' },
+    ]);
+    // the authored scope was ONLY the universe clause → dropped entirely
+    expect(finding.scope).toBeUndefined();
+  });
+
+  it('serializes option insights on decisions that cite them', () => {
+    const sub = runStore('sub.md');
+    // beta cites nothing → omitted from the record entirely
+    expect(sub.decisions['sub_decision'].option_insights).toEqual({
+      alpha: ['prior_literature_result'],
+    });
+    // the root `method` decision cites an insight on its mcmc option
+    const root = runStore('index.md');
+    expect(root.decisions['method'].option_insights).toEqual({
+      mcmc: ['prior_literature_result'],
+    });
+  });
+
+  it('emits a hidden astra-assets carrier routing result images through the asset pipeline', () => {
+    const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
+    const tree: Node = { type: 'root', children: [] };
+    (t as any).plugin()(tree, { path: 'index.md' });
+    const assets = tree.children.find((n: any) => n.class === 'astra-assets');
+    expect(assets?.style).toEqual({ display: 'none' });
+    const img = assets!.children.find((n: any) => n.data?.astraAsset === 'scatter_plot');
+    expect(img).toMatchObject({
+      type: 'image',
+      url: 'results/baseline/scatter_plot/scatter_plot.png',
+    });
   });
 
   it('the carrier is an invisible div on book-theme', () => {

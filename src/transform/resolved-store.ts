@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type {
   Analysis,
   Decision,
+  Evidence,
   Input,
   Insight,
   Universe,
@@ -99,6 +100,21 @@ export interface SerializedDecision {
   selected?: string;
   /** All option ids → their labels. */
   options: Record<string, string | undefined>;
+  /**
+   * Prior-insight ids cited by each option (`options.<id>.insights` in
+   * astra.yaml) — the evidence backing the choice. Only present when at least
+   * one option cites an insight; the theme joins the `prior_insights` table.
+   */
+  option_insights?: Record<string, string[]>;
+}
+
+/** One serialized evidence entry (artifact-, DOI-, or quote-based). */
+export interface SerializedEvidence {
+  /** Output id of the artifact backing this evidence (joins `outputs`). */
+  artifact?: string;
+  doi?: string;
+  /** The exact-quote selector text, when present. */
+  quote?: string;
 }
 
 export interface SerializedFinding {
@@ -107,6 +123,8 @@ export interface SerializedFinding {
   claim?: string;
   notes?: string;
   scope?: string;
+  /** The finding's evidence list (artifact ids join the `outputs` table). */
+  evidence?: SerializedEvidence[];
 }
 
 export interface SerializedInsight {
@@ -216,13 +234,14 @@ export function buildResolvedStore(
       label: f.label,
       claim: f.claim,
       notes: f.notes,
-      scope: f.scope,
+      scope: stripUniverseClause(f.scope, universe.id),
+      evidence: serializeEvidence(f.evidence),
     };
   }
 
   const prior_insights: Record<string, SerializedInsight> = {};
   for (const [id, ins] of Object.entries(priorInsights)) {
-    prior_insights[id] = serializeInsight(id, ins);
+    prior_insights[id] = serializeInsight(id, ins, universe);
   }
 
   const subanalyses: Record<string, SerializedSubAnalysis> = {};
@@ -257,8 +276,10 @@ function serializeDecision(
   universe: Universe,
 ): SerializedDecision {
   const options: Record<string, string | undefined> = {};
+  const option_insights: Record<string, string[]> = {};
   for (const [optId, opt] of Object.entries(dec.options ?? {})) {
     options[optId] = opt.label;
+    if (opt.insights?.length) option_insights[optId] = [...opt.insights];
   }
   return {
     id,
@@ -266,19 +287,53 @@ function serializeDecision(
     rationale: dec.rationale,
     selected: universe.decisions?.[id] ?? dec.default,
     options,
+    option_insights: Object.keys(option_insights).length ? option_insights : undefined,
   };
 }
 
-function serializeInsight(id: string, ins: Insight): SerializedInsight {
+function serializeInsight(id: string, ins: Insight, universe: Universe): SerializedInsight {
   const evidence = ins.evidence ?? [];
   return {
     id,
     label: ins.label,
-    scope: ins.scope,
+    scope: stripUniverseClause(ins.scope, universe.id),
     claim: ins.claim,
     doi: evidence.find((e) => e.doi)?.doi,
     quote: evidence.find((e) => e.quote?.exact)?.quote?.exact,
   };
+}
+
+/** Project an evidence list down to its serializable essentials. */
+function serializeEvidence(evidence: Evidence[] | undefined): SerializedEvidence[] | undefined {
+  const out = (evidence ?? [])
+    .map((e) => ({ artifact: e.artifact, doi: e.doi, quote: e.quote?.exact }))
+    .filter((e) => e.artifact || e.doi || e.quote);
+  return out.length ? out : undefined;
+}
+
+/**
+ * Drop the active-universe clause from an authored scope string. Scopes are
+ * free text that conventionally ends in "…, <universe> universe." — reader-
+ * facing chrome should state the physical scope (tracers, recon state) without
+ * multiverse jargon, and the active universe is implicit page-wide. Returns
+ * `undefined` when nothing but the universe clause was authored.
+ */
+function stripUniverseClause(
+  scope: string | undefined,
+  universeId: string | undefined,
+): string | undefined {
+  if (!scope || !universeId) return scope || undefined;
+  const escaped = universeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clause = new RegExp(
+    `\\s*(?:[,;:—–-]|\\b(?:under|in|for)\\s+the\\b)?\\s*(?:the\\s+)?${escaped}\\s+universe\\b`,
+    'gi',
+  );
+  let out = scope.replace(clause, '');
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  out = out.replace(/^[,;:—–-]\s*/, '').replace(/\s*[,;:—–-]+\s*(\.?)$/, '$1').trim();
+  if (out === '.') out = '';
+  if (out && /[A-Za-z0-9)\]]$/.test(out) && /\.\s*$/.test(scope)) out += '.';
+  return out || undefined;
 }
 
 /**
