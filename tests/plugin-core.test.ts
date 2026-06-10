@@ -526,14 +526,17 @@ describe('resolved-store transform', () => {
     expect(carrier?.style).toEqual({ display: 'none' });
   });
 
-  it('emits a hidden astra-cites carrier with one cite node per unique insight DOI', () => {
+  it('emits a hidden astra-cites carrier with narrative + parenthetical cites per DOI', () => {
     const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
     const tree: Node = { type: 'root', children: [] };
     (t as any).plugin()(tree, { path: 'index.md' });
     const cites = tree.children.find((n: any) => n.class === 'astra-cites');
     expect(cites?.style).toEqual({ display: 'none' });
     const nodes = cites!.children[0].children;
-    expect(nodes.map((c: any) => c.label)).toEqual(['10.1234/example.doi']);
+    expect(nodes.map((c: any) => [c.label, c.kind])).toEqual([
+      ['10.1234/example.doi', 'narrative'],
+      ['10.1234/example.doi', 'parenthetical'],
+    ]);
     expect(nodes.every((c: any) => c.type === 'cite')).toBe(true);
   });
 

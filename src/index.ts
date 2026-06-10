@@ -868,6 +868,9 @@ const storeTransform = {
     // transformCitations), so `references.cite.data` carries the formatted
     // citation and the theme's hover cards render the same author–year
     // citation as main-text DOIs — with the source listed in the bibliography.
+    // BOTH kinds are registered: narrative ("Chen et al. (2024)") for card
+    // cite rows, parenthetical ("Chen et al., 2024") for the auto-citation the
+    // theme appends after inline prior-insight references in prose.
     const dois = [
       ...new Set(
         Object.values(store.prior_insights)
@@ -878,7 +881,12 @@ const storeTransform = {
     if (dois.length > 0) {
       (tree.children ??= []).push(
         hiddenDiv('astra-cites', [
-          paragraph(dois.map((d) => cite(d, [], 'narrative'))),
+          paragraph(
+            dois.flatMap((d) => [
+              cite(d, [], 'narrative'),
+              cite(d, [], 'parenthetical'),
+            ]),
+          ),
         ]),
       );
     }
