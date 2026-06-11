@@ -819,6 +819,109 @@ function pageProvFrame(scope: Scope): ProvFrame {
   return pageFrames(analyses, rootUniverse, segs);
 }
 
+/** Inline `astra-ref` kind → resolved-store table (for cross-scope merging). */
+const REF_KIND_TO_TABLE: Record<string, keyof ReturnType<typeof buildResolvedStore>> = {
+  decision: 'decisions',
+  output: 'outputs',
+  value: 'outputs',
+  finding: 'findings',
+  prior_insight: 'prior_insights',
+  analysis: 'subanalyses',
+};
+
+/** Collect every inline-ref join key (`data.astra`) in the page tree. */
+function collectInlineRefs(node: any, out: { kind: string; id: string; path: string }[]): void {
+  if (!node || typeof node !== 'object') return;
+  const astra = node.data?.astra;
+  if (astra?.kind && astra?.id && typeof astra.path === 'string') out.push(astra);
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) collectInlineRefs(child, out);
+  }
+}
+
+/**
+ * Merge the entries that the page's CROSS-SCOPE inline refs point at into the
+ * page store, keyed by their full dotted path (`reconstruction.convention`).
+ *
+ * The cite roles resolve `<sub>.<id>` paths against the project root at parse
+ * time (the label is right), but the page store only serializes the page's own
+ * scope — so the theme had nothing to join a cross-scope ref to and the hover
+ * card silently degraded to a bare token. Each referenced sub-scope's store is
+ * built once (cached) and the named entries are copied over with `id` rewritten
+ * to the path key, so downstream consumers that join by id (asset images,
+ * evidence rows) stay consistent.
+ *
+ * Secondary joins inside a merged entry are carried along under the same
+ * path-qualifying scheme when the page store lacks them: a decision's
+ * `option_insights` (the SUPPORTED BY evidence) and a finding's evidence
+ * artifacts. Ids the page already holds are left as-is — sub-scopes inherit
+ * ancestor prior_insights, so the plain id is the same insight.
+ */
+function mergeCrossScopeRefs(tree: any, store: ReturnType<typeof buildResolvedStore>): void {
+  const refs: { kind: string; id: string; path: string }[] = [];
+  collectInlineRefs(tree, refs);
+  const subStores = new Map<string, ReturnType<typeof buildResolvedStore> | null>();
+
+  const subStoreFor = (prefix: string) => {
+    if (!subStores.has(prefix)) {
+      try {
+        const refScope = resolveScope(projectRoot(), universeName(), prefix.split('.'));
+        subStores.set(
+          prefix,
+          buildResolvedStore(
+            refScope.analysis,
+            refScope.universe,
+            refScope.results,
+            refScope.slug,
+            resultUrl(refScope.root),
+            parentInputMaps(refScope),
+            refScope.priorInsights,
+            pageProvFrame(refScope),
+          ),
+        );
+      } catch {
+        subStores.set(prefix, null); // unknown scope — leave the ref bare
+      }
+    }
+    return subStores.get(prefix) ?? null;
+  };
+
+  /** Copy `sub[table][id]` to `store[table][<prefix>.<id>]` unless present. */
+  const adopt = (table: keyof ReturnType<typeof buildResolvedStore>, prefix: string, id: string): string => {
+    const qualified = `${prefix}.${id}`;
+    const target = store[table] as Record<string, any>;
+    // Sub-scopes inherit ancestor prior_insights, so the page's own entry IS
+    // the referenced insight — keep the plain id rather than duplicating it.
+    // (No other table inherits: a same-named local entry is a different one.)
+    if (table === 'prior_insights' && target[id]) return id;
+    if (!target[qualified]) {
+      const entry = (subStoreFor(prefix)?.[table] as Record<string, any> | undefined)?.[id];
+      if (!entry) return qualified;
+      target[qualified] = { ...entry, id: qualified };
+      if (table === 'decisions' && entry.option_insights) {
+        target[qualified].option_insights = Object.fromEntries(
+          Object.entries(entry.option_insights as Record<string, string[]>).map(
+            ([opt, ids]) => [opt, ids.map((ins) => adopt('prior_insights', prefix, ins))],
+          ),
+        );
+      }
+      if (table === 'findings' && Array.isArray(entry.evidence)) {
+        target[qualified].evidence = entry.evidence.map((ev: any) =>
+          ev?.artifact ? { ...ev, artifact: adopt('outputs', prefix, ev.artifact) } : ev,
+        );
+      }
+    }
+    return qualified;
+  };
+
+  for (const { kind, id, path } of refs) {
+    if (path === id || !path.endsWith(`.${id}`)) continue; // in-scope ref
+    const table = REF_KIND_TO_TABLE[kind];
+    if (!table || (store[table] as Record<string, any>)[path]) continue;
+    adopt(table, path.slice(0, -(id.length + 1)), id);
+  }
+}
+
 const storeTransform = {
   name: 'astra-resolved-store',
   doc: 'Emit the resolved ASTRA data store (keyed by id) for rich themes.',
@@ -836,6 +939,10 @@ const storeTransform = {
       scope.priorInsights,
       pageProvFrame(scope),
     );
+    // Cross-scope refs join entries from OTHER pages' scopes — fold those in
+    // (path-keyed) before the asset / DOI passes below so merged figures and
+    // citations ride the same pipelines.
+    mergeCrossScopeRefs(tree, store);
     const carrier: any = hiddenDiv('astra-store');
     carrier.identifier = 'astra-store';
     carrier.data = { astra: store };
