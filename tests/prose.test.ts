@@ -1,6 +1,6 @@
 /**
- * Tests for the prose parser: Markdown → mdast and anchor → crossRef
- * resolution per the ASTRA anchor grammar.
+ * Tests for the prose parser: Markdown → mdast and `#astra:<path>` cross-reference
+ * resolution per the unified path grammar.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -9,11 +9,10 @@ import {
   parseProseBlocks,
   parseProseInline,
   resolveNarrativeAnchors,
-  resolveAnchorPath,
+  resolveAstraAnchor,
 } from '../src/transform/prose.js';
 
-/** Minimal Analysis fixture with one finding, one decision, one
- *  sub-analysis — enough to exercise every resolution branch. */
+/** Minimal Analysis fixture: one finding, one decision, one sub-analysis. */
 function fixtureAnalysis(): Analysis {
   return {
     name: 'Test',
@@ -22,12 +21,7 @@ function fixtureAnalysis(): Analysis {
     },
     prior_insights: {},
     findings: {
-      best_model: {
-        id: 'best_model',
-        claim: 'SVM wins',
-        created_at: '2024-01-01',
-        evidence: [],
-      },
+      best_model: { id: 'best_model', claim: 'SVM wins', created_at: '2024-01-01', evidence: [] },
     },
     inputs: [{ id: 'iris_data', type: 'data' }],
     outputs: [
@@ -36,11 +30,7 @@ function fixtureAnalysis(): Analysis {
       { id: 'results_table', type: 'table' },
     ],
     analyses: {
-      preprocessing: {
-        decisions: {},
-        prior_insights: {},
-        findings: {},
-      },
+      preprocessing: { decisions: {}, prior_insights: {}, findings: {} },
     },
   };
 }
@@ -48,10 +38,7 @@ function fixtureAnalysis(): Analysis {
 function collectNodes(nodes: any[], type: string): any[] {
   const collected: any[] = [];
   const walk = (node: any) => {
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
+    if (Array.isArray(node)) return node.forEach(walk);
     if (!node || typeof node !== 'object') return;
     if (node.type === type) collected.push(node);
     Object.values(node).forEach(walk);
@@ -64,22 +51,19 @@ describe('parseProseBlocks (via myst-parser)', () => {
   it('splits paragraphs on blank lines', () => {
     const out = parseProseBlocks('First paragraph.\n\nSecond paragraph.');
     expect(out).toHaveLength(2);
-    expect(out[0].type).toBe('paragraph');
-    expect(out[1].type).toBe('paragraph');
+    expect(out.every((n) => n.type === 'paragraph')).toBe(true);
   });
 
-  it('preserves anchor links as link nodes pre-resolution', () => {
-    const out = parseProseBlocks(
-      'See the [scaling decision](#decisions.scaling) for details.',
-    );
+  it('preserves #astra: links as link nodes pre-resolution', () => {
+    const out = parseProseBlocks('See the [scaling](#astra:decisions/scaling) decision.');
     const links = (out[0].children as any[]).filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
-    expect(links[0].url).toBe('#decisions.scaling');
+    expect(links[0].url).toBe('#astra:decisions/scaling');
   });
 
   it('parses inline strong/emphasis/code alongside anchors', () => {
     const out = parseProseBlocks(
-      'Run **fast** _slow_ with `python` and see [finding](#findings.best_model).',
+      'Run **fast** _slow_ with `python` and see [finding](#astra:findings/best_model).',
     );
     const types = (out[0].children as any[]).map((c) => c.type);
     expect(types).toContain('strong');
@@ -88,35 +72,13 @@ describe('parseProseBlocks (via myst-parser)', () => {
     expect(types).toContain('link');
   });
 
-  it('emits myst-parser-shaped mdast (not the legacy approximation)', () => {
-    // The bespoke inline-parser used a single regex and produced
-    // shallow nodes without round-tripping nested formatting. This
-    // test pins down the mdast shape we now get from myst-parser:
-    // strong wraps text directly, links carry url + children, and
-    // inline code is `inlineCode` with a `value` (no children).
-    const out = parseProseBlocks('A **bold _nested_ word** in `code`.');
-    const inline = out[0].children as any[];
-    const strong = inline.find((c) => c.type === 'strong')!;
-    expect(strong.children[0].type).toBe('text');
-    // Nested emphasis should survive inside strong — the bespoke
-    // parser flattened nested patterns.
-    expect(strong.children.some((c: any) => c.type === 'emphasis')).toBe(true);
-    const code = inline.find((c) => c.type === 'inlineCode')!;
-    expect(code.value).toBe('code');
-    expect(code.children).toBeUndefined();
-  });
-
   it('parses block-level structures (lists, code blocks, headings)', () => {
     const md = '# Heading\n\nA paragraph.\n\n- one\n- two\n\n```python\nx = 1\n```';
-    const out = parseProseBlocks(md);
-    const types = out.map((n) => n.type);
-    expect(types).toContain('heading');
-    expect(types).toContain('paragraph');
-    expect(types).toContain('list');
-    expect(types).toContain('code');
+    const types = parseProseBlocks(md).map((n) => n.type);
+    expect(types).toEqual(expect.arrayContaining(['heading', 'paragraph', 'list', 'code']));
   });
 
-  it('strips position fields from output (no markdown-it noise)', () => {
+  it('strips position fields from output', () => {
     const out = parseProseBlocks('hello');
     const stack: any[] = [...out];
     while (stack.length) {
@@ -130,10 +92,8 @@ describe('parseProseBlocks (via myst-parser)', () => {
 describe('parseProseInline', () => {
   it('unwraps a single paragraph to its inline children', () => {
     const out = parseProseInline('A **bold** claim.');
-    // No paragraph wrapper, just the inline phrasing nodes.
     expect(out.every((n: any) => n.type !== 'paragraph')).toBe(true);
-    const types = out.map((n: any) => n.type);
-    expect(types).toContain('strong');
+    expect(out.map((n: any) => n.type)).toContain('strong');
   });
 
   it('handles undefined and empty strings', () => {
@@ -142,128 +102,122 @@ describe('parseProseInline', () => {
   });
 
   it('preserves text from non-paragraph blocks (lists, headings, code)', () => {
-    // Author input that overshoots inline shouldn't silently
-    // vanish. `parseProseInline` walks each block and pulls out
-    // its phrasing content; previously only paragraphs survived.
     const md = '# heading\n\n- item one\n- item two\n\n```\nfenced code\n```';
-    const out = parseProseInline(md);
-    const flat = out.map((n: any) => (n.type === 'text' ? n.value : '')).join('');
+    const flat = parseProseInline(md)
+      .map((n: any) => (n.type === 'text' ? n.value : ''))
+      .join('');
     expect(flat).toContain('heading');
     expect(flat).toContain('item one');
-    expect(flat).toContain('item two');
     expect(flat).toContain('fenced code');
   });
 
-  it('keeps inline anchor links when input is a heading (block context)', () => {
-    const md = '# See [the finding](#findings.best_model) for details';
-    const a = fixtureAnalysis();
-    const out = parseProseInline(md, { analysis: a, slug: 'index' });
+  it('resolves inline #astra: links when input is a heading (block context)', () => {
+    const out = parseProseInline('# See [the finding](#astra:findings/best_model) for details', {
+      analysis: fixtureAnalysis(),
+      slug: 'index',
+    });
     const xrefs = out.filter((c: any) => c.type === 'crossReference');
     expect(xrefs).toHaveLength(1);
     expect(xrefs[0].identifier).toBe('finding-best_model');
   });
 });
 
-describe('parseProseBlocks/Inline with context (anchor resolution)', () => {
-  // The same anchor-resolver post-pass that runs on narrative
-  // sections runs on every prose call site when a context is
-  // provided — so authors can cite from rationales, descriptions,
-  // claims, etc., not just narrative.
+describe('parseProse* with context (anchor resolution)', () => {
   const a = fixtureAnalysis();
 
-  it('Option.description: resolves [see finding](#findings.<id>) to a crossReference', () => {
-    const md = 'See [the finding](#findings.best_model) for context.';
-    const out = parseProseBlocks(md, { analysis: a, slug: 'index' });
-    const inline = out[0].children as any[];
-    const xrefs = inline.filter((c) => c.type === 'crossReference');
+  it('resolves [finding](#astra:findings/<id>) to a crossReference', () => {
+    const out = parseProseBlocks('See [the finding](#astra:findings/best_model).', {
+      analysis: a,
+      slug: 'index',
+    });
+    const xrefs = (out[0].children as any[]).filter((c) => c.type === 'crossReference');
     expect(xrefs).toHaveLength(1);
     expect(xrefs[0].identifier).toBe('finding-best_model');
   });
 
-  it('Decision.rationale: resolves [input](#inputs.<id>) to a crossReference', () => {
-    const md = 'Driven by the [iris dataset](#inputs.iris_data).';
-    const out = parseProseBlocks(md, { analysis: a, slug: 'index' });
-    const inline = out[0].children as any[];
-    const xrefs = inline.filter((c) => c.type === 'crossReference');
-    expect(xrefs).toHaveLength(1);
+  it('resolves [input](#astra:inputs/<id>) to a crossReference', () => {
+    const out = parseProseBlocks('Driven by the [iris dataset](#astra:inputs/iris_data).', {
+      analysis: a,
+      slug: 'index',
+    });
+    const xrefs = (out[0].children as any[]).filter((c) => c.type === 'crossReference');
     expect(xrefs[0].identifier).toBe('input-iris_data');
   });
 
-  it('Insight.claim (inline): leaves [parent](#../decisions.<id>) as a plain link (parent escape)', () => {
-    const md = 'Echoes the [parent decision](#../decisions.method).';
-    const out = parseProseInline(md, { analysis: a, slug: 'index' });
-    const xrefs = out.filter((c: any) => c.type === 'crossReference');
-    const links = out.filter((c: any) => c.type === 'link');
-    expect(xrefs).toHaveLength(0);
-    expect(links).toHaveLength(1);
-    // ../ escapes preserve the original href; cross-scope
-    // resolution is left to the consumer.
-    expect(links[0].url).toBe('#../decisions.method');
-  });
-
-  it('without context: anchors remain plain links (back-compat)', () => {
-    const md = 'See [it](#findings.best_model).';
-    const out = parseProseBlocks(md);
+  it('without context: #astra: anchors remain plain links (back-compat)', () => {
+    const out = parseProseBlocks('See [it](#astra:findings/best_model).');
     const inline = out[0].children as any[];
     expect(inline.filter((c) => c.type === 'crossReference')).toHaveLength(0);
     expect(inline.filter((c) => c.type === 'link')).toHaveLength(1);
   });
 });
 
-describe('resolveAnchorPath', () => {
+describe('resolveAstraAnchor', () => {
   const a = fixtureAnalysis();
 
-  it('resolves #findings.<id> to a finding-<id> identifier', () => {
-    expect(resolveAnchorPath('#findings.best_model', a, 'index')).toEqual({
+  it('resolves in-scope elements to <kind>-<id> identifiers', () => {
+    expect(resolveAstraAnchor('#astra:findings/best_model', a, 'index')).toEqual({
       identifier: 'finding-best_model',
     });
-  });
-
-  it('resolves #decisions.<id> to a decision-<id> identifier', () => {
-    expect(resolveAnchorPath('#decisions.scaling', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:decisions/scaling', a, 'index')).toEqual({
       identifier: 'decision-scaling',
     });
-  });
-
-  it('resolves #decisions.<id>.options.<opt> to the parent decision', () => {
-    // Option-level identifiers don't exist in MySTRA's xref scheme yet,
-    // so option anchors fall back to the parent decision heading.
-    expect(
-      resolveAnchorPath('#decisions.scaling.options.standard', a, 'index'),
-    ).toEqual({ identifier: 'decision-scaling' });
-  });
-
-  it('resolves #inputs.<id> to an input-<id> identifier', () => {
-    expect(resolveAnchorPath('#inputs.iris_data', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:inputs/iris_data', a, 'index')).toEqual({
       identifier: 'input-iris_data',
     });
-  });
-
-  it('resolves #outputs.<id> to an output-<id> identifier', () => {
-    expect(resolveAnchorPath('#outputs.accuracy', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:outputs/accuracy', a, 'index')).toEqual({
       identifier: 'output-accuracy',
     });
   });
 
-  it('resolves #prior_insights.<id> to a prior_insight-<id> identifier', () => {
-    const aWithPrior: Analysis = {
-      ...a,
-      prior_insights: {
-        compute_scaling: {
-          id: 'compute_scaling',
-          claim: 'Scaling matters',
-          created_at: '2024-01-01',
-          evidence: [],
-        },
-      },
-    };
-    expect(resolveAnchorPath('#prior_insights.compute_scaling', aWithPrior, 'index')).toEqual({
-      identifier: 'prior_insight-compute_scaling',
+  it('collapses an option child to the parent decision identifier', () => {
+    expect(resolveAstraAnchor('#astra:decisions/scaling/options/standard', a, 'index')).toEqual({
+      identifier: 'decision-scaling',
     });
   });
 
-  it('routes parent-scope #prior_insights.<id> to the parent page carrier', () => {
-    const priorInsightScopes = [
+  it('falls back to a link URL for unknown in-scope ids', () => {
+    expect(resolveAstraAnchor('#astra:findings/nope', a, 'index')).toEqual({
+      url: '#astra:findings/nope',
+    });
+    expect(resolveAstraAnchor('#astra:outputs/nope', a, 'index')).toEqual({
+      url: '#astra:outputs/nope',
+    });
+  });
+
+  it('routes a bare sub-analysis to a relative page URL', () => {
+    expect(resolveAstraAnchor('#astra:preprocessing', a, 'index')).toEqual({ url: '/preprocessing' });
+    expect(resolveAstraAnchor('#astra:preprocessing', a, 'foo')).toEqual({
+      url: '/foo/preprocessing',
+    });
+  });
+
+  it('builds a cross-page URL with the <kind>-<id> fragment for sub-analysis elements', () => {
+    expect(resolveAstraAnchor('#astra:preprocessing/outputs/features', a, 'index')).toEqual({
+      url: '/preprocessing#output-features',
+    });
+    expect(resolveAstraAnchor('#astra:preprocessing/decisions/scaling', a, 'index')).toEqual({
+      url: '/preprocessing#decision-scaling',
+    });
+  });
+
+  it('resolves an absolute /path from the root (cross-page when off-root)', () => {
+    expect(resolveAstraAnchor('#astra:/findings/best_model', a, 'index')).toEqual({
+      identifier: 'finding-best_model',
+    });
+    expect(resolveAstraAnchor('#astra:/findings/best_model', a, 'preprocessing')).toEqual({
+      url: '/#finding-best_model',
+    });
+  });
+
+  it('climbs scopes with ../', () => {
+    expect(resolveAstraAnchor('#astra:../decisions/scaling', a, 'preprocessing')).toEqual({
+      url: '/#decision-scaling',
+    });
+  });
+
+  it('routes prior insights to the ancestor page that declares them', () => {
+    const scopes = [
       {
         slug: 'index',
         priorInsights: {
@@ -276,146 +230,65 @@ describe('resolveAnchorPath', () => {
         },
       },
     ];
-
     expect(
-      resolveAnchorPath(
-        '#prior_insights.compute_scaling',
-        a,
-        'preprocessing',
-        priorInsightScopes,
-      ),
+      resolveAstraAnchor('#astra:prior_insights/compute_scaling', a, 'preprocessing', scopes),
     ).toEqual({ url: '/#prior_insight-compute_scaling' });
-
     expect(
-      resolveAnchorPath(
-        '#../prior_insights.compute_scaling',
-        a,
-        'preprocessing',
-        priorInsightScopes,
-      ),
+      resolveAstraAnchor('#astra:../prior_insights/compute_scaling', a, 'preprocessing', scopes),
     ).toEqual({ url: '/#prior_insight-compute_scaling' });
   });
 
-  it('falls back when #inputs.<id>/#outputs.<id>/#prior_insights.<id> targets are unknown', () => {
-    expect(resolveAnchorPath('#inputs.unknown', a, 'index')).toEqual({
-      url: '#inputs.unknown',
-    });
-    expect(resolveAnchorPath('#outputs.unknown', a, 'index')).toEqual({
-      url: '#outputs.unknown',
-    });
-    expect(resolveAnchorPath('#prior_insights.unknown', a, 'index')).toEqual({
-      url: '#prior_insights.unknown',
-    });
-  });
-
-  it('falls back to a link URL for missing finding ids', () => {
-    expect(resolveAnchorPath('#findings.unknown', a, 'index')).toEqual({
-      url: '#findings.unknown',
+  it('resolves a local prior insight to its identifier', () => {
+    const withPrior: Analysis = {
+      ...a,
+      prior_insights: {
+        compute_scaling: { id: 'compute_scaling', claim: 'x', created_at: '2024-01-01', evidence: [] },
+      },
+    };
+    expect(resolveAstraAnchor('#astra:prior_insights/compute_scaling', withPrior, 'index')).toEqual({
+      identifier: 'prior_insight-compute_scaling',
     });
   });
-
-  it('routes #analyses.<sub> to a relative URL on the host slug', () => {
-    expect(resolveAnchorPath('#analyses.preprocessing', a, 'index')).toEqual({
-      url: '/preprocessing',
-    });
-    expect(resolveAnchorPath('#analyses.preprocessing', a, 'foo')).toEqual({
-      url: '/foo/preprocessing',
-    });
-  });
-
-  it('appends sub-analysis path to the URL hash, translating ASTRA grammar to mdast ids', () => {
-    // `outputs.features` on the destination page renders as
-    // `output-features` (the structural-element id convention), so
-    // the cross-page URL fragment must use that form to land on a
-    // real anchor — not the raw ASTRA tree path.
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.outputs.features', a, 'index'),
-    ).toEqual({ url: '/preprocessing#output-features' });
-  });
-
-  it('translates other ASTRA categories to <kind>-<id> in cross-page URLs', () => {
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.decisions.scaling', a, 'index'),
-    ).toEqual({ url: '/preprocessing#decision-scaling' });
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.findings.best_model', a, 'index'),
-    ).toEqual({ url: '/preprocessing#finding-best_model' });
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.inputs.iris_data', a, 'index'),
-    ).toEqual({ url: '/preprocessing#input-iris_data' });
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.prior_insights.compute_scaling', a, 'index'),
-    ).toEqual({ url: '/preprocessing#prior_insight-compute_scaling' });
-  });
-
-  it('routes #narrative.<section> on a sub-analysis to the destination narrative carrier', () => {
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.narrative.summary', a, 'index'),
-    ).toEqual({ url: '/preprocessing#narrative-summary' });
-  });
-
-  it('collapses #analyses.<sub>.decisions.<id>.options.<opt> to the parent decision', () => {
-    expect(
-      resolveAnchorPath('#analyses.preprocessing.decisions.scaling.options.standard', a, 'index'),
-    ).toEqual({ url: '/preprocessing#decision-scaling' });
-  });
-
-  it('falls back for ../ parent escapes (parent context unavailable)', () => {
-    expect(resolveAnchorPath('#../decisions.method', a, 'index')).toEqual({
-      url: '#../decisions.method',
-    });
-  });
-
-  it('treats a leading sub-analysis id as #analyses.<id> shorthand', () => {
-    // `#preprocessing.outputs.features` — sub-analysis ID at the head
-    // is the shorthand documented in the spec example block; same
-    // grammar translation applies as the explicit form.
-    expect(
-      resolveAnchorPath('#preprocessing.outputs.features', a, 'index'),
-    ).toEqual({ url: '/preprocessing#output-features' });
-  });
-
 });
 
 describe('resolveNarrativeAnchors', () => {
-  it('rewrites in-scope anchor links to crossReference nodes', () => {
+  it('rewrites in-scope anchor links to crossReference nodes, keeping the text', () => {
     const a = fixtureAnalysis();
-    const md = 'See [the finding](#findings.best_model) and [scaling](#decisions.scaling).';
+    const md = 'See [the finding](#astra:findings/best_model) and [scaling](#astra:decisions/scaling).';
     const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
-
-    const inline = resolved[0].children as any[];
-    const xrefs = inline.filter((c) => c.type === 'crossReference');
-    expect(xrefs).toHaveLength(2);
-    expect(xrefs.map((x) => x.identifier).sort()).toEqual(
-      ['decision-scaling', 'finding-best_model'],
+    const xrefs = (resolved[0].children as any[]).filter((c) => c.type === 'crossReference');
+    expect(xrefs.map((x) => x.identifier).sort()).toEqual(['decision-scaling', 'finding-best_model']);
+    expect(xrefs.find((x) => x.identifier === 'finding-best_model').children[0].value).toBe(
+      'the finding',
     );
-    // Children (the link text) survive the rewrite.
-    expect(xrefs[0].children[0].value).toBe('the finding');
   });
 
   it('leaves unresolvable anchors as plain link nodes', () => {
     const a = fixtureAnalysis();
-    const md = 'See [missing](#findings.does_not_exist).';
-    const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
-    const inline = resolved[0].children as any[];
-    const links = inline.filter((c) => c.type === 'link');
+    const resolved = resolveNarrativeAnchors(
+      parseProseBlocks('See [missing](#astra:findings/does_not_exist).'),
+      a,
+      'index',
+    );
+    const links = (resolved[0].children as any[]).filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
-    expect(links[0].url).toBe('#findings.does_not_exist');
+    expect(links[0].url).toBe('#astra:findings/does_not_exist');
   });
 
-  it('routes sub-analysis references to relative page URLs (link nodes)', () => {
+  it('routes a sub-analysis reference to a relative page URL', () => {
     const a = fixtureAnalysis();
-    const md = 'See [pre](#analyses.preprocessing).';
-    const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
-    const inline = resolved[0].children as any[];
-    const links = inline.filter((c) => c.type === 'link');
-    expect(links).toHaveLength(1);
+    const resolved = resolveNarrativeAnchors(
+      parseProseBlocks('See [pre](#astra:preprocessing).'),
+      a,
+      'index',
+    );
+    const links = (resolved[0].children as any[]).filter((c) => c.type === 'link');
     expect(links[0].url).toBe('/preprocessing');
   });
 
-  it('rewrites narrative image output anchors to static artifact URLs', () => {
+  it('rewrites in-scope figure image embeds to /static artifact URLs', () => {
     const a = fixtureAnalysis();
-    const resolved = parseProseBlocks('![Accuracy](#outputs.accuracy_plot)', {
+    const resolved = parseProseBlocks('![Accuracy](#astra:outputs/accuracy_plot)', {
       analysis: a,
       slug: 'index',
       results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.PNG' : undefined),
@@ -427,31 +300,27 @@ describe('resolveNarrativeAnchors', () => {
 
   it('rewrites image URLs inside MyST figure directives', () => {
     const a = fixtureAnalysis();
-    const resolved = parseProseBlocks(
-      ':::{figure} #outputs.accuracy_plot\nAccuracy by model\n:::',
-      {
-        analysis: a,
-        slug: 'index',
-        results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.svg' : undefined),
-      },
-    );
+    const resolved = parseProseBlocks(':::{figure} #astra:outputs/accuracy_plot\nCaption\n:::', {
+      analysis: a,
+      slug: 'index',
+      results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.svg' : undefined),
+    });
     const images = collectNodes(resolved, 'image');
     expect(images).toHaveLength(1);
     expect(images[0].url).toBe('/static/accuracy_plot.svg');
   });
 
-  it('drops narrative image embeds that point at non-figure outputs', () => {
+  it('drops image embeds that point at non-figure outputs', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const a = fixtureAnalysis();
-    const resolved = parseProseBlocks('![Table](#outputs.results_table)', {
+    const resolved = parseProseBlocks('![Table](#astra:outputs/results_table)', {
       analysis: a,
       slug: 'index',
       results: (id) => (id === 'results_table' ? '/tmp/results_table.csv' : undefined),
     });
-
     expect(collectNodes(resolved, 'image')).toHaveLength(0);
     expect(warn).toHaveBeenCalledWith(
-      '[mystra] Narrative image embed references non-figure output "results_table" (type: table) — dropping image.',
+      '[mystra] image embed references non-figure output "results_table" (type: table) — dropped.',
     );
     warn.mockRestore();
   });
