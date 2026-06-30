@@ -451,17 +451,21 @@ describe('role {astra}', () => {
 // ── Inline role: {astra:num} ─────────────────────────────────────────────────
 
 describe('role {astra:num}', () => {
-  it('emits a numbered crossReference to the output carrier', () => {
+  // Emits a link to the output identifier (not a crossReference node): MyST's
+  // own resolver fills the "Figure N" number for link nodes, but leaves
+  // plugin-injected crossReferences unresolved.
+  it('emits a link to the output carrier identifier', () => {
     const [node] = runRole('astra:num', 'outputs/scatter_plot');
-    expect(node.type).toBe('crossReference');
-    expect(node.kind).toBe('numref');
-    expect(node.identifier).toBe('output-scatter_plot');
+    expect(node.type).toBe('link');
+    expect(node.url).toBe('#output-scatter_plot');
+    expect(node.children).toEqual([]); // empty → MyST fills "Figure N"
   });
 
   it('carries %s display text through', () => {
     const [node] = runRole('astra:num', 'see Fig. %s <outputs/scatter_plot>');
+    expect(node.type).toBe('link');
+    expect(node.url).toBe('#output-scatter_plot');
     expect(textOf([node])).toBe('see Fig. %s');
-    expect(node.identifier).toBe('output-scatter_plot');
   });
 });
 

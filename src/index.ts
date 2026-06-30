@@ -62,10 +62,10 @@ import {
   card,
   cite,
   citeGroup,
-  crossReference,
   emphasis,
   heading,
   hiddenDiv,
+  link,
   makeTabItem,
   paragraph,
   refNode,
@@ -779,7 +779,15 @@ const astraRole = {
   },
 };
 
-/** `{astra:num}` — native numbered cross-reference (e.g. "Figure 3"). */
+/**
+ * `{astra:num}` — native numbered cross-reference (e.g. "Figure 3").
+ *
+ * Emits a `link` to the target identifier (NOT a `crossReference` node): MyST's
+ * reference resolver fills the number/label for link nodes during its own
+ * pipeline, but leaves plugin-injected `crossReference` nodes unresolved
+ * (`\ref{undefined}`). The empty/`%s` link text is filled by MyST, matching how
+ * a plain `[](#output-id)` link numbers a figure.
+ */
 const astraNumRole = {
   name: 'astra:num',
   doc: 'Numbered cross-reference to a placed output (like {numref}; supports %s).',
@@ -789,9 +797,7 @@ const astraNumRole = {
     const p = parseAstraPath(path);
     const ident = pathIdentifier(p);
     if (!ident) return [text(display ?? path)];
-    const node: any = crossReference(ident, display ? [text(display)] : []);
-    node.kind = 'numref';
-    return [node];
+    return [link(`#${ident}`, display ? [text(display)] : [])];
   },
 };
 

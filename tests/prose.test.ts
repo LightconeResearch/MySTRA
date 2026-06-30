@@ -116,39 +116,39 @@ describe('parseProseInline', () => {
       analysis: fixtureAnalysis(),
       slug: 'index',
     });
-    const xrefs = out.filter((c: any) => c.type === 'crossReference');
-    expect(xrefs).toHaveLength(1);
-    expect(xrefs[0].identifier).toBe('finding-best_model');
+    const links = out.filter((c: any) => c.type === 'link');
+    expect(links).toHaveLength(1);
+    expect(links[0].url).toBe('#finding-best_model');
   });
 });
 
 describe('parseProse* with context (anchor resolution)', () => {
   const a = fixtureAnalysis();
 
-  it('resolves [finding](#astra:findings/<id>) to a crossReference', () => {
+  it('resolves [finding](#astra:findings/<id>) to a local-identifier link', () => {
     const out = parseProseBlocks('See [the finding](#astra:findings/best_model).', {
       analysis: a,
       slug: 'index',
     });
-    const xrefs = (out[0].children as any[]).filter((c) => c.type === 'crossReference');
-    expect(xrefs).toHaveLength(1);
-    expect(xrefs[0].identifier).toBe('finding-best_model');
+    const links = (out[0].children as any[]).filter((c) => c.type === 'link');
+    expect(links).toHaveLength(1);
+    expect(links[0].url).toBe('#finding-best_model'); // MyST resolves the number/label
   });
 
-  it('resolves [input](#astra:inputs/<id>) to a crossReference', () => {
+  it('resolves [input](#astra:inputs/<id>) to a local-identifier link', () => {
     const out = parseProseBlocks('Driven by the [iris dataset](#astra:inputs/iris_data).', {
       analysis: a,
       slug: 'index',
     });
-    const xrefs = (out[0].children as any[]).filter((c) => c.type === 'crossReference');
-    expect(xrefs[0].identifier).toBe('input-iris_data');
+    const links = (out[0].children as any[]).filter((c) => c.type === 'link');
+    expect(links[0].url).toBe('#input-iris_data');
   });
 
-  it('without context: #astra: anchors remain plain links (back-compat)', () => {
+  it('without context: #astra: anchors are left untouched', () => {
     const out = parseProseBlocks('See [it](#astra:findings/best_model).');
-    const inline = out[0].children as any[];
-    expect(inline.filter((c) => c.type === 'crossReference')).toHaveLength(0);
-    expect(inline.filter((c) => c.type === 'link')).toHaveLength(1);
+    const links = (out[0].children as any[]).filter((c) => c.type === 'link');
+    expect(links).toHaveLength(1);
+    expect(links[0].url).toBe('#astra:findings/best_model');
   });
 });
 
@@ -252,18 +252,16 @@ describe('resolveAstraAnchor', () => {
 });
 
 describe('resolveNarrativeAnchors', () => {
-  it('rewrites in-scope anchor links to crossReference nodes, keeping the text', () => {
+  it('rewrites in-scope anchors to local-identifier links, keeping the text', () => {
     const a = fixtureAnalysis();
     const md = 'See [the finding](#astra:findings/best_model) and [scaling](#astra:decisions/scaling).';
     const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
-    const xrefs = (resolved[0].children as any[]).filter((c) => c.type === 'crossReference');
-    expect(xrefs.map((x) => x.identifier).sort()).toEqual(['decision-scaling', 'finding-best_model']);
-    expect(xrefs.find((x) => x.identifier === 'finding-best_model').children[0].value).toBe(
-      'the finding',
-    );
+    const links = (resolved[0].children as any[]).filter((c) => c.type === 'link');
+    expect(links.map((x) => x.url).sort()).toEqual(['#decision-scaling', '#finding-best_model']);
+    expect(links.find((x) => x.url === '#finding-best_model').children[0].value).toBe('the finding');
   });
 
-  it('leaves unresolvable anchors as plain link nodes', () => {
+  it('leaves unresolvable anchors as their original #astra: link', () => {
     const a = fixtureAnalysis();
     const resolved = resolveNarrativeAnchors(
       parseProseBlocks('See [missing](#astra:findings/does_not_exist).'),

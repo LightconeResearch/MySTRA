@@ -17,7 +17,7 @@ import { mystParse } from 'myst-parser';
 import { parse as parsePath } from 'node:path';
 import type { Analysis, Insight } from '@astra-spec/sdk';
 import type { ArtifactResolver } from '../loader.js';
-import { crossReference, link } from './ast-helpers.js';
+import { link } from './ast-helpers.js';
 import { parseAstraPath, pathIdentifier } from '../path.js';
 
 // ── Parsing ───────────────────────────────────────────────────────
@@ -277,8 +277,11 @@ function rewrite(
 
   if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('#astra:')) {
     const verdict = resolveAstraAnchor(node.url, analysis, slug, priorInsightScopes);
+    // Emit a `link` to the local identifier rather than a `crossReference` node:
+    // MyST's resolver fills the number/label for links during its own pipeline
+    // but leaves plugin-injected crossReferences unresolved (`\ref{undefined}`).
     return 'identifier' in verdict
-      ? crossReference(verdict.identifier, node.children ?? [])
+      ? link(`#${verdict.identifier}`, node.children ?? [])
       : link(verdict.url, node.children ?? []);
   }
 
