@@ -70,6 +70,9 @@ import {
   paragraph,
   refNode,
   strong,
+  table,
+  tableCell,
+  tableRow,
   text,
   walkNodes,
 } from './transform/ast-helpers.js';
@@ -160,6 +163,8 @@ interface Scope {
   priorInsights: Record<string, Insight>;
   outputsById: Map<string, Output>;
   slug: string;
+  /** The scope's sub-analysis ids (`[]` at root) — the slug, pre-split. */
+  slugParts: string[];
   tabItem: ReturnType<typeof makeTabItem>;
   priorInsightScopes: PriorInsightScope[];
   analysisScopes: AnalysisScope[];
@@ -238,6 +243,7 @@ function resolveScope(
     priorInsights,
     outputsById,
     slug,
+    slugParts,
     tabItem: makeTabItem(),
     priorInsightScopes,
     analysisScopes,
@@ -459,28 +465,19 @@ function renderOneEvidence(p: AstraPath, scope: Scope): any[] {
 function renderUniverse(universeId: string | null, scope: Scope): any[] {
   const u = scope.universe;
   const selections = u.decisions ?? {};
-  const ids = Object.keys(selections);
-  const headerRow = {
-    type: 'tableRow',
-    isHeader: true,
-    children: [
-      { type: 'tableCell', header: true, children: [text('Decision')] },
-      { type: 'tableCell', header: true, children: [text('Selected')] },
-    ],
-  };
-  const rows = ids.map((decId) => {
+  const headerRow = tableRow(
+    [tableCell([text('Decision')], true), tableCell([text('Selected')], true)],
+    true,
+  );
+  const rows = Object.keys(selections).map((decId) => {
     const dec = scope.analysis.decisions?.[decId];
     const optId = selections[decId];
-    const optLabel = dec?.options?.[optId]?.label ?? optId;
-    return {
-      type: 'tableRow',
-      children: [
-        { type: 'tableCell', children: [strong([text(dec?.label ?? decId)])] },
-        { type: 'tableCell', children: [text(optLabel)] },
-      ],
-    };
+    return tableRow([
+      tableCell([strong([text(dec?.label ?? decId)])]),
+      tableCell([text(dec?.options?.[optId]?.label ?? optId)]),
+    ]);
   });
-  const node: any = { type: 'table', children: [headerRow, ...rows] };
+  const node: any = table([headerRow, ...rows]);
   node.identifier = `universe-${universeId ?? u.id}`;
   node.label = node.identifier;
   addClass(node, 'astra-universe');
@@ -498,6 +495,15 @@ function renderSubAnalysisCard(parentScope: string[], subId: string, scope: Scop
   node.label = node.identifier;
   addClass(node, 'astra-subanalysis');
   return [node];
+}
+
+/** Render one decision block (heading + tabbed options), tagged for recognition. */
+function renderDecisionBlock(id: string, decision: Decision, scope: Scope): any[] {
+  return tagComponent(
+    renderDecision(id, decision, scope.priorInsights, scope.universe, scope.prose, scope.tabItem),
+    'decision',
+    id,
+  );
 }
 
 /** Render a whole collection (a registry) for the current scope. */
@@ -529,13 +535,7 @@ function renderRegistry(collection: Collection, scope: Scope): any[] {
       const nodes: any[] = [];
       for (const [id, decision] of Object.entries(decisions)) {
         if (!isDecisionRendered(decision as Decision, scope.universe)) continue;
-        nodes.push(
-          ...tagComponent(
-            renderDecision(id, decision as Decision, scope.priorInsights, scope.universe, scope.prose, scope.tabItem),
-            'decision',
-            id,
-          ),
-        );
+        nodes.push(...renderDecisionBlock(id, decision as Decision, scope));
       }
       return nodes.length ? nodes : [errorNode('no rendered decisions in this scope')];
     }
@@ -554,7 +554,7 @@ function renderRegistry(collection: Collection, scope: Scope): any[] {
     }
     case 'analyses': {
       const subs = scope.analysis.analyses ?? {};
-      const nodes = Object.keys(subs).flatMap((id) => renderSubAnalysisCard(scope.slug === 'index' ? [] : scope.slug.split('/'), id, scope));
+      const nodes = Object.keys(subs).flatMap((id) => renderSubAnalysisCard(scope.slugParts, id, scope));
       return nodes.length ? nodes : [errorNode('no sub-analyses in this scope')];
     }
     case 'universes':
@@ -574,11 +574,7 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
           `decision "${id}" is a bare from-reference or its \`when\` is unmet under universe "${scope.universe.id}"`,
         );
       }
-      return tagComponent(
-        renderDecision(id, decision, scope.priorInsights, scope.universe, scope.prose, scope.tabItem),
-        'decision',
-        id,
-      );
+      return renderDecisionBlock(id, decision, scope);
     }
     case 'outputs': {
       const output = scope.outputsById.get(id);
@@ -599,11 +595,10 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
     case 'inputs':
       return renderOneInput(id, scope);
     case 'analyses':
-      return renderSubAnalysisCard(scope.slug === 'index' ? [] : scope.slug.split('/'), id, scope);
-    case 'universes': {
-      const sub = resolveScope(scope.root, id, []);
-      return renderUniverse(id, sub);
-    }
+      return renderSubAnalysisCard(scope.slugParts, id, scope);
+    case 'universes':
+      // The directive already resolved this scope under universe `id`.
+      return renderUniverse(id, scope);
     default:
       return [errorNode(`astra: cannot render "${p.raw}"`)];
   }
@@ -646,9 +641,12 @@ const astraDirective = {
     // A bare sub-analysis resolves the *parent* scope and looks the sub up there.
     const isBareSub = !p.collection;
     const analysisPath = isBareSub ? p.scope.slice(0, -1) : p.scope;
+    // `universes/<id>` resolves under that universe; an explicit :universe: wins.
+    const universe =
+      options.universe ?? (p.collection === 'universes' ? p.id ?? undefined : undefined) ?? universeName();
 
     try {
-      const scope = resolveScope(projectRoot(), options.universe ?? universeName(), analysisPath);
+      const scope = resolveScope(projectRoot(), universe, analysisPath);
       let nodes: any[];
       if (isBareSub) {
         nodes = renderSubAnalysisCard(analysisPath, p.scope[p.scope.length - 1], scope);
@@ -727,12 +725,16 @@ function resolveInlineRef(
     };
   }
 
-  // A bare sub-analysis reference.
+  // A bare sub-analysis reference. The caller resolved scope to `p.scope`, so
+  // `scope.analysis` is the sub-analysis itself — no need to re-resolve.
   if (!p.collection) {
     const subId = p.scope[p.scope.length - 1];
-    const parent = resolveScope(scope.root, undefined, p.scope.slice(0, -1));
-    const sub = parent.analysis.analyses?.[subId];
-    return { kind: 'analysis', id: subId, path: dottedKey(p.scope.slice(0, -1), subId), label: display ?? sub?.name ?? humanize(subId) };
+    return {
+      kind: 'analysis',
+      id: subId,
+      path: dottedKey(p.scope.slice(0, -1), subId),
+      label: display ?? scope.analysis.name ?? humanize(subId),
+    };
   }
 
   const id = p.id!;
@@ -1001,7 +1003,7 @@ function parentInputMaps(scope: Scope): Map<string, Input>[] {
  */
 function pageProvFrame(scope: Scope): ProvFrame {
   const rootUniverse = getSource(scope.root, universeName()).universe;
-  const segs = scope.slug === 'index' ? [] : scope.slug.split('/');
+  const segs = scope.slugParts;
   const analyses = [...scope.analysisScopes.map((s) => s.analysis), scope.analysis];
   return pageFrames(analyses, rootUniverse, segs);
 }

@@ -128,17 +128,15 @@ export function parseAstraPath(raw: string): AstraPath {
     const col = canonicalCollection(seg);
 
     if (col === 'analyses') {
-      // `analyses` as the final segment is the sub-analyses registry.
-      if (i === segs.length - 1) {
-        collection = 'analyses';
-        break;
+      // `analyses/<sub>` is a scope step (the sub becomes the target only when
+      // it's the final segment); a trailing bare `analyses` is the registry.
+      if (i + 1 < segs.length) {
+        scope.push(segs[i + 1]);
+        i += 2;
+        continue;
       }
-      // `analyses/<sub>` as the final pair targets that sub-analysis itself;
-      // otherwise it's a scope step and parsing continues inside the sub.
-      const sub = segs[i + 1];
-      scope.push(sub);
-      i += 2;
-      continue;
+      collection = 'analyses';
+      break;
     }
 
     if (col) {
