@@ -1121,8 +1121,10 @@ const storeTransform = {
       pageProvFrame(scope),
     );
     mergeCrossScopeRefs(tree, store);
+    // The carrier is selected by its `.astra-store` class, not by identifier;
+    // a fixed identifier collides across pages ("Duplicate identifier in
+    // project"), so it carries none.
     const carrier: any = hiddenDiv('astra-store');
-    carrier.identifier = 'astra-store';
     carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
 
