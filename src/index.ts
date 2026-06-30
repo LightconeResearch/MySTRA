@@ -13,7 +13,7 @@
  *   Inline reference (role):
  *     {astra}`outputs/hubble_diagram`              link + hover card
  *     {astra}`our method <decisions/algorithm>`    custom display text
- *     {astra:num}`outputs/hubble_diagram`          numbered ("Figure 3")
+ *     {astra:numref}`outputs/hubble_diagram`          numbered ("Figure 3")
  *     {astra:value}`outputs/bao_table col=DV tracer=lrg3 ±`   live number
  *     {astra:cite}`prior_insights/recon`           parenthetical citation
  *     {astra:cite:t}`prior_insights/recon`         textual citation
@@ -685,7 +685,7 @@ function applyBlockOptions(nodes: any[], p: AstraPath, options: DirectiveOptions
 //
 // `{astra}` renders a neutral store-driven `astra-ref` span (best label as text
 // + a `data.astra` join key). A rich theme joins the key to the resolved store
-// and renders a hover card; a bare theme shows the plain label. `{astra:num}`
+// and renders a hover card; a bare theme shows the plain label. `{astra:numref}`
 // emits a native numbered crossReference; `{astra:cite[:t]}` emit MyST citations.
 
 type RefKind =
@@ -780,7 +780,7 @@ const astraRole = {
 };
 
 /**
- * `{astra:num}` — native numbered cross-reference (e.g. "Figure 3").
+ * `{astra:numref}` — native numbered cross-reference (e.g. "Figure 3").
  *
  * Emits a `link` to the target identifier (NOT a `crossReference` node): MyST's
  * reference resolver fills the number/label for link nodes during its own
@@ -788,8 +788,8 @@ const astraRole = {
  * (`\ref{undefined}`). The empty/`%s` link text is filled by MyST, matching how
  * a plain `[](#output-id)` link numbers a figure.
  */
-const astraNumRole = {
-  name: 'astra:num',
+const astraNumrefRole = {
+  name: 'astra:numref',
   doc: 'Numbered cross-reference to a placed output (like {numref}; supports %s).',
   body: { type: String, required: true, doc: 'A path, optionally `text with %s <path>`.' },
   run(data: any): any[] {
@@ -1164,7 +1164,7 @@ const plugin = {
   directives: [astraDirective],
   roles: [
     astraRole,
-    astraNumRole,
+    astraNumrefRole,
     citeRole('astra:cite', 'parenthetical'),
     citeRole('astra:cite:t', 'narrative'),
     valueRole,

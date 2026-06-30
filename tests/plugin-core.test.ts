@@ -3,7 +3,7 @@
  *
  * Builds a tiny but complete ASTRA project in a temp dir (its own astra.yaml,
  * universe, and result artifacts), then drives the plugin's single `{astra}`
- * directive, the inline roles ({astra}, {astra:num}, {astra:cite[:t]},
+ * directive, the inline roles ({astra}, {astra:numref}, {astra:cite[:t]},
  * {astra:value}), and the transforms against it, asserting the emitted mdast.
  *
  * Exercises the unified path grammar: elements, children (options / evidence),
@@ -448,21 +448,21 @@ describe('role {astra}', () => {
   });
 });
 
-// ── Inline role: {astra:num} ─────────────────────────────────────────────────
+// ── Inline role: {astra:numref} ─────────────────────────────────────────────────
 
-describe('role {astra:num}', () => {
+describe('role {astra:numref}', () => {
   // Emits a link to the output identifier (not a crossReference node): MyST's
   // own resolver fills the "Figure N" number for link nodes, but leaves
   // plugin-injected crossReferences unresolved.
   it('emits a link to the output carrier identifier', () => {
-    const [node] = runRole('astra:num', 'outputs/scatter_plot');
+    const [node] = runRole('astra:numref', 'outputs/scatter_plot');
     expect(node.type).toBe('link');
     expect(node.url).toBe('#output-scatter_plot');
     expect(node.children).toEqual([]); // empty → MyST fills "Figure N"
   });
 
   it('carries %s display text through', () => {
-    const [node] = runRole('astra:num', 'see Fig. %s <outputs/scatter_plot>');
+    const [node] = runRole('astra:numref', 'see Fig. %s <outputs/scatter_plot>');
     expect(node.type).toBe('link');
     expect(node.url).toBe('#output-scatter_plot');
     expect(textOf([node])).toBe('see Fig. %s');

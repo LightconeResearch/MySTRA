@@ -71,7 +71,7 @@ role and a directive. Everything else on this page is detail.
    anything ASTRA-specific.
 5. **Variants follow MyST's colon convention.** Just as MyST has `{cite:p}` and
    `{cite:t}`, the small number of specialised behaviours are colon-suffixed:
-   `{astra:num}`, `{astra:value}`, `{astra:cite}`. Nothing ad-hoc.
+   `{astra:numref}`, `{astra:value}`, `{astra:cite}`. Nothing ad-hoc.
 
 ---
 
@@ -210,17 +210,17 @@ are colon-suffixed. Each takes the same path grammar.
 | Role | Purpose | Example | Renders |
 |------|---------|---------|---------|
 | `{astra}` | smart linked reference (default per kind) | `` {astra}`outputs/hubble_diagram` `` | "Hubble diagram" (link) |
-| `{astra:num}` | numbered reference (like `{numref}`) | `` {astra:num}`outputs/hubble_diagram` `` | "Figure 3" |
+| `{astra:numref}` | numbered reference (like `{numref}`) | `` {astra:numref}`outputs/hubble_diagram` `` | "Figure 3" |
 | `{astra:value}` | extract a live value (see §6) | `` {astra:value}`outputs/h0` `` | "67.4" |
 | `{astra:cite}` | bibliographic citation, parenthetical | `` {astra:cite}`prior_insights/recon_sharpens_bao` `` | "(Chen et al., 2024)" |
 | `{astra:cite:t}` | bibliographic citation, textual | `` {astra:cite:t}`prior_insights/recon_sharpens_bao` `` | "Chen et al. (2024)" |
 
-`{astra:num}` supports the `%s` number placeholder and the `{label}` placeholder
+`{astra:numref}` supports the `%s` number placeholder and the `{label}` placeholder
 in custom text, just like `{numref}`:
 
 ```markdown
-{astra:num}`see Fig. %s <outputs/hubble_diagram>`     → "see Fig. 3"
-{astra:num}`the {label} (Fig. %s) <outputs/hubble_diagram>`
+{astra:numref}`see Fig. %s <outputs/hubble_diagram>`     → "see Fig. 3"
+{astra:numref}`the {label} (Fig. %s) <outputs/hubble_diagram>`
 ```
 
 ---
@@ -334,7 +334,7 @@ inline reference fills in) and the default *block presentation*.
 | Kind | Inline default (`{astra}`) | Block default (`:::{astra}`) |
 |------|----------------------------|------------------------------|
 | `inputs/<id>` | input label | a row/card describing the source |
-| `outputs/<id>` | output label; `{astra:num}` → "Figure/Table N" | the figure / table / metric, with caption + provenance |
+| `outputs/<id>` | output label; `{astra:numref}` → "Figure/Table N" | the figure / table / metric, with caption + provenance |
 | `decisions/<id>` | decision label | its options (tabs by default) + rationale |
 | `decisions/<id>/options/<id>` | option label | one option (description, support) |
 | `findings/<id>` | finding label/claim | claim + scope + notes + evidence blocks |
@@ -345,7 +345,7 @@ inline reference fills in) and the default *block presentation*.
 
 Auto-label resolution always falls back gracefully: explicit `label` →
 humanised id. Inline references to outputs participate in MyST numbering, so
-`{astra:num}` yields stable "Figure 3" / "Table 2" style text.
+`{astra:numref}` yields stable "Figure 3" / "Table 2" style text.
 
 ---
 
@@ -449,7 +449,7 @@ central one is {astra}`decisions/algorithm`; we adopt
 
 ## Results
 
-The headline result is the {astra:num}`outputs/hubble_diagram`:
+The headline result is the {astra:numref}`outputs/hubble_diagram`:
 
 :::{astra} outputs/hubble_diagram
 :label: fig-hubble
@@ -487,7 +487,7 @@ PATHS  (mirror your astra.yaml; '/', '..', leading '/' as in file paths)
 INLINE  (roles)
   {astra}`PATH`                               smart linked reference
   {astra}`text <PATH>`                        custom display text
-  {astra:num}`PATH`                           "Figure 3" (supports %s, {label})
+  {astra:numref}`PATH`                           "Figure 3" (supports %s, {label})
   {astra:value}`PATH col=C key=v ± sig=3`     live value from results
   {astra:cite}`PATH`   {astra:cite:t}`PATH`   citation (paren / textual)
   [](#astra:PATH)   @astra:PATH               native link / shorthand forms
