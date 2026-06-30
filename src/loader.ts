@@ -13,9 +13,6 @@ import {
   loadYaml,
   resolveAnalysisTree,
   validateAnalysis,
-  validateNarrativeAnchors,
-  checkNarrativeCoverage,
-  validateNarrativeSections,
   validateAnalysisData,
 } from '@astra-spec/sdk';
 import type { Analysis, Universe } from '@astra-spec/sdk';
@@ -50,12 +47,11 @@ export function loadASTRASource(projectDir: string, universeName?: string): ASTR
  * they flag through the `[mystra]` warning channel — never by throwing.
  *
  * Policy: validation here is purely *advisory*. A malformed spec (a dangling
- * `from:`, an unknown decision in a `when:`, a narrative anchor pointing at a
- * non-existent element) should be reported loudly, but rendering must still
- * proceed on whatever the resolver can make of the tree — a missing field is
- * far better diagnosed by a clear warning than by an opaque late crash. So both
- * `SemanticError`s and `NarrativeWarning`s are emitted as warnings, and *no*
- * validator outcome aborts the load.
+ * `from:`, an unknown decision in a `when:`) should be reported loudly, but
+ * rendering must still proceed on whatever the resolver can make of the tree — a
+ * missing field is far better diagnosed by a clear warning than by an opaque
+ * late crash. So `SemanticError`s are emitted as warnings, and *no* validator
+ * outcome aborts the load.
  *
  * @astra-spec/sdk is still v0.0.x, so the validators themselves are not yet
  * load-bearing: a validator that throws on some shape it didn't anticipate must
@@ -65,14 +61,12 @@ export function loadASTRASource(projectDir: string, universeName?: string): ASTR
 function reportValidation(projectDir: string, raw: RawSpec): void {
   const opts = { basePath: projectDir };
 
-  // Each entry is a validator (semantic or narrative). Their results all expose
-  // `.code`, `.message`, `.path?` and a `toString()`, so one loop handles both
-  // `SemanticError[]` and `NarrativeWarning[]`.
+  // Each entry is a validator; results expose `.code`, `.message`, `.path?` and a
+  // `toString()`, so one loop handles them. (The narrative validators were
+  // dropped in @astra-spec/sdk 0.0.5 alongside the removal of the narrative
+  // section from ASTRA.)
   const checks: Array<[name: string, run: () => Array<{ toString(): string }>]> = [
     ['validateAnalysis', () => validateAnalysis(raw, opts)],
-    ['validateNarrativeAnchors', () => validateNarrativeAnchors(raw, opts)],
-    ['checkNarrativeCoverage', () => checkNarrativeCoverage(raw, opts)],
-    ['validateNarrativeSections', () => validateNarrativeSections(raw, opts)],
   ];
 
   for (const [name, run] of checks) {
