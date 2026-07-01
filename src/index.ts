@@ -1121,10 +1121,14 @@ const storeTransform = {
       pageProvFrame(scope),
     );
     mergeCrossScopeRefs(tree, store);
-    // The carrier is selected by its `.astra-store` class, not by identifier;
-    // a fixed identifier collides across pages ("Duplicate identifier in
-    // project"), so it carries none.
+    // The rich theme locates this carrier by its `astra-store` identifier (a
+    // provider reads its `data.astra` and feeds every inline `.astra-ref` token
+    // for the hover-card join), so the identifier is load-bearing — do NOT drop
+    // it. It is the same on every page, which makes MyST log an advisory
+    // "Duplicate identifier in project" warning; that is benign (each page keeps
+    // its own carrier) and must not be traded away for the hover feature.
     const carrier: any = hiddenDiv('astra-store');
+    carrier.identifier = 'astra-store';
     carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
 
