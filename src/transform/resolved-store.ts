@@ -384,9 +384,10 @@ function serializeInput(inp: Input, parentInputs: Map<string, Input>[]): Seriali
 /**
  * Read and parse a metric output's result file (`.json` only). Accepts a bare
  * scalar, a `[value, uncertainty]` tuple, or an object with at least `value`;
- * anything else (or a read error) returns undefined.
+ * anything else (or a read error) returns undefined. Shared with the
+ * `{astra:value}` role, which interpolates metrics directly.
  */
-function readMetric(absPath: string): SerializedMetric | undefined {
+export function readMetric(absPath: string): SerializedMetric | undefined {
   if (!absPath.toLowerCase().endsWith('.json')) return undefined;
   if (!existsSync(absPath)) return undefined;
   try {

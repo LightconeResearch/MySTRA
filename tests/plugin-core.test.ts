@@ -552,6 +552,11 @@ describe('role {astra:value}', () => {
     expect(textOf(runRole('astra:value', 'decisions.method'))).toBe('Grid search');
   });
 
+  it('interpolates a metric output directly — no col= needed', () => {
+    expect(textOf(runRole('astra:value', 'outputs.summary_metric'))).toBe('1.5');
+    expect(textOf(runRole('astra:value', 'outputs.summary_metric pm'))).toBe('1.5 ± 0.3');
+  });
+
   it('surfaces clear errors for a missing column / non-matching row', () => {
     expect(runRole('astra:value', 'outputs.measurements tracer=lrg col=nope')[0].type).toBe('inlineCode');
     expect(runRole('astra:value', 'outputs.measurements tracer=ghost col=value')[0].type).toBe('inlineCode');

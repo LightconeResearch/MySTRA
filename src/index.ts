@@ -81,7 +81,7 @@ import { renderOneOutput, renderInsightEvidence } from './transform/render-evide
 import { renderInputsTable, renderOutputsTable } from './transform/render-data-sources.js';
 import { parseTableData } from './transform/parse-table-data.js';
 import { resolveOutputs } from './transform/resolve-output.js';
-import { buildResolvedStore } from './transform/resolved-store.js';
+import { buildResolvedStore, readMetric } from './transform/resolved-store.js';
 import { pageFrames, narrow, type ProvFrame } from './transform/provenance.js';
 import {
   parseAstraPath,
@@ -822,6 +822,7 @@ function valueError(msg: string): any {
  *
  *   - `<path>`     a table/metric output (`outputs.bao_table`, scoped allowed),
  *                  or a decision (`decisions.algorithm` → its selected option).
+ *                  A metric interpolates its scalar directly (no `col=`).
  *   - `col=`       the column to read (table outputs).
  *   - `<key>=<val>`row filters, e.g. `tracer=lrg3 recon=Post`.
  *   - `±` / `pm`   also render `± <col>_std` when that column exists.
@@ -876,6 +877,24 @@ const valueRole = {
         reportWarn(vfile, `astra:value: no result file for "${pathStr}" (output not produced yet)`, data?.node);
         return [valueError(`no result file for "${pathStr}"`)];
       }
+      const sig = typeof opts['sig'] === 'string' ? parseInt(opts['sig'] as string, 10) : 4;
+      const output = scope.outputsById.get(id);
+
+      // A metric output interpolates its scalar directly — no col= needed.
+      // A metric whose artifact isn't a readable JSON scalar falls through to
+      // the tabular path below.
+      if (output?.type === 'metric') {
+        const metric = readMetric(abs);
+        if (metric?.value !== undefined) {
+          let out = fmtNum(String(metric.value), sig);
+          const unc = metric.uncertainty ?? metric.error;
+          if (opts['pm'] && unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
+          const node = refNode('value', id, dottedKey(p.scope, id), out, 'metric');
+          Object.assign(node.data.astra, { type: 'metric', product: output.label });
+          return [node];
+        }
+      }
+
       const tbl = parseTableData(abs);
       if (!tbl) return fail(`"${id}" is not tabular`);
       const col = typeof opts['col'] === 'string' ? (opts['col'] as string) : null;
@@ -895,7 +914,6 @@ const valueRole = {
         const desc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ') || '(no filter)';
         return fail(`no row [${desc}] in "${id}"`);
       }
-      const sig = typeof opts['sig'] === 'string' ? parseInt(opts['sig'] as string, 10) : 4;
       let out = fmtNum(row[ci], sig);
       const errCol =
         typeof opts['err'] === 'string' ? (opts['err'] as string) : opts['pm'] ? `${col}_std` : null;
@@ -905,7 +923,6 @@ const valueRole = {
           out += ` ± ${fmtNum(row[ei], 2)}`;
         }
       }
-      const output = scope.outputsById.get(id);
       const subtype = output?.type ?? 'table';
       const filterDesc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ');
       const node = refNode('value', id, dottedKey(p.scope, id), out, subtype);
