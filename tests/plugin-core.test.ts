@@ -11,7 +11,7 @@
  * the resolved store, the transitive provenance tracer, and the cache.
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -84,6 +84,12 @@ outputs:
   - id: aliased_plot
     type: figure
     from: sub.sub_plot
+  - id: unproduced_metric
+    type: metric
+    label: "Unproduced metric"
+    description: "Declared but not yet materialised."
+    recipe:
+      command: "python later.py {output}"
 findings:
   signal_detected:
     label: "Signal detected"
@@ -447,6 +453,16 @@ describe('role {astra}', () => {
       path: 'sub.sub_table',
     });
   });
+
+  it('an unresolvable ref falls back with a collection-elided key, marked unresolved', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const [token] = runRole('astra', 'ghost.outputs.xi');
+    // Same key format as resolved refs (no collection segment), and flagged so
+    // the store transform skips the cross-scope merge for it.
+    expect(token.data?.astra).toMatchObject({ id: 'xi', path: 'ghost.xi', unresolved: true });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });
 
 // ── Inline role: {astra:ref} (alias {astra:numref}) ─────────────────────────
@@ -529,6 +545,17 @@ describe('role {astra:value}', () => {
   it('surfaces clear errors for a missing column / non-matching row', () => {
     expect(runRole('astra:value', 'outputs.measurements tracer=lrg col=nope')[0].type).toBe('inlineCode');
     expect(runRole('astra:value', 'outputs.measurements tracer=ghost col=value')[0].type).toBe('inlineCode');
+  });
+
+  it('treats an unproduced result as a warning, not an error (pending state)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const [token] = runRole('astra:value', 'outputs.unproduced_metric col=x');
+    expect(token.type).toBe('inlineCode');
+    expect(warn).toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    warn.mockRestore();
+    error.mockRestore();
   });
 });
 

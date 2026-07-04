@@ -6,10 +6,10 @@
  *
  * No implicit relational inference. Earlier versions emitted
  * crossReferences to "tag-overlapping" decisions — same shape as
- * the deleted TAG_TO_SECTION ontology, just inverted. The author
- * narrates relations explicitly through the v0.0.6 anchor grammar
- * (a methods narrative, a finding-claim link, an option
- * description); the renderer doesn't synthesise them.
+ * the deleted TAG_TO_SECTION ontology, just inverted. Relations
+ * between elements are narrated in the report, where the author
+ * references both sides explicitly; the renderer doesn't
+ * synthesise them.
  */
 
 import type { Insight, Output } from '@astra-spec/sdk';
@@ -35,8 +35,8 @@ export function renderFinding(
   const identifier = `finding-${findingId}`;
 
   // Finding heading: claim parsed as inline Markdown so emphasis and
-  // code spans render, and any anchor links resolve. Numeric prefix
-  // stays as plain text. Tags survive on the mdast `data` slot —
+  // code spans render. Numeric prefix stays as plain text.
+  // Tags survive on the mdast `data` slot —
   // consumers that want grouping (paper view, dashboard) read them
   // there; MySTRA imposes no grouping of its own.
   const head: any = heading(

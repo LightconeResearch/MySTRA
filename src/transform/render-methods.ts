@@ -100,9 +100,7 @@ export function renderDecision(
   ];
 
   if (decision.rationale) {
-    // Rationale parses as full Markdown with anchor resolution —
-    // narrative-grammar links inside rationales resolve to
-    // crossReferences against the host analysis.
+    // Rationale parses as full MyST Markdown.
     detailsChildren.push(...prose.blocks(decision.rationale));
   }
 
@@ -142,12 +140,12 @@ function renderOptionTab(
 
   const children: any[] = [];
 
-  // Description as full Markdown with anchor resolution.
+  // Description as full MyST Markdown.
   if (option.description) {
     children.push(...prose.blocks(option.description));
   }
 
-  // Excluded reason: parsed as author prose with anchor resolution.
+  // Excluded reason: parsed as author prose.
   // The "Excluded:" prefix is dropped — the boolean `excluded`
   // field already carries that semantics; the prose just explains
   // why. Inline-only because we want the reason to read as a

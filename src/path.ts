@@ -64,8 +64,6 @@ function canonicalCollection(seg: string): Collection | null {
 }
 
 export interface AstraPath {
-  /** The trimmed source string (display text already stripped). */
-  raw: string;
   /** Sub-analysis ids walked into (the analysis path), innermost last. */
   scope: string[];
   /** The target collection, or `null` when the target is a bare sub-analysis. */
@@ -102,8 +100,8 @@ export function splitDisplay(body: string): { display: string | null; path: stri
  * resolve {@link AstraPath} against a loaded analysis and report missing ids.
  */
 export function parseAstraPath(raw: string): AstraPath {
-  const trimmed = (raw ?? '').trim();
-  const segs = trimmed
+  const segs = (raw ?? '')
+    .trim()
     .replace(/^\//, '')
     .split('.')
     .map((s) => s.trim())
@@ -151,7 +149,7 @@ export function parseAstraPath(raw: string): AstraPath {
     i++;
   }
 
-  return { raw: trimmed, scope, collection, id, child };
+  return { scope, collection, id, child };
 }
 
 /**

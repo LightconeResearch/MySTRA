@@ -46,12 +46,8 @@ import {
 } from './loader.js';
 import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
 import { fileError, fileWarn } from 'myst-common';
-import { makeProseParser } from './transform/prose.js';
-import type {
-  AnalysisScope,
-  PriorInsightScope,
-  ProseParser,
-} from './transform/prose.js';
+import { proseParser } from './transform/prose.js';
+import type { ProseParser } from './transform/prose.js';
 import {
   admonition,
   admonitionTitle,
@@ -162,15 +158,15 @@ interface Scope {
   /** The scope's sub-analysis ids (`[]` at root) — the slug, pre-split. */
   slugParts: string[];
   tabItem: ReturnType<typeof makeTabItem>;
-  priorInsightScopes: PriorInsightScope[];
-  analysisScopes: AnalysisScope[];
+  /** Ancestor analyses walked through, outermost first (root … parent). */
+  ancestors: Analysis[];
 }
 
 /**
  * Walk from the root analysis into `analysisPath`: descend the analyses
- * tree, narrow the universe to each sub-analysis's selections, and
- * accumulate the prior-insight / analysis scope stacks the prose parser
- * needs for cross-scope anchor resolution.
+ * tree, narrow the universe to each sub-analysis's selections, merge the
+ * prior insights inherited from ancestor scopes, and keep the ancestor
+ * stack for aliased-input resolution and provenance tracing.
  */
 function resolveScope(
   root: string,
@@ -180,8 +176,8 @@ function resolveScope(
   const source = getSource(root, universe);
   let analysis = source.analysis;
   let activeUniverse = source.universe;
-  const priorInsightScopes: PriorInsightScope[] = [];
-  const analysisScopes: AnalysisScope[] = [];
+  const ancestors: Analysis[] = [];
+  const inheritedPriorInsights: Record<string, Insight>[] = [];
   const slugParts: string[] = [];
   let resultsBase = root;
 
@@ -192,12 +188,8 @@ function resolveScope(
         `unknown sub-analysis "${seg}" (path: ${analysisPath.join('.') || '<root>'})`,
       );
     }
-    const parentSlug = slugParts.length ? slugParts.join('/') : 'index';
-    const localPI = analysis.prior_insights ?? {};
-    if (Object.keys(localPI).length > 0) {
-      priorInsightScopes.push({ slug: parentSlug, priorInsights: localPI });
-    }
-    analysisScopes.push({ slug: parentSlug, analysis });
+    if (analysis.prior_insights) inheritedPriorInsights.push(analysis.prior_insights);
+    ancestors.push(analysis);
 
     const subNode = activeUniverse.analyses?.[seg];
     activeUniverse = {
@@ -214,10 +206,9 @@ function resolveScope(
   const slug = slugParts.length ? slugParts.join('/') : 'index';
   const universeId = source.universe.id;
   const results: ArtifactResolver = (id) => resolveArtifact(resultsBase, universeId, id);
-  const prose = makeProseParser();
   const priorInsights = Object.assign(
     {},
-    ...priorInsightScopes.map((s) => s.priorInsights),
+    ...inheritedPriorInsights,
     analysis.prior_insights ?? {},
   );
   const outputsById = new Map(
@@ -229,14 +220,13 @@ function resolveScope(
     analysis,
     universe: activeUniverse,
     results,
-    prose,
+    prose: proseParser,
     priorInsights,
     outputsById,
     slug,
     slugParts,
     tabItem: makeTabItem(),
-    priorInsightScopes,
-    analysisScopes,
+    ancestors,
   };
 }
 
@@ -606,7 +596,7 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
       // The directive already resolved this scope under universe `id`.
       return renderUniverse(id, scope);
     default:
-      return [errorNode(`astra: cannot render "${p.raw}"`)];
+      return [errorNode(`astra: cannot render "${dottedKey(p.scope, id)}"`)];
   }
 }
 
@@ -627,7 +617,7 @@ const astraDirective = {
   arg: {
     type: String,
     required: true,
-    doc: 'A path: <collection>/<id>[/<options|evidence>/<id>], a sub-analysis, or a collection.',
+    doc: 'A path: <collection>.<id>[.<options|evidence>.<id>], a sub-analysis, or a collection.',
   },
   options: {
     label: { type: String, doc: 'Cross-reference label for the rendered block.' },
@@ -650,7 +640,7 @@ const astraDirective = {
     // A bare sub-analysis resolves the *parent* scope and looks the sub up there.
     const isBareSub = !p.collection;
     const analysisPath = isBareSub ? p.scope.slice(0, -1) : p.scope;
-    // `universes/<id>` resolves under that universe; an explicit :universe: wins.
+    // `universes.<id>` resolves under that universe; an explicit :universe: wins.
     const universe =
       options.universe ?? (p.collection === 'universes' ? p.id ?? undefined : undefined) ?? universeName();
 
@@ -697,7 +687,7 @@ function applyBlockOptions(nodes: any[], p: AstraPath, options: DirectiveOptions
 // `{astra}` renders a neutral store-driven `astra-ref` span (best label as text
 // + a `data.astra` join key). A rich theme joins the key to the resolved store
 // and renders a hover card; a bare theme shows the plain label. `{astra:ref}`
-// emits a native numbered crossReference; `{astra:cite[:t]}` emit MyST citations.
+// emits a link MyST numbers natively; `{astra:cite[:t]}` emit MyST citations.
 
 type RefKind =
   | 'decision'
@@ -778,7 +768,10 @@ const astraRole = {
   run(data: any, vfile: any): any[] {
     const { display, path } = splitDisplay(String(data?.body ?? ''));
     const p = parseAstraPath(path);
-    if (!p.collection && p.scope.length === 0) return [text(String(data?.body ?? ''))];
+    if (!p.collection && p.scope.length === 0) {
+      reportWarn(vfile, `astra: empty path in "${String(data?.body ?? '')}" — rendering plain text`, data?.node);
+      return [text(String(data?.body ?? ''))];
+    }
     try {
       const scope = resolveScope(projectRoot(), universeName(), p.scope);
       const r = resolveInlineRef(p, scope, display);
@@ -786,7 +779,13 @@ const astraRole = {
     } catch (err) {
       reportWarn(vfile, `astra "${path}": ${(err as Error).message} — rendering a plain label`, data?.node);
       const id = p.id ?? p.scope[p.scope.length - 1] ?? path;
-      return [refNode('output', id, path, display ?? humanize(id))];
+      // Store key in the same collection-elided format as resolveInlineRef;
+      // `unresolved` tells the store transform not to attempt a cross-scope
+      // merge for a reference that already failed to resolve.
+      const key = p.id ? dottedKey(p.scope, p.id) : dottedKey(p.scope.slice(0, -1), id);
+      const node = refNode('output', id, key, display ?? humanize(id));
+      node.data.astra.unresolved = true;
+      return [node];
     }
   },
 };
@@ -929,7 +928,13 @@ const valueRole = {
       }
 
       const abs = scope.results(id);
-      if (!abs) return fail(`no result file for "${pathStr}"`);
+      if (!abs) {
+        // An unproduced output is a supported mid-analysis state (the directive
+        // surface renders it as a pending admonition), not an authoring error —
+        // warn, don't fail strict builds.
+        reportWarn(vfile, `astra:value: no result file for "${pathStr}" (output not produced yet)`, data?.node);
+        return [valueError(`no result file for "${pathStr}"`)];
+      }
       const tbl = parseTableData(abs);
       if (!tbl) return fail(`"${id}" is not tabular`);
       const col = typeof opts['col'] === 'string' ? (opts['col'] as string) : null;
@@ -997,8 +1002,8 @@ function scopeForFile(vfile: any): Scope | null {
 
 /** Ancestor input maps (innermost-last) for resolving aliased `from:` inputs. */
 function parentInputMaps(scope: Scope): Map<string, Input>[] {
-  return scope.analysisScopes.map(
-    (s) => new Map((s.analysis.inputs ?? []).map((i) => [i.id, i] as const)),
+  return scope.ancestors.map(
+    (a) => new Map((a.inputs ?? []).map((i) => [i.id, i] as const)),
   );
 }
 
@@ -1007,9 +1012,8 @@ function parentInputMaps(scope: Scope): Map<string, Input>[] {
  */
 function pageProvFrame(scope: Scope): ProvFrame {
   const rootUniverse = getSource(scope.root, universeName()).universe;
-  const segs = scope.slugParts;
-  const analyses = [...scope.analysisScopes.map((s) => s.analysis), scope.analysis];
-  return pageFrames(analyses, rootUniverse, segs);
+  const analyses = [...scope.ancestors, scope.analysis];
+  return pageFrames(analyses, rootUniverse, scope.slugParts);
 }
 
 /** Inline `astra-ref` kind → resolved-store table (for cross-scope merging). */
@@ -1027,7 +1031,9 @@ const REF_KIND_TO_TABLE: Record<string, keyof ReturnType<typeof buildResolvedSto
 function collectInlineRefs(node: any, out: { kind: string; id: string; path: string }[]): void {
   if (!node || typeof node !== 'object') return;
   const astra = node.data?.astra;
-  if (astra?.kind && astra?.id && typeof astra.path === 'string') out.push(astra);
+  // Skip fallback tokens the role already failed to resolve — attempting a
+  // cross-scope merge for them would only produce a second, phantom warning.
+  if (astra?.kind && astra?.id && typeof astra.path === 'string' && !astra.unresolved) out.push(astra);
   if (Array.isArray(node.children)) {
     for (const child of node.children) collectInlineRefs(child, out);
   }

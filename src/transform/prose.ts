@@ -12,18 +12,29 @@
  */
 
 import { mystParse } from 'myst-parser';
-import type { Analysis, Insight } from '@astra-spec/sdk';
+import { liftChildren } from 'myst-common';
 
 // ── Parsing ───────────────────────────────────────────────────────
 
 /**
+ * Parse Markdown and lift the `mystDirective` wrappers myst-parser keeps
+ * around expanded directive content — the canonical output (an `admonition`,
+ * a `container`, …) sits inside as children, which downstream renderers
+ * consume. The tree is freshly parsed, so the in-place lift is safe.
+ */
+function parseAndLift(md: string): any {
+  const tree = mystParse(md);
+  liftChildren(tree, 'mystDirective');
+  return tree;
+}
+
+/**
  * Parse a Markdown string into mdast block nodes (paragraphs, headings, lists,
- * …), with `mystDirective` wrappers unwrapped and positions stripped.
+ * …), with directive wrappers lifted and positions stripped.
  */
 export function parseProseBlocks(md: string | undefined): any[] {
   if (!md) return [];
-  const tree = mystParse(md);
-  return (tree.children ?? []).map(stripPositions).flatMap(unwrapDirectives);
+  return (parseAndLift(md).children ?? []).map(stripPositions);
 }
 
 /**
@@ -34,8 +45,7 @@ export function parseProseBlocks(md: string | undefined): any[] {
  */
 export function parseProseInline(md: string | undefined): any[] {
   if (!md) return [];
-  const tree = mystParse(md);
-  const blocks = tree.children ?? [];
+  const blocks = parseAndLift(md).children ?? [];
   if (blocks.length === 0) return [];
   if (blocks.length === 1 && blocks[0].type === 'paragraph') {
     return (blocks[0].children ?? []).map(stripPositions);
@@ -48,23 +58,6 @@ export function parseProseInline(md: string | undefined): any[] {
     inline.push(...phrasing);
   }
   return inline;
-}
-
-/**
- * Unwrap the `mystDirective` wrapper myst-parser keeps around expanded
- * directive content: the canonical directive output (a `container`, an
- * `admonition`, …) sits inside as children, which downstream renderers
- * consume. Recurses so directives nested in other blocks unwrap too.
- */
-function unwrapDirectives(node: any): any[] {
-  if (!node || typeof node !== 'object') return [node];
-  if (node.type === 'mystDirective' && Array.isArray(node.children)) {
-    return node.children.flatMap(unwrapDirectives);
-  }
-  if (Array.isArray(node.children)) {
-    return [{ ...node, children: node.children.flatMap(unwrapDirectives) }];
-  }
-  return [node];
 }
 
 /**
@@ -95,33 +88,17 @@ function extractInline(node: any): any[] {
   }
 }
 
-/**
- * Ancestor-scope stacks the plugin threads through scope resolution (prior
- * insights inherit down the analysis tree; cross-scope store merging needs the
- * ancestor analyses).
- */
-export interface PriorInsightScope {
-  slug: string;
-  priorInsights: Record<string, Insight>;
-}
-
-export interface AnalysisScope {
-  slug: string;
-  analysis: Analysis;
-}
-
-/** Pre-bound parser pair — convenient when one render helper makes many calls. */
+/** The parser pair threaded through the render helpers. */
 export interface ProseParser {
   blocks(md: string | undefined): any[];
   inline(md: string | undefined): any[];
 }
 
-export function makeProseParser(): ProseParser {
-  return {
-    blocks: (md) => parseProseBlocks(md),
-    inline: (md) => parseProseInline(md),
-  };
-}
+/** The one (stateless) prose parser — shared by every scope and renderer. */
+export const proseParser: ProseParser = {
+  blocks: parseProseBlocks,
+  inline: parseProseInline,
+};
 
 /**
  * Recursively strip the `position` field markdown-it injects. The book-theme
