@@ -14,6 +14,7 @@
  */
 
 import { mystParse } from 'myst-parser';
+import { fileWarn } from 'myst-common';
 import { parse as parsePath } from 'node:path';
 import type { Analysis, Insight } from '@astra-spec/sdk';
 import type { ArtifactResolver } from '../loader.js';
@@ -68,7 +69,18 @@ function resolveWithContext(nodes: any[], context: ProseContext): any[] {
     context.priorInsightScopes,
     context.results,
     context.analysisScopes,
+    context.vfile,
   );
+}
+
+/**
+ * Report through MyST's per-file diagnostics channel when a vfile is in scope
+ * (`myst build` attributes the message to the page and strict mode can gate on
+ * it); fall back to the console for vfile-less programmatic callers.
+ */
+function warn(vfile: any | undefined, message: string): void {
+  if (vfile) fileWarn(vfile, message, { source: 'mystra' });
+  else console.warn(`[mystra] ${message}`);
 }
 
 /**
@@ -110,6 +122,8 @@ export interface ProseContext {
   priorInsightScopes?: PriorInsightScope[];
   analysisScopes?: AnalysisScope[];
   results?: ArtifactResolver;
+  /** The page being processed, when known — routes warnings to MyST's diagnostics. */
+  vfile?: any;
 }
 
 export interface PriorInsightScope {
@@ -255,9 +269,10 @@ export function resolveNarrativeAnchors(
   priorInsightScopes: PriorInsightScope[] = [],
   results?: ArtifactResolver,
   _analysisScopes: AnalysisScope[] = [],
+  vfile?: any,
 ): any[] {
   return nodes.flatMap((node) =>
-    flatten(rewrite(node, analysis, slug, priorInsightScopes, results)),
+    flatten(rewrite(node, analysis, slug, priorInsightScopes, results, vfile)),
   );
 }
 
@@ -272,6 +287,7 @@ function rewrite(
   slug: string,
   priorInsightScopes: PriorInsightScope[],
   results: ArtifactResolver | undefined,
+  vfile: any | undefined,
 ): any | any[] | null {
   if (!node || typeof node !== 'object') return node;
 
@@ -286,7 +302,7 @@ function rewrite(
   }
 
   if (node.type === 'image' && typeof node.url === 'string' && node.url.startsWith('#astra:')) {
-    return rewriteOutputImage(node, analysis, results);
+    return rewriteOutputImage(node, analysis, results, vfile);
   }
 
   // Unwrap the `mystDirective` wrapper myst-parser keeps around expanded
@@ -295,7 +311,7 @@ function rewrite(
   // consume. Children are still rewritten so anchors inside resolve.
   if (node.type === 'mystDirective' && Array.isArray(node.children)) {
     return node.children.flatMap((c: any) =>
-      flatten(rewrite(c, analysis, slug, priorInsightScopes, results)),
+      flatten(rewrite(c, analysis, slug, priorInsightScopes, results, vfile)),
     );
   }
 
@@ -303,7 +319,7 @@ function rewrite(
     return {
       ...node,
       children: node.children.flatMap((c: any) =>
-        flatten(rewrite(c, analysis, slug, priorInsightScopes, results)),
+        flatten(rewrite(c, analysis, slug, priorInsightScopes, results, vfile)),
       ),
     };
   }
@@ -320,30 +336,32 @@ function rewriteOutputImage(
   node: any,
   analysis: Analysis,
   results: ArtifactResolver | undefined,
+  vfile: any | undefined,
 ): any | null {
   const p = parseAstraPath(String(node.url).replace(/^#astra:/, ''));
   if (p.collection !== 'outputs' || !p.id) {
-    console.warn(`[mystra] image embed "${node.url}" does not point at an output — dropped.`);
+    warn(vfile, `image embed "${node.url}" does not point at an output — dropped.`);
     return null;
   }
   if (p.scope.length > 0 || p.absolute || !results) {
-    console.warn(`[mystra] image embed "${node.url}" must be an in-scope output — dropped.`);
+    warn(vfile, `image embed "${node.url}" must be an in-scope output — dropped.`);
     return null;
   }
   const output = (analysis.outputs ?? []).find((o) => o.id === p.id);
   if (!output) {
-    console.warn(`[mystra] image embed references unknown output "${p.id}" — dropped.`);
+    warn(vfile, `image embed references unknown output "${p.id}" — dropped.`);
     return null;
   }
   if (output.type !== 'figure') {
-    console.warn(
-      `[mystra] image embed references non-figure output "${p.id}" (type: ${output.type}) — dropped.`,
+    warn(
+      vfile,
+      `image embed references non-figure output "${p.id}" (type: ${output.type}) — dropped.`,
     );
     return null;
   }
   const resultPath = results(p.id);
   if (!resultPath) {
-    console.warn(`[mystra] image embed references unproduced output "${p.id}" — dropped.`);
+    warn(vfile, `image embed references unproduced output "${p.id}" — dropped.`);
     return null;
   }
   const ext = parsePath(resultPath).ext.slice(1).toLowerCase();

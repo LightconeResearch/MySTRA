@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@astra-spec/sdk": "^0.0.5",
+    "myst-common": "^1.9.5",
     "myst-parser": "^1.7.1",
     "papaparse": "^5.4.0"
   },

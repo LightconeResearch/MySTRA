@@ -50,6 +50,7 @@ import {
   type ArtifactResolver,
 } from './loader.js';
 import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
+import { fileError, fileWarn } from 'myst-common';
 import { makeProseParser, resolveNarrativeAnchors } from './transform/prose.js';
 import type {
   AnalysisScope,
@@ -180,6 +181,7 @@ function resolveScope(
   root: string,
   universe: string | undefined,
   analysisPath: string[],
+  vfile?: any,
 ): Scope {
   const source = getSource(root, universe);
   let analysis = source.analysis;
@@ -224,6 +226,7 @@ function resolveScope(
     priorInsightScopes,
     analysisScopes,
     results,
+    vfile,
   });
   const priorInsights = Object.assign(
     {},
@@ -277,6 +280,22 @@ function rewriteStaticImages(nodes: any[], scope: Scope): any[] {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Route a diagnostic through MyST's per-file message channel when a vfile is
+ * available (build output attributes it to the page; strict mode gates on it),
+ * falling back to the console for vfile-less programmatic callers (tests, the
+ * library exports).
+ */
+function reportError(vfile: any, message: string, node?: any): void {
+  if (vfile) fileError(vfile, message, { node, source: 'mystra' });
+  else console.error(`[mystra] ${message}`);
+}
+
+function reportWarn(vfile: any, message: string, node?: any): void {
+  if (vfile) fileWarn(vfile, message, { node, source: 'mystra' });
+  else console.warn(`[mystra] ${message}`);
+}
 
 function errorNode(message: string): any {
   return {
@@ -632,11 +651,14 @@ const astraDirective = {
     universe: { type: String, doc: 'Render as resolved under this universe id.' },
     class: { type: String, doc: 'Extra CSS class(es) on the rendered block.' },
   },
-  run(data: any): any[] {
+  run(data: any, vfile: any): any[] {
     const arg = String(data?.arg ?? '');
     const options: DirectiveOptions = data?.options ?? {};
     const p = parseAstraPath(arg);
-    if (!p.collection && p.scope.length === 0) return [errorNode('astra: empty path')];
+    if (!p.collection && p.scope.length === 0) {
+      reportError(vfile, 'astra: empty path', data?.node);
+      return [errorNode('astra: empty path')];
+    }
 
     // A bare sub-analysis resolves the *parent* scope and looks the sub up there.
     const isBareSub = !p.collection;
@@ -646,7 +668,7 @@ const astraDirective = {
       options.universe ?? (p.collection === 'universes' ? p.id ?? undefined : undefined) ?? universeName();
 
     try {
-      const scope = resolveScope(projectRoot(), universe, analysisPath);
+      const scope = resolveScope(projectRoot(), universe, analysisPath, vfile);
       let nodes: any[];
       if (isBareSub) {
         nodes = renderSubAnalysisCard(analysisPath, p.scope[p.scope.length - 1], scope);
@@ -663,7 +685,9 @@ const astraDirective = {
       applyBlockOptions(nodes, p, options);
       return rewriteStaticImages(nodes, scope);
     } catch (err) {
-      return [errorNode(`astra "${arg}": ${(err as Error).message}`)];
+      const message = `astra "${arg}": ${(err as Error).message}`;
+      reportError(vfile, message, data?.node);
+      return [errorNode(message)];
     }
   },
 };
@@ -764,15 +788,16 @@ const astraRole = {
   name: 'astra',
   doc: 'Inline reference to an ASTRA element by path (a theme renders its hover card).',
   body: { type: String, required: true, doc: 'A path, optionally `display text <path>`.' },
-  run(data: any): any[] {
+  run(data: any, vfile: any): any[] {
     const { display, path } = splitDisplay(String(data?.body ?? ''));
     const p = parseAstraPath(path);
     if (!p.collection && p.scope.length === 0) return [text(String(data?.body ?? ''))];
     try {
-      const scope = resolveScope(projectRoot(), universeName(), p.scope);
+      const scope = resolveScope(projectRoot(), universeName(), p.scope, vfile);
       const r = resolveInlineRef(p, scope, display);
       return [refNode(r.kind, r.id, r.path, r.label, r.subtype)];
-    } catch {
+    } catch (err) {
+      reportWarn(vfile, `astra "${path}": ${(err as Error).message} — rendering a plain label`, data?.node);
       const id = p.id ?? p.scope[p.scope.length - 1] ?? path;
       return [refNode('output', id, path.replace(/\//g, '.'), display ?? humanize(id))];
     }
@@ -792,11 +817,14 @@ const astraNumrefRole = {
   name: 'astra:numref',
   doc: 'Numbered cross-reference to a placed output (like {numref}; supports %s).',
   body: { type: String, required: true, doc: 'A path, optionally `text with %s <path>`.' },
-  run(data: any): any[] {
+  run(data: any, vfile: any): any[] {
     const { display, path } = splitDisplay(String(data?.body ?? ''));
     const p = parseAstraPath(path);
     const ident = pathIdentifier(p);
-    if (!ident) return [text(display ?? path)];
+    if (!ident) {
+      reportWarn(vfile, `astra:numref "${path}" is not a referenceable element — rendering plain text`, data?.node);
+      return [text(display ?? path)];
+    }
     return [link(`#${ident}`, display ? [text(display)] : [])];
   },
 };
@@ -817,11 +845,11 @@ function citeRole(name: string, kind: 'parenthetical' | 'narrative') {
     name,
     doc: `Cite a finding/prior-insight as a ${kind} author–year citation from its DOI evidence.`,
     body: { type: String, required: true, doc: 'A path to a finding or prior insight.' },
-    run(data: any): any[] {
+    run(data: any, vfile: any): any[] {
       const { display, path } = splitDisplay(String(data?.body ?? ''));
       const p = parseAstraPath(path);
       try {
-        const scope = resolveScope(projectRoot(), universeName(), p.scope);
+        const scope = resolveScope(projectRoot(), universeName(), p.scope, vfile);
         if (p.collection !== 'findings' && p.collection !== 'prior_insights') {
           throw new Error('astra:cite expects a finding or prior_insight path');
         }
@@ -834,6 +862,8 @@ function citeRole(name: string, kind: 'parenthetical' | 'narrative') {
         const cites = dois.map((d) => cite(d, [], kind));
         return cites.length === 1 ? cites : [citeGroup(cites, kind)];
       } catch (err) {
+        const message = `${name} "${path}": ${(err as Error).message}`;
+        reportError(vfile, message, data?.node);
         return [{ type: 'inlineCode', value: `⟨cite: ${(err as Error).message}⟩` }];
       }
     },
@@ -872,10 +902,15 @@ const valueRole = {
   name: 'astra:value',
   doc: 'Interpolate a numeric value (table cell, metric, or a decision selection).',
   body: { type: String, required: true, doc: '<path> [col=<col>] [<key>=<val> ...] [±] [sig=N]' },
-  run(data: any): any[] {
+  run(data: any, vfile: any): any[] {
+    /** Report through MyST diagnostics and return the visible inline token. */
+    const fail = (msg: string): any[] => {
+      reportError(vfile, `astra:value: ${msg}`, data?.node);
+      return [valueError(msg)];
+    };
     const tokens = String(data?.body ?? '').trim().split(/\s+/).filter(Boolean);
     const pathStr = tokens.shift();
-    if (!pathStr) return [valueError('missing path')];
+    if (!pathStr) return fail('missing path');
     const opts: Record<string, string | true> = {};
     for (const t of tokens) {
       if (t === '±') {
@@ -889,13 +924,13 @@ const valueRole = {
     try {
       const p = parseAstraPath(pathStr);
       const id = p.id;
-      if (!id) return [valueError(`missing element id in "${pathStr}"`)];
+      if (!id) return fail(`missing element id in "${pathStr}"`);
       const scope = resolveScope(projectRoot(), universeName(), p.scope);
 
       // A decision's value is the option selected under the active universe.
       if (p.collection === 'decisions') {
         const dec = scope.analysis.decisions?.[id];
-        if (!dec) return [valueError(`no decision "${id}"`)];
+        if (!dec) return fail(`no decision "${id}"`);
         const optId = scope.universe.decisions?.[id] ?? dec.default;
         const label = (optId && dec.options?.[optId]?.label) || optId || '(none)';
         const node = refNode('value', id, dottedKey(p.scope, id), label, 'decision');
@@ -904,13 +939,13 @@ const valueRole = {
       }
 
       const abs = scope.results(id);
-      if (!abs) return [valueError(`no result file for "${pathStr}"`)];
+      if (!abs) return fail(`no result file for "${pathStr}"`);
       const tbl = parseTableData(abs);
-      if (!tbl) return [valueError(`"${id}" is not tabular`)];
+      if (!tbl) return fail(`"${id}" is not tabular`);
       const col = typeof opts['col'] === 'string' ? (opts['col'] as string) : null;
-      if (!col) return [valueError(`missing col= for "${id}"`)];
+      if (!col) return fail(`missing col= for "${id}"`);
       const ci = tbl.headers.indexOf(col);
-      if (ci < 0) return [valueError(`no column "${col}" in "${id}"`)];
+      if (ci < 0) return fail(`no column "${col}" in "${id}"`);
       const reserved = new Set(['col', 'pm', 'sig', 'err']);
       const filters = Object.entries(opts).filter(([k]) => !reserved.has(k));
       const row = tbl.rows.find((r) =>
@@ -921,7 +956,7 @@ const valueRole = {
       );
       if (!row) {
         const desc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ') || '(no filter)';
-        return [valueError(`no row [${desc}] in "${id}"`)];
+        return fail(`no row [${desc}] in "${id}"`);
       }
       const sig = typeof opts['sig'] === 'string' ? parseInt(opts['sig'] as string, 10) : 4;
       let out = fmtNum(row[ci], sig);
@@ -940,7 +975,7 @@ const valueRole = {
       Object.assign(node.data.astra, { col, filter: filterDesc, type: subtype, product: output?.label });
       return [node];
     } catch (err) {
-      return [valueError((err as Error).message)];
+      return fail((err as Error).message);
     }
   },
 };
@@ -964,7 +999,7 @@ function scopeForFile(vfile: any): Scope | null {
     analysisPath = explicit.split('.').filter(Boolean);
   }
   try {
-    return resolveScope(projectRoot(), universeName(), analysisPath);
+    return resolveScope(projectRoot(), universeName(), analysisPath, vfile);
   } catch {
     return null;
   }
@@ -990,6 +1025,7 @@ const anchorTransform = {
       scope.priorInsightScopes,
       scope.results,
       scope.analysisScopes,
+      vfile,
     );
     tree.children = rewriteStaticImages(resolved, scope);
   },
@@ -1042,7 +1078,11 @@ function collectInlineRefs(node: any, out: { kind: string; id: string; path: str
  * rewritten to the path key. Secondary joins (a decision's option_insights, a
  * finding's evidence artifacts) ride along path-qualified.
  */
-function mergeCrossScopeRefs(tree: any, store: ReturnType<typeof buildResolvedStore>): void {
+function mergeCrossScopeRefs(
+  tree: any,
+  store: ReturnType<typeof buildResolvedStore>,
+  vfile?: any,
+): void {
   const refs: { kind: string; id: string; path: string }[] = [];
   collectInlineRefs(tree, refs);
   const subStores = new Map<string, ReturnType<typeof buildResolvedStore> | null>();
@@ -1050,7 +1090,7 @@ function mergeCrossScopeRefs(tree: any, store: ReturnType<typeof buildResolvedSt
   const subStoreFor = (prefix: string) => {
     if (!subStores.has(prefix)) {
       try {
-        const refScope = resolveScope(projectRoot(), universeName(), prefix.split('.'));
+        const refScope = resolveScope(projectRoot(), universeName(), prefix.split('.'), vfile);
         subStores.set(
           prefix,
           buildResolvedStore(
@@ -1064,7 +1104,8 @@ function mergeCrossScopeRefs(tree: any, store: ReturnType<typeof buildResolvedSt
             pageProvFrame(refScope),
           ),
         );
-      } catch {
+      } catch (err) {
+        reportWarn(vfile, `astra: cannot resolve cross-scope reference prefix "${prefix}": ${(err as Error).message}`);
         subStores.set(prefix, null);
       }
     }
@@ -1120,7 +1161,7 @@ const storeTransform = {
       scope.priorInsights,
       pageProvFrame(scope),
     );
-    mergeCrossScopeRefs(tree, store);
+    mergeCrossScopeRefs(tree, store, vfile);
     // The rich theme locates this carrier by its `astra-store` identifier (a
     // provider reads its `data.astra` and feeds every inline `.astra-ref` token
     // for the hover-card join), so the identifier is load-bearing — do NOT drop
