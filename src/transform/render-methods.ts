@@ -70,11 +70,12 @@ export function renderDecision(
 
   const nodes: any[] = [];
 
-  // h4 heading for the decision; identifier follows the
-  // structural-element scheme `<kind>-<id>`. Tags ride along on the
-  // mdast `data` slot — surface for downstream consumers that want
-  // to group decisions, without imposing any grouping ourselves.
-  const head: any = heading(4, [text(decisionLabel)], `decision-${id}`);
+  // h3 heading for the decision (same level as a finding); identifier follows
+  // the structural-element scheme `<kind>-<id>`. h3 sits contiguously under a
+  // typical `## ` section, where h4 skipped a level (MyST "missing heading depth
+  // 3"). Tags ride along on the mdast `data` slot — surface for downstream
+  // consumers that want to group decisions, without imposing any grouping.
+  const head: any = heading(3, [text(decisionLabel)], `decision-${id}`);
   if (decision.tags && decision.tags.length > 0) {
     head.data = { ...(head.data ?? {}), tags: decision.tags };
   }

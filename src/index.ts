@@ -5,39 +5,36 @@
  * `project.plugins`); named exports at the bottom expose the loader + resolved
  * store for programmatic use.
  *
- * The author writes a normal MyST Markdown report and pulls in ASTRA components
- * by id; this plugin reads `astra.yaml` at build time and emits standard MyST
- * AST, running on the stock `myst` CLI and themes:
+ * Authors reference any part of an ASTRA analysis through a single, unified
+ * **path grammar** that mirrors `astra.yaml` (see `./path.ts`). One name —
+ * `astra` — drives both surfaces, the MyST way (`{math}` is likewise a role and
+ * a directive):
  *
- *   Block "import" (directives):
- *     :::{astra:decision} covariance_source
- *     :::
- *     :::{astra:output} bao_fit_plot
- *     :::
- *     :::{astra:finding} bao_detected_post_recon
- *     :::
- *     :::{astra:prior-insight} recon_sharpens_bao_peak
- *     :::
- *     :::{astra:inputs}
- *     :::                              # full inputs registry table (root scope)
- *     :::{astra:outputs} clustering
- *     :::                              # outputs table for the clustering sub-analysis
- *     :::{astra:subanalysis} reconstruction
- *     :::                              # nav card to the sub-analysis page
+ *   Inline reference (role):
+ *     {astra}`outputs/hubble_diagram`              link + hover card
+ *     {astra}`our method <decisions/algorithm>`    custom display text
+ *     {astra:numref}`outputs/hubble_diagram`          numbered ("Figure 3")
+ *     {astra:value}`outputs/bao_table col=DV tracer=lrg3 ±`   live number
+ *     {astra:cite}`prior_insights/recon`           parenthetical citation
+ *     {astra:cite:t}`prior_insights/recon`         textual citation
  *
- *   Inline "cite" (roles):
- *     {astra:decision}`covariance_source`
- *     {astra:output}`hubble_diagram_plot`
- *     {astra:finding}`subpercent_alpha_iso_precision`
- *     {astra:prior-insight}`recon_sharpens_bao_peak`
+ *   Block embed (directive):
+ *     :::{astra} decisions/algorithm    :::        the decision + its options
+ *     :::{astra} outputs/hubble_diagram :::        the figure / table / metric
+ *     :::{astra} findings/signal        :::        claim + scope + evidence
+ *     :::{astra} reconstruction         :::        a sub-analysis nav card
+ *     :::{astra} outputs                :::        the outputs registry
  *
- * Scoping: a component path is `<id>` (root analysis) or `<sub>.<id>`
- * (sub-analysis), e.g. `reconstruction.algorithm`. Sub-analysis paths can
- * nest (`a.b.id`). Table directives take a bare scope path (`reconstruction`)
- * or nothing (root).
+ *   Native cross-reference scheme (resolved relative to the page scope):
+ *     [text](#astra:outputs/hubble_diagram)        crossReference / page link
+ *     ![](#astra:outputs/hubble_diagram)           embed a figure output
  *
- * The plugin reads the ASTRA project once (cached) and renders each component
- * via the per-component helpers in `./transform/`.
+ * Paths in roles and directives resolve from the **root analysis** (a leading
+ * `/` is optional); the `#astra:` link scheme resolves relative to the **page
+ * scope** and supports `../`. See README.md for the authoring guide.
+ *
+ * The plugin reads the ASTRA project once (cached) and renders each element via
+ * the per-kind helpers in `./transform/`.
  *
  * The project root defaults to `process.cwd()` (run `myst start` from the
  * project dir). Override with `ASTRA_PROJECT_ROOT`; pick a universe with
@@ -52,12 +49,8 @@ import {
   universeFilePath,
   type ArtifactResolver,
 } from './loader.js';
-import type { Analysis, Input, Insight, Output, Universe } from '@astra-spec/sdk';
-import {
-  makeProseParser,
-  resolveNarrativeAnchors,
-  firstParagraphText,
-} from './transform/prose.js';
+import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
+import { makeProseParser, resolveNarrativeAnchors } from './transform/prose.js';
 import type {
   AnalysisScope,
   PriorInsightScope,
@@ -68,12 +61,18 @@ import {
   admonitionTitle,
   card,
   cite,
+  citeGroup,
   emphasis,
   heading,
   hiddenDiv,
+  link,
   makeTabItem,
   paragraph,
   refNode,
+  strong,
+  table,
+  tableCell,
+  tableRow,
   text,
   walkNodes,
 } from './transform/ast-helpers.js';
@@ -85,6 +84,15 @@ import { parseTableData } from './transform/parse-table-data.js';
 import { resolveOutputs } from './transform/resolve-output.js';
 import { buildResolvedStore } from './transform/resolved-store.js';
 import { pageFrames, type ProvFrame } from './transform/provenance.js';
+import {
+  parseAstraPath,
+  pathIdentifier,
+  splitDisplay,
+  dottedKey,
+  KIND_BY_COLLECTION,
+  type AstraPath,
+  type Collection,
+} from './path.js';
 
 // ── Project loading + cache ─────────────────────────────────────────────
 
@@ -127,8 +135,6 @@ function sourceMtimeMs(root: string, universe?: string): number {
       // ignore — a missing dependency leaves `newest` as-is
     }
   }
-  // `-Infinity` (no dependency could be stat'd) is non-finite, so the caller's
-  // `Number.isFinite` guard falls through to a reload just as `NaN` would.
   return newest;
 }
 
@@ -140,7 +146,6 @@ function getSource(root: string, universe?: string): Source {
     return cached.source;
   }
   const source = loadASTRASource(root, universe);
-  // Overwrite the same key on reload so the cache never grows unbounded.
   projectCache.set(key, { source, mtimeMs });
   return source;
 }
@@ -158,6 +163,8 @@ interface Scope {
   priorInsights: Record<string, Insight>;
   outputsById: Map<string, Output>;
   slug: string;
+  /** The scope's sub-analysis ids (`[]` at root) — the slug, pre-split. */
+  slugParts: string[];
   tabItem: ReturnType<typeof makeTabItem>;
   priorInsightScopes: PriorInsightScope[];
   analysisScopes: AnalysisScope[];
@@ -180,16 +187,13 @@ function resolveScope(
   const priorInsightScopes: PriorInsightScope[] = [];
   const analysisScopes: AnalysisScope[] = [];
   const slugParts: string[] = [];
-  // The scope's results root: the project dir, extended by each descended
-  // sub-analysis's `path:` (relative to its parent, so nesting composes). An
-  // output's artifact then lives at `<resultsBase>/results/<universe>/<id>/`.
   let resultsBase = root;
 
   for (const seg of analysisPath) {
     const child = analysis.analyses?.[seg];
     if (!child) {
       throw new Error(
-        `unknown sub-analysis "${seg}" (path: ${analysisPath.join('.') || '<root>'})`,
+        `unknown sub-analysis "${seg}" (path: ${analysisPath.join('/') || '<root>'})`,
       );
     }
     const parentSlug = slugParts.length ? slugParts.join('/') : 'index';
@@ -226,10 +230,6 @@ function resolveScope(
     ...priorInsightScopes.map((s) => s.priorInsights),
     analysis.prior_insights ?? {},
   );
-  // Resolved view, keyed by declared id: aliased outputs (`from:`) inherit
-  // type/description/inputs/decisions/recipe from their source, so the figure/
-  // table directive, the provenance disclosure, and inline cards all see the
-  // real artifact rather than a bare pointer.
   const outputsById = new Map(
     resolveOutputs(analysis).map(({ resolved }) => [resolved.id, resolved] as const),
   );
@@ -243,6 +243,7 @@ function resolveScope(
     priorInsights,
     outputsById,
     slug,
+    slugParts,
     tabItem: makeTabItem(),
     priorInsightScopes,
     analysisScopes,
@@ -288,23 +289,17 @@ function errorNode(message: string): any {
   };
 }
 
-/** Split a component path into [analysisPath, componentId]. */
-function splitPath(arg: unknown): { analysisPath: string[]; id: string | null } {
-  const parts = String(arg ?? '')
-    .trim()
-    .split('.')
-    .filter(Boolean);
-  const id = parts.pop() ?? null;
-  return { analysisPath: parts, id };
+/** snake_case id → readable words, for the inline label when nothing better. */
+function humanize(id: string): string {
+  return id.replace(/_/g, ' ');
 }
 
 // ── Recognition markers ─────────────────────────────────────────────────────
 //
 // Every placed ASTRA block carries a stable `astra-<kind>` class (+ optional
-// `--<subtype>`) on the node that bears its `<kind>-<id>` identifier. The class
-// is harmless to book-theme but lets a rich theme select the element
-// (`.astra-output`, `[identifier^="output-"]`) and join it to the resolved
-// store by id (STRATEGY-A-REFACTOR.md §5).
+// `--<subtype>`) on the node that bears its `<kind>-<id>` identifier, letting a
+// rich theme select the element (`.astra-output`, `[identifier^="output-"]`) and
+// join it to the resolved store by id.
 
 /** Add a semantic class to a node, idempotently (space-joined). */
 function addClass(node: any, cls: string): void {
@@ -319,12 +314,7 @@ function addClass(node: any, cls: string): void {
  * else the first node) with `astra-<kind>` and, when given,
  * `astra-<kind>--<subtype>`. Returns the same node array for chaining.
  */
-function tagComponent(
-  nodes: any[],
-  kind: string,
-  id: string,
-  subtype?: string,
-): any[] {
+function tagComponent(nodes: any[], kind: string, id: string, subtype?: string): any[] {
   const ident = `${kind}-${id}`;
   const carrier = nodes.find((n) => n?.identifier === ident) ?? nodes[0];
   if (carrier) {
@@ -334,139 +324,78 @@ function tagComponent(
   return nodes;
 }
 
-// ── Block directives ("import") ─────────────────────────────────────────────
-
-/** Directive that resolves a `<sub>.<id>` path and renders one component. */
-function componentDirective(
-  name: string,
-  render: (id: string, scope: Scope, options: Record<string, any>) => any[],
-  options?: Record<string, any>,
-) {
-  return {
-    name: `astra:${name}`,
-    doc: `Import the ASTRA ${name} <id> as a rich block.`,
-    arg: { type: String, required: true, doc: 'Component path: <id> or <sub>.<id>' },
-    ...(options ? { options } : {}),
-    run(data: any): any[] {
-      const { analysisPath, id } = splitPath(data?.arg);
-      if (!id) return [errorNode(`astra:${name} requires an id`)];
-      try {
-        const scope = resolveScope(projectRoot(), universeName(), analysisPath);
-        return rewriteStaticImages(render(id, scope, data?.options ?? {}), scope);
-      } catch (err) {
-        return [errorNode(`astra:${name} "${data?.arg}": ${(err as Error).message}`)];
-      }
-    },
-  };
+/** The carrier node of a rendered component (for option overrides). */
+function carrierOf(nodes: any[], identifier: string): any {
+  return nodes.find((n) => n?.identifier === identifier) ?? nodes[0];
 }
 
-/** Directive whose whole arg is a scope path (no trailing component). */
-function tableDirective(name: string, render: (scope: Scope) => any[]) {
-  return {
-    name: `astra:${name}`,
-    doc: `Render the ASTRA ${name} table for an analysis scope (default: root).`,
-    arg: { type: String, required: false, doc: 'Sub-analysis scope, e.g. clustering' },
-    run(data: any): any[] {
-      const analysisPath = String(data?.arg ?? '')
-        .trim()
-        .split('.')
-        .filter(Boolean);
-      try {
-        const scope = resolveScope(projectRoot(), universeName(), analysisPath);
-        return render(scope);
-      } catch (err) {
-        return [errorNode(`astra:${name} "${data?.arg ?? ''}": ${(err as Error).message}`)];
-      }
-    },
-  };
+// ── Block directive: `:::{astra} <path>` ─────────────────────────────────────
+//
+// One directive renders any addressable element, child, or collection. The
+// parsed path decides what — an element by kind, a child (option / evidence), a
+// whole collection (a registry), or a bare sub-analysis (a nav card).
+
+interface DirectiveOptions {
+  label?: string;
+  caption?: string;
+  compact?: boolean;
+  show?: string;
+  hide?: string;
+  universe?: string;
+  class?: string;
 }
 
-const decisionDirective = componentDirective('decision', (id, scope) => {
-  const decision = scope.analysis.decisions?.[id];
-  if (!decision) throw new Error(`no decision "${id}" in this scope`);
-  if (!isDecisionRendered(decision, scope.universe)) {
-    throw new Error(
-      `decision "${id}" is a bare from-reference or its \`when\` is unmet under universe "${scope.universe.id}"`,
-    );
-  }
-  return tagComponent(
-    renderDecision(
-      id,
-      decision,
-      scope.priorInsights,
-      scope.universe,
-      scope.prose,
-      scope.tabItem,
-    ),
-    'decision',
-    id,
-  );
-});
+/** Resolve which finding parts to render from compact / show / hide options. */
+function findingParts(options: DirectiveOptions): Set<string> {
+  const all = ['claim', 'notes', 'scope', 'evidence'];
+  let parts = new Set(all);
+  if (options.show) parts = new Set(options.show.split(/[,\s]+/).filter(Boolean));
+  if (options.hide) for (const p of options.hide.split(/[,\s]+/).filter(Boolean)) parts.delete(p);
+  if (options.compact) parts.delete('evidence');
+  return parts;
+}
 
-const outputDirective = componentDirective('output', (id, scope) => {
-  const output = scope.outputsById.get(id);
-  if (!output) throw new Error(`no output "${id}" in this scope`);
-  const figure = renderOneOutput(output, id, scope.results, scope.prose, {
-    resultUrl: resultUrl(scope.root),
-  });
-  // The carrier (figure/table) is tagged `astra-output[ --<type>]` for theme
-  // recognition; provenance UI is the rich theme's job (it reads the store —
-  // see astra-theme's AstraOutput ProvenanceDrawer). Plain themes show just
-  // the figure.
-  return tagComponent(figure, 'output', id, output.type);
-});
+/** Render one finding, honouring the requested parts (claim is always kept). */
+function renderFindingParts(
+  id: string,
+  scope: Scope,
+  options: DirectiveOptions,
+): any[] {
+  const findings = scope.analysis.findings ?? {};
+  const finding = findings[id];
+  if (!finding) throw new Error(`no finding "${id}" in this scope`);
+  const index = Object.keys(findings).indexOf(id) + 1;
+  const parts = findingParts(options);
 
-const findingDirective = componentDirective(
-  'finding',
-  (id, scope, options) => {
-    const findings = scope.analysis.findings ?? {};
-    const finding = findings[id];
-    if (!finding) throw new Error(`no finding "${id}" in this scope`);
-    const index = Object.keys(findings).indexOf(id) + 1;
-    // `:compact:` renders just the claim heading + notes + scope (no evidence
-    // figures) — used for the back-matter hover/click targets so the inline
-    // hover overlay stays tight and figures aren't duplicated.
-    if (options?.compact) {
-      const nodes: any[] = [
-        heading(3, [text(`${index}. `), ...scope.prose.inline(finding.claim)], `finding-${id}`),
-      ];
-      if (finding.notes) nodes.push(...scope.prose.blocks(finding.notes));
-      if (finding.scope) nodes.push(paragraph([emphasis([text(`Scope: ${finding.scope}`)])]));
-      return tagComponent(nodes, 'finding', id);
-    }
+  // Full render (the default) covers claim + notes + scope + evidence; anything
+  // that drops evidence builds the lighter claim/notes/scope form by hand.
+  if (parts.has('evidence')) {
     return tagComponent(
-      renderFinding(
-        finding,
-        index,
-        id,
-        scope.results,
-        scope.outputsById,
-        scope.prose,
-      ),
+      renderFinding(finding, index, id, scope.results, scope.outputsById, scope.prose),
       'finding',
       id,
     );
-  },
-  { compact: { type: Boolean, doc: 'Render claim + notes + scope only (no evidence figures).' } },
-);
+  }
+  const nodes: any[] = [
+    heading(3, [text(`${index}. `), ...scope.prose.inline(finding.claim)], `finding-${id}`),
+  ];
+  if (parts.has('notes') && finding.notes) nodes.push(...scope.prose.blocks(finding.notes));
+  if (parts.has('scope') && finding.scope) {
+    nodes.push(paragraph([emphasis([text(`Scope: ${finding.scope}`)])]));
+  }
+  return tagComponent(nodes, 'finding', id);
+}
 
 /**
- * Render an author-placed prior insight (the `:::{astra:prior-insight}` block):
- * the claim + evidence wrapped in a `seealso` admonition (a node every MyST
- * theme renders cleanly), carrying the `prior_insight-<id>` identifier.
- *
- * A `container[kind=prior-insight]` would be the natural node, but the stock
- * theme rejects it ("no valid content besides caption"); the `seealso`
- * admonition is the stock-friendly equivalent.
+ * Render a prior insight (the author-placed block): the claim + evidence wrapped
+ * in a `seealso` admonition — a node every MyST theme renders cleanly — carrying
+ * the `prior_insight-<id>` identifier.
  */
 function renderPriorInsightBlock(id: string, insight: Insight, prose: ProseParser): any {
   const titleBits = ['Prior insight'];
   if (insight.label) titleBits.push(insight.label);
   else if (insight.scope) titleBits.push(insight.scope);
-  const body = [
-    paragraph(prose.inline(insight.claim)),
-    ...renderInsightEvidence(insight),
-  ];
+  const body = [paragraph(prose.inline(insight.claim)), ...renderInsightEvidence(insight)];
   const node: any = admonition('seealso', [admonitionTitle([text(titleBits.join(' — '))]), ...body], {
     class: 'astra-prior-insight',
   });
@@ -475,144 +404,437 @@ function renderPriorInsightBlock(id: string, insight: Insight, prose: ProseParse
   return node;
 }
 
-const priorInsightDirective = componentDirective('prior-insight', (id, scope) => {
-  // `scope.priorInsights` already merges this analysis's own prior_insights over
-  // its ancestors' (see resolveScope), so it's the single lookup to use.
-  const insight = scope.priorInsights[id];
-  if (!insight) throw new Error(`no prior_insight "${id}" in this scope`);
-  return [renderPriorInsightBlock(id, insight, scope.prose)];
-});
-
-const inputsDirective = tableDirective('inputs', (scope) => {
-  const inputs = scope.analysis.inputs ?? [];
-  if (inputs.length === 0) return [errorNode('no inputs in this scope')];
-  // Inputs are only carried by this table (no rich input block), so the
-  // `input-<id>` row identifiers stay as the canonical anchor targets.
-  const table = renderInputsTable(inputs, scope.prose);
-  addClass(table, 'astra-inputs');
+/** Render a single input as a one-row registry table tagged `astra-input`. */
+function renderOneInput(id: string, scope: Scope): any[] {
+  const input = (scope.analysis.inputs ?? []).find((i) => i.id === id);
+  if (!input) throw new Error(`no input "${id}" in this scope`);
+  const table = renderInputsTable([input], scope.prose);
+  addClass(table, 'astra-input');
   return [table];
-});
+}
 
-const outputsDirective = tableDirective('outputs', (scope) => {
-  const outputs = scope.analysis.outputs ?? [];
-  if (outputs.length === 0) return [errorNode('no outputs in this scope')];
-  const table = renderOutputsTable(outputs, scope.prose);
-  // Strip row identifiers: the canonical `output-<id>` carrier is the rich
-  // `:::{astra:output}` block. Leaving them here would collide when the
-  // report both lists an output in the registry and embeds it as a figure.
-  for (const row of table.children ?? []) {
-    delete row.identifier;
-    delete row.label;
+/** Render one Option of a Decision (label + description + supporting insights). */
+function renderOneOption(decisionId: string, optionId: string, scope: Scope): any[] {
+  const decision = scope.analysis.decisions?.[decisionId];
+  if (!decision?.options?.[optionId]) {
+    throw new Error(`no option "${optionId}" on decision "${decisionId}" in this scope`);
   }
-  addClass(table, 'astra-outputs');
-  return [table];
-});
+  const option = decision.options[optionId];
+  const selected = (scope.universe.decisions?.[decisionId] ?? decision.default) === optionId;
+  const identifier = `option-${decisionId}-${optionId}`;
+  const head: any = heading(4, [
+    text(option.label),
+    ...(selected ? [text(' '), emphasis([text('(selected)')])] : []),
+  ], identifier);
+  const nodes: any[] = [head];
+  if (option.description) nodes.push(...scope.prose.blocks(option.description));
+  const insights = (option.insights ?? [])
+    .map((iid) => scope.priorInsights[iid])
+    .filter(Boolean);
+  if (insights.length > 0) {
+    const refs = (option.insights ?? [])
+      .filter((iid) => scope.priorInsights[iid])
+      .map((iid) =>
+        refNode('prior_insight', iid, iid, scope.priorInsights[iid].label ?? humanize(iid)),
+      );
+    const para: any[] = [text(refs.length === 1 ? 'Supporting insight: ' : 'Supporting insights: ')];
+    refs.forEach((r, i) => {
+      if (i > 0) para.push(text(', '));
+      para.push(r);
+    });
+    nodes.push(paragraph(para));
+  }
+  addClass(head, 'astra-option');
+  return nodes;
+}
 
-const subAnalysisDirective = {
-  name: 'astra:subanalysis',
-  doc: 'Render a navigation card linking to a sub-analysis page.',
-  arg: { type: String, required: true, doc: 'Sub-analysis path, e.g. reconstruction' },
+/** Render one Evidence record of a finding or prior insight. */
+function renderOneEvidence(p: AstraPath, scope: Scope): any[] {
+  const owner =
+    p.collection === 'findings'
+      ? scope.analysis.findings?.[p.id!]
+      : scope.priorInsights[p.id!];
+  if (!owner) throw new Error(`no ${p.collection} "${p.id}" in this scope`);
+  const ev = (owner.evidence ?? []).find((e: any) => e.id === p.child!.id);
+  if (!ev) throw new Error(`no evidence "${p.child!.id}" on ${p.collection} "${p.id}"`);
+  // Reuse the per-insight evidence renderer for a single record.
+  return renderInsightEvidence({ evidence: [ev] });
+}
+
+/** Render a universe as a table of its decision → selected-option labels. */
+function renderUniverse(universeId: string | null, scope: Scope): any[] {
+  const u = scope.universe;
+  const selections = u.decisions ?? {};
+  const headerRow = tableRow(
+    [tableCell([text('Decision')], true), tableCell([text('Selected')], true)],
+    true,
+  );
+  const rows = Object.keys(selections).map((decId) => {
+    const dec = scope.analysis.decisions?.[decId];
+    const optId = selections[decId];
+    return tableRow([
+      tableCell([strong([text(dec?.label ?? decId)])]),
+      tableCell([text(dec?.options?.[optId]?.label ?? optId)]),
+    ]);
+  });
+  const node: any = table([headerRow, ...rows]);
+  node.identifier = `universe-${universeId ?? u.id}`;
+  node.label = node.identifier;
+  addClass(node, 'astra-universe');
+  return [node];
+}
+
+/** Render a sub-analysis as a navigation card linking to its page. */
+function renderSubAnalysisCard(parentScope: string[], subId: string, scope: Scope): any[] {
+  const sub = scope.analysis.analyses?.[subId];
+  if (!sub) throw new Error(`no sub-analysis "${subId}" in this scope`);
+  const title = sub.name ?? subId;
+  const url = '/' + [...parentScope, subId].join('/');
+  const node: any = card(title, [], url);
+  node.identifier = `analysis-${subId}`;
+  node.label = node.identifier;
+  addClass(node, 'astra-subanalysis');
+  return [node];
+}
+
+/** Render one decision block (heading + tabbed options), tagged for recognition. */
+function renderDecisionBlock(id: string, decision: Decision, scope: Scope): any[] {
+  return tagComponent(
+    renderDecision(id, decision, scope.priorInsights, scope.universe, scope.prose, scope.tabItem),
+    'decision',
+    id,
+  );
+}
+
+/** Render a whole collection (a registry) for the current scope. */
+function renderRegistry(collection: Collection, scope: Scope): any[] {
+  switch (collection) {
+    case 'inputs': {
+      const inputs = scope.analysis.inputs ?? [];
+      if (inputs.length === 0) return [errorNode('no inputs in this scope')];
+      const table = renderInputsTable(inputs, scope.prose);
+      addClass(table, 'astra-inputs');
+      return [table];
+    }
+    case 'outputs': {
+      const outputs = scope.analysis.outputs ?? [];
+      if (outputs.length === 0) return [errorNode('no outputs in this scope')];
+      const table = renderOutputsTable(outputs, scope.prose);
+      // Strip row identifiers: the canonical `output-<id>` carrier is the rich
+      // output block. Leaving them here would collide when the report both lists
+      // an output in the registry and embeds it as a figure.
+      for (const row of table.children ?? []) {
+        delete row.identifier;
+        delete row.label;
+      }
+      addClass(table, 'astra-outputs');
+      return [table];
+    }
+    case 'decisions': {
+      const decisions = scope.analysis.decisions ?? {};
+      const nodes: any[] = [];
+      for (const [id, decision] of Object.entries(decisions)) {
+        if (!isDecisionRendered(decision as Decision, scope.universe)) continue;
+        nodes.push(...renderDecisionBlock(id, decision as Decision, scope));
+      }
+      return nodes.length ? nodes : [errorNode('no rendered decisions in this scope')];
+    }
+    case 'findings': {
+      const findings = scope.analysis.findings ?? {};
+      const nodes: any[] = [];
+      Object.keys(findings).forEach((id) => nodes.push(...renderFindingParts(id, scope, {})));
+      return nodes.length ? nodes : [errorNode('no findings in this scope')];
+    }
+    case 'prior_insights': {
+      const insights = scope.analysis.prior_insights ?? {};
+      const nodes = Object.entries(insights).map(([id, ins]) =>
+        renderPriorInsightBlock(id, ins as Insight, scope.prose),
+      );
+      return nodes.length ? nodes : [errorNode('no prior insights in this scope')];
+    }
+    case 'analyses': {
+      const subs = scope.analysis.analyses ?? {};
+      const nodes = Object.keys(subs).flatMap((id) => renderSubAnalysisCard(scope.slugParts, id, scope));
+      return nodes.length ? nodes : [errorNode('no sub-analyses in this scope')];
+    }
+    case 'universes':
+      return renderUniverse(null, scope);
+  }
+}
+
+/** Render a single addressed element (path has a collection + id, no child). */
+function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): any[] {
+  const id = p.id!;
+  switch (p.collection) {
+    case 'decisions': {
+      const decision = scope.analysis.decisions?.[id];
+      if (!decision) throw new Error(`no decision "${id}" in this scope`);
+      if (!isDecisionRendered(decision, scope.universe)) {
+        throw new Error(
+          `decision "${id}" is a bare from-reference or its \`when\` is unmet under universe "${scope.universe.id}"`,
+        );
+      }
+      return renderDecisionBlock(id, decision, scope);
+    }
+    case 'outputs': {
+      const output = scope.outputsById.get(id);
+      if (!output) throw new Error(`no output "${id}" in this scope`);
+      const nodes = renderOneOutput(output, id, scope.results, scope.prose, {
+        resultUrl: resultUrl(scope.root),
+      });
+      if (options.caption) applyCaption(nodes, scope, options.caption);
+      return tagComponent(nodes, 'output', id, output.type);
+    }
+    case 'findings':
+      return renderFindingParts(id, scope, options);
+    case 'prior_insights': {
+      const insight = scope.priorInsights[id];
+      if (!insight) throw new Error(`no prior_insight "${id}" in this scope`);
+      return [renderPriorInsightBlock(id, insight, scope.prose)];
+    }
+    case 'inputs':
+      return renderOneInput(id, scope);
+    case 'analyses':
+      return renderSubAnalysisCard(scope.slugParts, id, scope);
+    case 'universes':
+      // The directive already resolved this scope under universe `id`.
+      return renderUniverse(id, scope);
+    default:
+      return [errorNode(`astra: cannot render "${p.raw}"`)];
+  }
+}
+
+/** Replace the first caption's content with the author's override text. */
+function applyCaption(nodes: any[], scope: Scope, captionMd: string): void {
+  let done = false;
+  walkNodes(nodes, (n) => {
+    if (!done && n.type === 'caption') {
+      n.children = [paragraph(scope.prose.inline(captionMd))];
+      done = true;
+    }
+  });
+}
+
+const astraDirective = {
+  name: 'astra',
+  doc: 'Embed any ASTRA element, child, or collection by its path (e.g. outputs/hubble_diagram).',
+  arg: {
+    type: String,
+    required: true,
+    doc: 'A path: <collection>/<id>[/<options|evidence>/<id>], a sub-analysis, or a collection.',
+  },
+  options: {
+    label: { type: String, doc: 'Cross-reference label for the rendered block.' },
+    caption: { type: String, doc: 'Caption text (figure / table outputs).' },
+    compact: { type: Boolean, doc: 'Findings: claim + notes + scope only (no evidence).' },
+    show: { type: String, doc: 'Findings: parts to include (claim, notes, scope, evidence).' },
+    hide: { type: String, doc: 'Findings: parts to exclude.' },
+    universe: { type: String, doc: 'Render as resolved under this universe id.' },
+    class: { type: String, doc: 'Extra CSS class(es) on the rendered block.' },
+  },
   run(data: any): any[] {
-    const { analysisPath, id } = splitPath(data?.arg);
-    if (!id) return [errorNode('astra:subanalysis requires a sub-analysis id')];
+    const arg = String(data?.arg ?? '');
+    const options: DirectiveOptions = data?.options ?? {};
+    const p = parseAstraPath(arg);
+    if (!p.collection && p.scope.length === 0) return [errorNode('astra: empty path')];
+
+    // A bare sub-analysis resolves the *parent* scope and looks the sub up there.
+    const isBareSub = !p.collection;
+    const analysisPath = isBareSub ? p.scope.slice(0, -1) : p.scope;
+    // `universes/<id>` resolves under that universe; an explicit :universe: wins.
+    const universe =
+      options.universe ?? (p.collection === 'universes' ? p.id ?? undefined : undefined) ?? universeName();
+
     try {
-      const scope = resolveScope(projectRoot(), universeName(), analysisPath);
-      const sub = scope.analysis.analyses?.[id];
-      if (!sub) throw new Error(`no sub-analysis "${id}" in this scope`);
-      const title = sub.name ?? id;
-      const url = '/' + [...analysisPath, id].join('/');
-      const summary = firstParagraphText(sub.narrative?.summary);
-      const children = summary ? [paragraph([text(summary)])] : [];
-      const node: any = card(title, children, url);
-      node.identifier = `analysis-${id}`;
-      node.label = node.identifier;
-      addClass(node, 'astra-subanalysis');
-      return [node];
+      const scope = resolveScope(projectRoot(), universe, analysisPath);
+      let nodes: any[];
+      if (isBareSub) {
+        nodes = renderSubAnalysisCard(analysisPath, p.scope[p.scope.length - 1], scope);
+      } else if (p.child) {
+        nodes =
+          p.child.collection === 'options'
+            ? renderOneOption(p.id!, p.child.id, scope)
+            : renderOneEvidence(p, scope);
+      } else if (p.id) {
+        nodes = renderElement(p, scope, options);
+      } else {
+        nodes = renderRegistry(p.collection!, scope);
+      }
+      applyBlockOptions(nodes, p, options);
+      return rewriteStaticImages(nodes, scope);
     } catch (err) {
-      return [errorNode(`astra:subanalysis "${data?.arg}": ${(err as Error).message}`)];
+      return [errorNode(`astra "${arg}": ${(err as Error).message}`)];
     }
   },
 };
 
-// ── Inline reference tokens (store-driven) ──
-//
-// Each inline ASTRA reference renders as a neutral `astra-ref` span: the best
-// available label as text, plus the join key (`kind`/`id`/`path`) on
-// `data.astra`. The hover card is NOT baked into the node — a rich theme
-// (`lightcone-astra`) joins the key to the resolved store carrier
-// (`.astra-store`, keyed by id) and renders the card, the same mechanism MyST
-// uses for citations (a `cite` node's label → `references.cite.data`). On a bare
-// theme (no renderer) the span degrades to plain label text. See the resolved
-// store (`./transform/resolved-store.ts`) for the data the theme reads.
-
-type CiteKind = 'decision' | 'output' | 'finding' | 'prior_insight' | 'analysis';
-
-/** snake_case id → readable words, for the inline label when nothing better. */
-function humanize(id: string): string {
-  return id.replace(/_/g, ' ');
+/** Apply `:label:` / `:class:` to the rendered block's carrier node. */
+function applyBlockOptions(nodes: any[], p: AstraPath, options: DirectiveOptions): void {
+  if (!nodes.length) return;
+  const ident = pathIdentifier(p);
+  const carrier = ident ? carrierOf(nodes, ident) : nodes[0];
+  if (!carrier) return;
+  if (options.class) for (const c of options.class.split(/\s+/).filter(Boolean)) addClass(carrier, c);
+  if (options.label) {
+    carrier.identifier = options.label;
+    carrier.label = options.label;
+  }
 }
 
-// The store-driven inline node (`refNode`, in ast-helpers) carries only semantic
-// classes, the label as text, and the join key on `data.astra`; a rich theme
-// renders the card from the store. `value` is self-describing — see the value role.
+// ── Inline reference roles ───────────────────────────────────────────────────
+//
+// `{astra}` renders a neutral store-driven `astra-ref` span (best label as text
+// + a `data.astra` join key). A rich theme joins the key to the resolved store
+// and renders a hover card; a bare theme shows the plain label. `{astra:numref}`
+// emits a native numbered crossReference; `{astra:cite[:t]}` emit MyST citations.
 
-/** Resolve the best inline label (and output subtype) for a cited element. */
-function citeLabel(
-  kind: CiteKind,
-  id: string,
+type RefKind =
+  | 'decision'
+  | 'output'
+  | 'finding'
+  | 'prior_insight'
+  | 'analysis'
+  | 'input'
+  | 'option'
+  | 'evidence'
+  | 'universe';
+
+/** Resolve a parsed path to its inline reference kind, label, and store key. */
+function resolveInlineRef(
+  p: AstraPath,
   scope: Scope,
-  display?: string | null,
-): { label: string; subtype?: string } {
-  switch (kind) {
-    case 'decision': {
-      const dec = scope.analysis.decisions?.[id];
-      return { label: display ?? dec?.label ?? humanize(id) };
+  display: string | null,
+): { kind: RefKind; id: string; path: string; label: string; subtype?: string } {
+  // Children first — an option / evidence inline reference.
+  if (p.child) {
+    const ownerId = p.id!;
+    if (p.child.collection === 'options') {
+      const opt = scope.analysis.decisions?.[ownerId]?.options?.[p.child.id];
+      return {
+        kind: 'option',
+        id: p.child.id,
+        path: dottedKey(p.scope, `${ownerId}.${p.child.id}`),
+        label: display ?? opt?.label ?? humanize(p.child.id),
+      };
     }
-    case 'finding': {
-      const f = scope.analysis.findings?.[id];
-      return { label: display ?? f?.label ?? humanize(id) };
-    }
-    case 'prior_insight': {
-      const ins = scope.priorInsights[id]; // already merged over ancestor scopes
-      return { label: display ?? ins?.label ?? humanize(id) };
-    }
-    case 'analysis': {
-      const sub = scope.analysis.analyses?.[id];
-      return { label: display ?? sub?.name ?? humanize(id) };
-    }
+    return {
+      kind: 'evidence',
+      id: p.child.id,
+      path: dottedKey(p.scope, `${ownerId}.${p.child.id}`),
+      label: display ?? humanize(p.child.id),
+    };
+  }
+
+  // A bare sub-analysis reference. The caller resolved scope to `p.scope`, so
+  // `scope.analysis` is the sub-analysis itself — no need to re-resolve.
+  if (!p.collection) {
+    const subId = p.scope[p.scope.length - 1];
+    return {
+      kind: 'analysis',
+      id: subId,
+      path: dottedKey(p.scope.slice(0, -1), subId),
+      label: display ?? scope.analysis.name ?? humanize(subId),
+    };
+  }
+
+  const id = p.id!;
+  const path = dottedKey(p.scope, id);
+  switch (p.collection) {
+    case 'decisions':
+      return { kind: 'decision', id, path, label: display ?? scope.analysis.decisions?.[id]?.label ?? humanize(id) };
+    case 'findings':
+      return { kind: 'finding', id, path, label: display ?? scope.analysis.findings?.[id]?.label ?? humanize(id) };
+    case 'prior_insights':
+      return { kind: 'prior_insight', id, path, label: display ?? scope.priorInsights[id]?.label ?? humanize(id) };
+    case 'analyses':
+      return { kind: 'analysis', id, path, label: display ?? scope.analysis.analyses?.[id]?.name ?? humanize(id) };
+    case 'inputs':
+      return { kind: 'input', id, path, label: display ?? (scope.analysis.inputs ?? []).find((i) => i.id === id)?.label ?? humanize(id) };
+    case 'universes':
+      return { kind: 'universe', id, path, label: display ?? id };
     default: {
-      // output — `subtype` (figure/table/metric/…) is a second modifier class so
-      // a theme can give each output type its own glyph/treatment.
       const o = scope.outputsById.get(id);
-      return { label: display ?? o?.label ?? humanize(id), subtype: o?.type ?? 'output' };
+      return { kind: 'output', id, path, label: display ?? o?.label ?? humanize(id), subtype: o?.type ?? 'output' };
     }
   }
 }
 
-/** Inline citation → neutral `astra-ref` token carrying the store join key. */
-function citeRole(name: string, kind: CiteKind) {
+/** `{astra}` — inline store-driven reference to any element. */
+const astraRole = {
+  name: 'astra',
+  doc: 'Inline reference to an ASTRA element by path (a theme renders its hover card).',
+  body: { type: String, required: true, doc: 'A path, optionally `display text <path>`.' },
+  run(data: any): any[] {
+    const { display, path } = splitDisplay(String(data?.body ?? ''));
+    const p = parseAstraPath(path);
+    if (!p.collection && p.scope.length === 0) return [text(String(data?.body ?? ''))];
+    try {
+      const scope = resolveScope(projectRoot(), universeName(), p.scope);
+      const r = resolveInlineRef(p, scope, display);
+      return [refNode(r.kind, r.id, r.path, r.label, r.subtype)];
+    } catch {
+      const id = p.id ?? p.scope[p.scope.length - 1] ?? path;
+      return [refNode('output', id, path.replace(/\//g, '.'), display ?? humanize(id))];
+    }
+  },
+};
+
+/**
+ * `{astra:numref}` — native numbered cross-reference (e.g. "Figure 3").
+ *
+ * Emits a `link` to the target identifier (NOT a `crossReference` node): MyST's
+ * reference resolver fills the number/label for link nodes during its own
+ * pipeline, but leaves plugin-injected `crossReference` nodes unresolved
+ * (`\ref{undefined}`). The empty/`%s` link text is filled by MyST, matching how
+ * a plain `[](#output-id)` link numbers a figure.
+ */
+const astraNumrefRole = {
+  name: 'astra:numref',
+  doc: 'Numbered cross-reference to a placed output (like {numref}; supports %s).',
+  body: { type: String, required: true, doc: 'A path, optionally `text with %s <path>`.' },
+  run(data: any): any[] {
+    const { display, path } = splitDisplay(String(data?.body ?? ''));
+    const p = parseAstraPath(path);
+    const ident = pathIdentifier(p);
+    if (!ident) return [text(display ?? path)];
+    return [link(`#${ident}`, display ? [text(display)] : [])];
+  },
+};
+
+/** Gather the DOIs backing a finding or prior insight. */
+function refDois(p: AstraPath, scope: Scope): string[] {
+  const owner =
+    p.collection === 'findings'
+      ? scope.analysis.findings?.[p.id!]
+      : scope.priorInsights[p.id!];
+  const dois = (owner?.evidence ?? []).map((e: any) => e.doi).filter(Boolean) as string[];
+  return [...new Set(dois)];
+}
+
+/** `{astra:cite}` / `{astra:cite:t}` — bibliographic citation from DOI evidence. */
+function citeRole(name: string, kind: 'parenthetical' | 'narrative') {
   return {
-    name: `astra:${name}`,
-    doc: `Inline reference to an ASTRA ${name} (a theme renders its card from the store).`,
-    body: {
-      type: String,
-      required: true,
-      doc: 'Path: <id> or <sub>.<id>, optionally `<id>|display text` for the inline label',
-    },
+    name,
+    doc: `Cite a finding/prior-insight as a ${kind} author–year citation from its DOI evidence.`,
+    body: { type: String, required: true, doc: 'A path to a finding or prior insight.' },
     run(data: any): any[] {
-      // Optional `|display text` overrides the inline label (the card still
-      // shows the element's own label/claim).
-      const [pathPart, ...rest] = String(data?.body ?? '').split('|');
-      const display = rest.join('|').trim() || null;
-      const { analysisPath, id } = splitPath(pathPart);
-      if (!id) return [text(String(data?.body ?? ''))];
-      const path = [...analysisPath, id].join('.');
+      const { display, path } = splitDisplay(String(data?.body ?? ''));
+      const p = parseAstraPath(path);
       try {
-        const scope = resolveScope(projectRoot(), universeName(), analysisPath);
-        const { label, subtype } = citeLabel(kind, id, scope, display);
-        return [refNode(kind, id, path, label, subtype)];
-      } catch {
-        return [refNode(kind, id, path, display ?? humanize(id))];
+        const scope = resolveScope(projectRoot(), universeName(), p.scope);
+        if (p.collection !== 'findings' && p.collection !== 'prior_insights') {
+          throw new Error('astra:cite expects a finding or prior_insight path');
+        }
+        const dois = refDois(p, scope);
+        if (dois.length === 0) {
+          // No DOI to cite — fall back to a plain reference token.
+          const r = resolveInlineRef(p, scope, display);
+          return [refNode(r.kind, r.id, r.path, r.label)];
+        }
+        const cites = dois.map((d) => cite(d, [], kind));
+        return cites.length === 1 ? cites : [citeGroup(cites, kind)];
+      } catch (err) {
+        return [{ type: 'inlineCode', value: `⟨cite: ${(err as Error).message}⟩` }];
       }
     },
   };
@@ -624,8 +846,6 @@ function citeRole(name: string, kind: CiteKind) {
 function fmtNum(raw: string, sig: number): string {
   const x = Number(raw);
   if (!isFinite(x)) return String(raw);
-  // Round to `sig` figures, then let Number→String drop trailing zeros and
-  // normalise the form (e.g. 200000 not 2.000e+5, 0.0696 not 0.06960).
   return String(Number(x.toPrecision(sig)));
 }
 
@@ -634,41 +854,57 @@ function valueError(msg: string): any {
 }
 
 /**
- * `{astra:value}` — interpolate a real number from a materialised result
- * product, so no measured value is ever hard-typed into the prose.
+ * `{astra:value}` — interpolate a real number from the resolved analysis, so no
+ * measured value is ever hard-typed into prose.
  *
  * Body grammar (whitespace-separated):
- *   <output-path> col=<column> [<key>=<val> ...] [pm] [sig=N]
+ *   <path> [col=<column>] [<key>=<val> ...] [±|pm] [err=<column>] [sig=N]
  *
- *   - `<output-path>`  output id, optionally scoped (`clustering.xi_…`).
- *   - `col=`           the column to read (table outputs).
- *   - `<key>=<val>`    row filters, e.g. `tracer=lrg3_elg1 recon=Post`.
- *   - `pm`             also render `± <col>_std` when that column exists.
- *   - `sig=N`          significant figures (default 4).
- *
- * e.g. ``{astra:value}`bao_distance_table tracer=lrg3_elg1 col=DV_over_rd pm` ``
- * reads `results/<universe>/bao_distance_table/…csv` and renders `19.88 ± 0.17`.
+ *   - `<path>`     a table/metric output (`outputs/bao_table`, scoped allowed),
+ *                  or a decision (`decisions/algorithm` → its selected option).
+ *   - `col=`       the column to read (table outputs).
+ *   - `<key>=<val>`row filters, e.g. `tracer=lrg3 recon=Post`.
+ *   - `±` / `pm`   also render `± <col>_std` when that column exists.
+ *   - `err=<col>`  explicit uncertainty column.
+ *   - `sig=N`      significant figures (default 4).
  */
 const valueRole = {
   name: 'astra:value',
-  doc: 'Interpolate a numeric cell from a table result product (no hard-typed numbers).',
-  body: { type: String, required: true, doc: '<output> col=<col> [<key>=<val> ...] [pm] [sig=N]' },
+  doc: 'Interpolate a numeric value (table cell, metric, or a decision selection).',
+  body: { type: String, required: true, doc: '<path> [col=<col>] [<key>=<val> ...] [±] [sig=N]' },
   run(data: any): any[] {
     const tokens = String(data?.body ?? '').trim().split(/\s+/).filter(Boolean);
-    const path = tokens.shift();
-    if (!path) return [valueError('missing output path')];
+    const pathStr = tokens.shift();
+    if (!pathStr) return [valueError('missing path')];
     const opts: Record<string, string | true> = {};
     for (const t of tokens) {
+      if (t === '±') {
+        opts['pm'] = true;
+        continue;
+      }
       const i = t.indexOf('=');
       if (i < 0) opts[t] = true;
       else opts[t.slice(0, i)] = t.slice(i + 1);
     }
     try {
-      const { analysisPath, id } = splitPath(path);
-      if (!id) return [valueError(`missing output id in "${path}"`)];
-      const scope = resolveScope(projectRoot(), universeName(), analysisPath);
+      const p = parseAstraPath(pathStr);
+      const id = p.id;
+      if (!id) return [valueError(`missing element id in "${pathStr}"`)];
+      const scope = resolveScope(projectRoot(), universeName(), p.scope);
+
+      // A decision's value is the option selected under the active universe.
+      if (p.collection === 'decisions') {
+        const dec = scope.analysis.decisions?.[id];
+        if (!dec) return [valueError(`no decision "${id}"`)];
+        const optId = scope.universe.decisions?.[id] ?? dec.default;
+        const label = (optId && dec.options?.[optId]?.label) || optId || '(none)';
+        const node = refNode('value', id, dottedKey(p.scope, id), label, 'decision');
+        Object.assign(node.data.astra, { selection: optId });
+        return [node];
+      }
+
       const abs = scope.results(id);
-      if (!abs) return [valueError(`no result file for "${path}"`)];
+      if (!abs) return [valueError(`no result file for "${pathStr}"`)];
       const tbl = parseTableData(abs);
       if (!tbl) return [valueError(`"${id}" is not tabular`)];
       const col = typeof opts['col'] === 'string' ? (opts['col'] as string) : null;
@@ -689,8 +925,6 @@ const valueRole = {
       }
       const sig = typeof opts['sig'] === 'string' ? parseInt(opts['sig'] as string, 10) : 4;
       let out = fmtNum(row[ci], sig);
-      // Uncertainty: explicit `err=<col>`, else `pm` uses the `<col>_std`
-      // convention (matches the distance table; the α table needs `err=`).
       const errCol =
         typeof opts['err'] === 'string' ? (opts['err'] as string) : opts['pm'] ? `${col}_std` : null;
       if (errCol) {
@@ -699,24 +933,11 @@ const valueRole = {
           out += ` ± ${fmtNum(row[ei], 2)}`;
         }
       }
-      // A value isn't a standalone store element, so its node is self-describing:
-      // the computed number is the text, and `data.astra` carries the source
-      // product id + column + row filter the theme renders as provenance (it can
-      // still join `store.outputs[id]` for the product's label/type). No
-      // whole-table overlay — just where this number came from.
       const output = scope.outputsById.get(id);
       const subtype = output?.type ?? 'table';
       const filterDesc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ');
-      // Same `astra-ref` node shape as the cite roles (built by `refNode`), plus
-      // the value-specific provenance the theme renders: column, row filter, and
-      // the source product's type/label.
-      const node = refNode('value', id, [...analysisPath, id].join('.'), out, subtype);
-      Object.assign(node.data.astra, {
-        col,
-        filter: filterDesc,
-        type: subtype,
-        product: output?.label,
-      });
+      const node = refNode('value', id, dottedKey(p.scope, id), out, subtype);
+      Object.assign(node.data.astra, { col, filter: filterDesc, type: subtype, product: output?.label });
       return [node];
     } catch (err) {
       return [valueError((err as Error).message)];
@@ -724,28 +945,18 @@ const valueRole = {
   },
 };
 
-// ── Transform: ASTRA anchor grammar in author prose ──────────────────────────
+// ── Transform: ASTRA anchor scheme in author prose ───────────────────────────
 
 /**
- * The ASTRA scope a page maps to, or `null` for non-ASTRA pages (e.g. an
- * `about.md`). Scope is derived from the file's basename using the
- * **dotted-filename convention**, which composes to any nesting depth with
- * zero config: each `.`-segment is one analysis level, so `index.md` → root,
- * `reconstruction.md` → `[reconstruction]`, and
- * `reconstruction.features.md` → `[reconstruction, features]`. A page may also
- * override this explicitly via the `astra_scope` frontmatter key (a dotted
- * string `'reconstruction.features'` or an already-split `string[]`).
+ * The ASTRA scope a page maps to, or `null` for non-ASTRA pages. Scope is
+ * derived from the file's basename using the dotted-filename convention: each
+ * `.`-segment is one analysis level, so `index.md` → root, `reconstruction.md`
+ * → `[reconstruction]`, `reconstruction.features.md` → `[reconstruction,
+ * features]`. A page may override via the `astra_scope` frontmatter key.
  */
 function scopeForFile(vfile: any): Scope | null {
   const base = basename(vfile?.path ?? '', '.md');
-  // Dotted basename is the canonical, always-available derivation; `index`
-  // maps to the root scope (empty path), every other dot-segment descends one
-  // analysis level. `.filter(Boolean)` drops empties from a leading/trailing
-  // dot so a stray `.` never yields an unknown-sub-analysis throw.
   let analysisPath = base && base !== 'index' ? base.split('.').filter(Boolean) : [];
-  // Best-effort frontmatter override: if the page declares `astra_scope`, prefer
-  // it. Guarded defensively — the transform harness passes a bare `{ path }`
-  // vfile with no `data`/`frontmatter`, so this stays a bonus over the basename.
   const explicit = vfile?.data?.frontmatter?.astra_scope;
   if (Array.isArray(explicit)) {
     analysisPath = explicit.map((s) => String(s)).filter(Boolean);
@@ -760,18 +971,14 @@ function scopeForFile(vfile: any): Scope | null {
 }
 
 /**
- * Rewrite ASTRA tree-path anchor links (`[text](#decisions.x)`,
- * `#outputs.y`, `#analyses.sub.outputs.z`, …) that appear in the *author's*
- * prose into `crossReference` nodes (same page) or sub-page links — reusing
- * MySTRA's `resolveNarrativeAnchors`. Directives already resolve anchors in
- * the prose they render; this covers anchors the author writes directly.
- * Author-written output-image anchors gain a `/static/` url here, so the
- * same `rewriteStaticImages` pass the directives use rewrites them to a
- * project-relative path MyST can copy.
+ * Rewrite `#astra:<path>` cross-reference links the author writes directly in
+ * page prose into `crossReference` nodes (same page) or sub-page links — reusing
+ * the shared `resolveNarrativeAnchors`. Directives resolve anchors in the prose
+ * they render; this covers the author's own page prose.
  */
 const anchorTransform = {
   name: 'astra-anchor-grammar',
-  doc: 'Resolve ASTRA #path.to.element anchor links to cross-references.',
+  doc: 'Resolve ASTRA #astra:<path> cross-reference links to crossReferences.',
   stage: 'document',
   plugin: () => (tree: any, vfile: any) => {
     const scope = scopeForFile(vfile);
@@ -789,15 +996,6 @@ const anchorTransform = {
 };
 
 // ── Transform: emit the resolved ASTRA store for rich themes ─────────────────
-//
-// The theme cannot read `astra.yaml` (it only sees the build output), so the
-// plugin bakes a *resolved* projection of the page's analysis scope — keyed by
-// id — onto a hidden carrier node's `data`. A rich theme selects the carrier
-// (`.astra-store`) and joins each placed element's identifier (`output-<id>`,
-// `decision-<id>`, …) to its store entry, enabling cards / dependency graphs /
-// alternative layouts without re-implementing ASTRA semantics. The carrier is
-// an empty `display:none` div, so it is invisible on book-theme.
-// See STRATEGY-A-REFACTOR.md §5.
 
 /** Ancestor input maps (innermost-last) for resolving aliased `from:` inputs. */
 function parentInputMaps(scope: Scope): Map<string, Input>[] {
@@ -807,14 +1005,11 @@ function parentInputMaps(scope: Scope): Map<string, Input>[] {
 }
 
 /**
- * The page scope's provenance frame, parent-linked up to the root analysis —
- * lets the output tracer resolve sibling references (`reconstruction.…` seen
- * from `clustering`) and `../` decision aliases. Universe narrowing per
- * descent mirrors `resolveScope`.
+ * The page scope's provenance frame, parent-linked up to the root analysis.
  */
 function pageProvFrame(scope: Scope): ProvFrame {
   const rootUniverse = getSource(scope.root, universeName()).universe;
-  const segs = scope.slug === 'index' ? [] : scope.slug.split('/');
+  const segs = scope.slugParts;
   const analyses = [...scope.analysisScopes.map((s) => s.analysis), scope.analysis];
   return pageFrames(analyses, rootUniverse, segs);
 }
@@ -827,6 +1022,7 @@ const REF_KIND_TO_TABLE: Record<string, keyof ReturnType<typeof buildResolvedSto
   finding: 'findings',
   prior_insight: 'prior_insights',
   analysis: 'subanalyses',
+  input: 'inputs',
 };
 
 /** Collect every inline-ref join key (`data.astra`) in the page tree. */
@@ -841,21 +1037,10 @@ function collectInlineRefs(node: any, out: { kind: string; id: string; path: str
 
 /**
  * Merge the entries that the page's CROSS-SCOPE inline refs point at into the
- * page store, keyed by their full dotted path (`reconstruction.convention`).
- *
- * The cite roles resolve `<sub>.<id>` paths against the project root at parse
- * time (the label is right), but the page store only serializes the page's own
- * scope — so the theme had nothing to join a cross-scope ref to and the hover
- * card silently degraded to a bare token. Each referenced sub-scope's store is
- * built once (cached) and the named entries are copied over with `id` rewritten
- * to the path key, so downstream consumers that join by id (asset images,
- * evidence rows) stay consistent.
- *
- * Secondary joins inside a merged entry are carried along under the same
- * path-qualifying scheme when the page store lacks them: a decision's
- * `option_insights` (the SUPPORTED BY evidence) and a finding's evidence
- * artifacts. Ids the page already holds are left as-is — sub-scopes inherit
- * ancestor prior_insights, so the plain id is the same insight.
+ * page store, keyed by their full dotted path. Each referenced sub-scope's store
+ * is built once (cached) and the named entries are copied over with `id`
+ * rewritten to the path key. Secondary joins (a decision's option_insights, a
+ * finding's evidence artifacts) ride along path-qualified.
  */
 function mergeCrossScopeRefs(tree: any, store: ReturnType<typeof buildResolvedStore>): void {
   const refs: { kind: string; id: string; path: string }[] = [];
@@ -880,19 +1065,15 @@ function mergeCrossScopeRefs(tree: any, store: ReturnType<typeof buildResolvedSt
           ),
         );
       } catch {
-        subStores.set(prefix, null); // unknown scope — leave the ref bare
+        subStores.set(prefix, null);
       }
     }
     return subStores.get(prefix) ?? null;
   };
 
-  /** Copy `sub[table][id]` to `store[table][<prefix>.<id>]` unless present. */
   const adopt = (table: keyof ReturnType<typeof buildResolvedStore>, prefix: string, id: string): string => {
     const qualified = `${prefix}.${id}`;
     const target = store[table] as Record<string, any>;
-    // Sub-scopes inherit ancestor prior_insights, so the page's own entry IS
-    // the referenced insight — keep the plain id rather than duplicating it.
-    // (No other table inherits: a same-named local entry is a different one.)
     if (table === 'prior_insights' && target[id]) return id;
     if (!target[qualified]) {
       const entry = (subStoreFor(prefix)?.[table] as Record<string, any> | undefined)?.[id];
@@ -939,61 +1120,43 @@ const storeTransform = {
       scope.priorInsights,
       pageProvFrame(scope),
     );
-    // Cross-scope refs join entries from OTHER pages' scopes — fold those in
-    // (path-keyed) before the asset / DOI passes below so merged figures and
-    // citations ride the same pipelines.
     mergeCrossScopeRefs(tree, store);
+    // The rich theme locates this carrier by its `astra-store` identifier (a
+    // provider reads its `data.astra` and feeds every inline `.astra-ref` token
+    // for the hover-card join), so the identifier is load-bearing — do NOT drop
+    // it. It is the same on every page, which makes MyST log an advisory
+    // "Duplicate identifier in project" warning; that is benign (each page keeps
+    // its own carrier) and must not be traded away for the hover feature.
     const carrier: any = hiddenDiv('astra-store');
     carrier.identifier = 'astra-store';
     carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
 
-    // Route output artifacts through MyST's asset pipeline. The store's
-    // `resolved_path` is a project-relative path that MyST only copies (and
-    // url-rewrites) for image NODES — a JSON field is opaque to it, so a card
-    // <img> pointing at the raw path 404s. Emitting one hidden image node per
-    // image-typed result lets MyST's own transforms produce a servable URL;
-    // each node is tagged `data.astraAsset = <output id>` so the theme can
-    // join the rewritten url back onto the store entry.
+    // Route output artifacts through MyST's asset pipeline (a JSON path is
+    // opaque to it). One hidden image node per image-typed result, tagged with
+    // its output id, lets MyST produce a servable hashed URL the theme rejoins.
     const assetImages = Object.values(store.outputs)
-      .filter(
-        (o) => o.resolved_path && /\.(png|jpe?g|gif|webp|svg)$/i.test(o.resolved_path),
-      )
-      .map((o) => ({
-        type: 'image',
-        url: o.resolved_path,
-        alt: o.label ?? o.id,
-        data: { astraAsset: o.id },
-      }));
+      .filter((o) => o.resolved_path && /\.(png|jpe?g|gif|webp|svg)$/i.test(o.resolved_path))
+      .map((o) => ({ type: 'image', url: o.resolved_path, alt: o.label ?? o.id, data: { astraAsset: o.id } }));
     if (assetImages.length > 0) {
       (tree.children ??= []).push(hiddenDiv('astra-assets', assetImages));
     }
 
-    // Register every insight DOI with MyST's citation pipeline. The store only
-    // carries the raw DOI string; emitting a hidden `cite` node per DOI (label
-    // = the DOI) lets MyST's own transforms resolve it (transformLinkedDOIs →
-    // transformCitations), so `references.cite.data` carries the formatted
-    // citation and the theme's hover cards render the same author–year
-    // citation as main-text DOIs — with the source listed in the bibliography.
-    // BOTH kinds are registered: narrative ("Chen et al. (2024)") for card
-    // cite rows, parenthetical ("Chen et al., 2024") for the auto-citation the
-    // theme appends after inline prior-insight references in prose.
-    const dois = [
-      ...new Set(
-        Object.values(store.prior_insights)
-          .map((insight) => insight.doi)
-          .filter((d): d is string => !!d),
-      ),
-    ];
+    // Register every DOI (prior insights + finding evidence) with MyST's
+    // citation pipeline: a hidden `cite` node per DOI (label = DOI) lets MyST
+    // resolve the formatted author–year citation and the bibliography entry, so
+    // both the theme's hover cards and the `{astra:cite[:t]}` roles render real
+    // citations. BOTH kinds are registered — narrative for card rows, parenthetical
+    // for the auto-append after inline references.
+    const insightDois = Object.values(store.prior_insights).map((i) => i.doi);
+    const findingDois = Object.values(store.findings).flatMap((f) =>
+      (f.evidence ?? []).map((e: any) => e.doi),
+    );
+    const dois = [...new Set([...insightDois, ...findingDois].filter((d): d is string => !!d))];
     if (dois.length > 0) {
       (tree.children ??= []).push(
         hiddenDiv('astra-cites', [
-          paragraph(
-            dois.flatMap((d) => [
-              cite(d, [], 'narrative'),
-              cite(d, [], 'parenthetical'),
-            ]),
-          ),
+          paragraph(dois.flatMap((d) => [cite(d, [], 'narrative'), cite(d, [], 'parenthetical')])),
         ]),
       );
     }
@@ -1004,21 +1167,12 @@ const storeTransform = {
 
 const plugin = {
   name: 'astra',
-  directives: [
-    decisionDirective,
-    outputDirective,
-    findingDirective,
-    priorInsightDirective,
-    inputsDirective,
-    outputsDirective,
-    subAnalysisDirective,
-  ],
+  directives: [astraDirective],
   roles: [
-    citeRole('decision', 'decision'),
-    citeRole('output', 'output'),
-    citeRole('finding', 'finding'),
-    citeRole('prior-insight', 'prior_insight'),
-    citeRole('analysis', 'analysis'),
+    astraRole,
+    astraNumrefRole,
+    citeRole('astra:cite', 'parenthetical'),
+    citeRole('astra:cite:t', 'narrative'),
     valueRole,
   ],
   transforms: [anchorTransform, storeTransform],
@@ -1029,6 +1183,8 @@ export default plugin;
 // ── Library exports (for programmatic use) ──────────────────────────────────
 export { loadASTRASource } from './loader.js';
 export type { ASTRASource } from './loader.js';
+export { parseAstraPath } from './path.js';
+export type { AstraPath, Collection } from './path.js';
 export { buildResolvedStore } from './transform/resolved-store.js';
 export type {
   ResolvedStore,

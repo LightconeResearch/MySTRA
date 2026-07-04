@@ -32,11 +32,11 @@ with the analysis.
 
 ```markdown
 The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value}`bao_distance_table tracer=lrg3_elg1 col=DV_over_rd pm`
-at $z_\mathrm{eff} =$ {astra:value}`bao_distance_table tracer=lrg3_elg1 col=z_eff`,
-consistent with the {astra:finding}`bao_detected_post_recon` detection.
+$D_V/r_d =$ {astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
+at $z_\mathrm{eff} =$ {astra:value}`outputs/bao_distance_table col=z_eff tracer=lrg3_elg1`,
+consistent with the {astra}`findings/bao_detected_post_recon` detection.
 
-:::{astra:output} bao_fit_plot
+:::{astra} outputs/bao_fit_plot
 :::
 ```
 
@@ -117,62 +117,119 @@ That's it — no custom server and no build step of your own. MySTRA reads
 
 ## Authoring
 
-The directive and role vocabulary below *is* your compositional surface — what
-you place is what appears.
+You reference **any part** of an ASTRA analysis with one idea: a **path** that
+mirrors `astra.yaml`. One name — `astra` — drives both surfaces, the MyST way
+(just as `{math}` is both a role and a directive): wrap a path in the `{astra}`
+*role* to mention it inline, or use the `{astra}` *directive* to embed it as a
+block.
 
-### Block directives — import a component by id
+### Paths — addressing any element
 
-```markdown
-:::{astra:decision} covariance_source
-:::                                   # dropdown: the choice + tabbed options
-:::{astra:output} bao_fit_plot
-:::                                   # the figure (or table), with provenance
-:::{astra:finding} bao_detected_post_recon
-:::                                   # claim + notes + scope + evidence  (:compact: trims to claim only)
-:::{astra:prior-insight} recon_sharpens_bao_peak
-:::                                   # the prior insight as an admonition
-:::{astra:inputs}
-:::                                   # the inputs registry table (root scope)
-:::{astra:outputs} clustering
-:::                                   # outputs table for the `clustering` sub-analysis
-:::{astra:subanalysis} reconstruction
-:::                                   # a nav card linking to the sub-analysis page
+A path is a slash-separated route through the analysis tree. Read it like a file
+path; the first meaningful segment is a top-level `astra.yaml` collection.
+
+```
+outputs/hubble_diagram                  an output (figure / table / metric / …)
+decisions/algorithm                     a decision
+decisions/algorithm/options/gp          a child — one option of a decision
+findings/sig/evidence/fig1              a child — one evidence record of a finding
+prior_insights/recon_sharpens_bao       a prior insight
+inputs/raw_catalog                      an input
+reconstruction/outputs/xi               an output in the `reconstruction` sub-analysis
+reconstruction                          the sub-analysis itself
+outputs                                 a whole collection (a registry)
 ```
 
-### Inline roles — cite a component in a sentence
+Collections are the `astra.yaml` keys: `inputs`, `outputs`, `decisions`,
+`findings`, `prior_insights` (hyphen alias `prior-insights`), `analyses`,
+`universes`. A sub-analysis id may be written directly (the `analyses/` prefix is
+implied) and nests to any depth (`clustering/correlation/outputs/xi`). In roles
+and directives a path resolves from the **root analysis** (a leading `/` is
+optional); the `#astra:` link scheme (below) resolves relative to the **page**,
+and additionally supports `../` to climb scopes.
+
+### Inline references — the `{astra}` role
+
+```markdown
+We adopt the {astra}`decisions/algorithm` and report {astra}`outputs/hubble_diagram`,
+which confirms {astra}`findings/signal_detected`.
+
+{astra}`our preferred method <decisions/algorithm>`     # custom display text
+```
 
 Each renders as a neutral text label (a rich theme adds a kind glyph and a hover
-preview card):
+preview card). A few specialised variants follow MyST's colon convention
+(`{cite:p}` / `{cite:t}`):
 
 ```markdown
-{astra:decision}`covariance_source`
-{astra:output}`hubble_diagram_plot`
-{astra:finding}`subpercent_alpha_iso_precision`
-{astra:prior-insight}`recon_sharpens_bao_peak|the recovered peak`   # |display override
-{astra:analysis}`reconstruction`
+{astra:numref}`outputs/hubble_diagram`                     # "Figure 3" (like {numref}; supports %s)
+{astra:numref}`see Fig. %s <outputs/hubble_diagram>`
+{astra:cite}`prior_insights/recon_sharpens_bao`         # "(Chen et al., 2024)"  — parenthetical
+{astra:cite:t}`prior_insights/recon_sharpens_bao`       # "Chen et al. (2024)"   — textual
 ```
+
+### Block embeds — the `{astra}` directive
+
+```markdown
+:::{astra} decisions/algorithm
+:::                                   # the decision + its tabbed options
+:::{astra} outputs/hubble_diagram
+:::                                   # the figure (or table / metric), with provenance
+:::{astra} findings/signal_detected
+:::                                   # claim + notes + scope + evidence
+:::{astra} prior_insights/recon_sharpens_bao
+:::                                   # the prior insight as an admonition
+:::{astra} reconstruction
+:::                                   # a nav card linking to the sub-analysis page
+:::{astra} outputs
+:::                                   # a whole collection → the outputs registry
+:::{astra} reconstruction/inputs
+:::                                   # the inputs registry for a sub-analysis
+```
+
+Options follow MyST's `:key: value` form:
+
+| Option | Meaning |
+|---|---|
+| `:label:` | Cross-reference label for the rendered block (manage the anchor yourself). |
+| `:caption:` | Caption text (figure / table outputs). |
+| `:compact:` | Findings: claim + notes + scope only (no evidence figures). |
+| `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, notes, scope, evidence`). |
+| `:universe:` | Render the element as resolved under a specific universe id. |
+| `:class:` | Extra CSS class(es) on the rendered block. |
 
 ### Live values — never hard-type a measured number
 
-Pull a cell straight from a materialised result product at build time:
+Pull a number straight from the resolved analysis at build time:
 
 ```markdown
-{astra:value}`bao_distance_table tracer=lrg3_elg1 col=DV_over_rd pm`   → 19.88 ± 0.17
-{astra:value}`bao_alpha_values tracer=elg1 recon=Pre col=alpha1_std`   → 0.0696
+{astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
+{astra:value}`outputs/bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
+{astra:value}`decisions/algorithm`                                            → the selected option
 ```
 
-Grammar: `<output-path> col=<col> [<key>=<val> …] [pm] [err=<col>] [sig=N]`.
-It reads the output's CSV/JSON, filters rows by each `key=val`, and renders the
-selected cell — append `pm` (or `err=<col>`) to show `± std`, `sig=N` to set
-significant figures.
+Grammar: `<path> [col=<col>] [<key>=<val> …] [±|pm] [err=<col>] [sig=N]`. For a
+table output it reads the CSV/JSON, filters rows by each `key=val`, and renders
+the selected cell — append `±` (or `pm`/`err=<col>`) to show `± std`, `sig=N` to
+set significant figures. A metric output renders its scalar; a `decisions/<id>`
+path renders the option selected under the active universe.
 
-### Cross-references and scoping
+### Native cross-references and embeds
 
-- **Anchors**: `[text](#decisions.x)`, `#outputs.y`, `#analyses.sub.…` resolve
-  to cross-references, alongside plain MyST `[](#output-bao_fit_plot)`.
-- **Scoping**: a component path is `<id>` for the root analysis or `<sub>.<id>`
-  for a sub-analysis (e.g. `reconstruction.algorithm`), and can nest
-  (`a.b.id`). Each sub-analysis is typically its own page.
+Every element is also a MyST cross-reference target under the `astra:` scheme, so
+plain MyST links work — resolved relative to the current page, with `../` and a
+leading `/`:
+
+```markdown
+[](#astra:outputs/hubble_diagram)              # auto-filled link text
+[the diagram](#astra:outputs/hubble_diagram)   # custom text
+![](#astra:outputs/hubble_diagram)             # embed a figure output
+
+:::{figure} #astra:outputs/hubble_diagram
+:label: fig-hubble
+A caption written here, in the report.
+:::
+```
 
 Everything else — prose, math, figures you author yourself, the table of
 contents, multi-page structure — is ordinary MyST.
@@ -221,8 +278,9 @@ comes for free once a project bibliography is wired.
 
 Every placed block carries a stable `astra-<kind>` class
 (`astra-decision`, `astra-output`/`--figure`, `astra-finding`,
-`astra-prior-insight`, `astra-inputs`/`astra-outputs`, `astra-subanalysis`) on
-the node bearing its `<kind>-<id>` identifier; inline tokens are neutral
+`astra-prior-insight`, `astra-input`/`astra-inputs`/`astra-outputs`,
+`astra-option`, `astra-universe`, `astra-subanalysis`) on the node bearing its
+`<kind>-<id>` identifier; inline tokens are neutral
 (`span.astra-ref--<kind>`). For rich rendering the plugin also bakes a **resolved
 store** onto a hidden `div.astra-store` carrier's `data` (per page): the fully
 resolved outputs (project-relative paths, parsed table/metric values, recipes,
@@ -242,10 +300,11 @@ exported `ResolvedStore` / `Serialized*` types.
 ```
 src/
 ├── index.ts                  The MyST plugin + package entry (default export = the plugin)
+├── path.ts                   The unified reference path grammar (parse + resolve)
 ├── loader.ts                 Load a project for one universe (via the SDK) + resolve result files
 └── transform/                Per-component renderers used by the plugin
     ├── ast-helpers.ts        Pure AST node constructors
-    ├── prose.ts              Parse component Markdown + resolve ASTRA anchors
+    ├── prose.ts              Parse component Markdown + resolve #astra: cross-references
     ├── parse-table-data.ts   CSV/JSON table parser
     ├── resolve-output.ts     Resolves `from:` output/alias chains
     ├── provenance.ts         Traces an output's decision/input provenance frames

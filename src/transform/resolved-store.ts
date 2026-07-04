@@ -39,7 +39,6 @@ import type {
 
 export type { SerializedProvenanceDecision, SerializedRootInput };
 import { isDecisionRendered } from './render-methods.js';
-import { firstParagraphText } from './prose.js';
 import { parseTableData, type TableData } from './parse-table-data.js';
 
 // ── Serialized shapes ───────────────────────────────────────────────────────
@@ -250,7 +249,8 @@ export function buildResolvedStore(
     subanalyses[id] = {
       id,
       name: sub.name,
-      summary: firstParagraphText(sub.narrative?.summary),
+      // ASTRA no longer carries a `narrative` section, so there is no authored
+      // summary to surface on the card; the theme renders name + counts.
       url: '/' + (base ? `${base}/${id}` : id),
       decisions: Object.keys(sub.decisions ?? {}).length,
       outputs: (sub.outputs ?? []).length,
