@@ -23,6 +23,9 @@ Edit `astra.yaml` or rerun the analysis, rebuild, and every number in the prose 
 
 Option values without spaces can be unquoted (`col=alpha`); quote anything with spaces (`where="tracer=lrg3 recon=Post"`).
 
+!!! note "Requires a current `mystmd`"
+    Role options use MyST's [inline options](https://mystmd.org/guide/inline-options) syntax, available in current `mystmd` releases (marked beta upstream). If `myst` reports an unknown role for `` {astra:value col=…}` `` , update the CLI.
+
 ## Table outputs
 
 For a table output MySTRA reads the materialised CSV/JSON result, filters rows by each `where=` pair, and renders the selected cell:
