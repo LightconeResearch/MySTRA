@@ -33,11 +33,11 @@ with the analysis.
 
 ```markdown
 The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
-at $z_\mathrm{eff} =$ {astra:value}`outputs/bao_distance_table col=z_eff tracer=lrg3_elg1`,
-consistent with the {astra}`findings/bao_detected_post_recon` detection.
+$D_V/r_d =$ {astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
+at $z_\mathrm{eff} =$ {astra:value}`outputs.bao_distance_table col=z_eff tracer=lrg3_elg1`,
+consistent with the {astra}`findings.bao_detected_post_recon` detection.
 
-:::{astra} outputs/bao_fit_plot
+:::{astra} outputs.bao_fit_plot
 :::
 ```
 
@@ -126,25 +126,27 @@ block.
 
 ### Paths — addressing any element
 
-A path is a slash-separated route through the analysis tree. Read it like a file
-path; the first meaningful segment is a top-level `astra.yaml` collection.
+A path is a dot-separated route through the analysis tree — the same dotted
+spelling `astra.yaml` itself uses for element references (`when:
+decision.option`, `from: scope.id`). Dots address elements, slashes are for
+files; the first meaningful segment is a top-level `astra.yaml` collection.
 
 ```
-outputs/hubble_diagram                  an output (figure / table / metric / …)
-decisions/algorithm                     a decision
-decisions/algorithm/options/gp          a child — one option of a decision
-findings/sig/evidence/fig1              a child — one evidence record of a finding
-prior_insights/recon_sharpens_bao       a prior insight
-inputs/raw_catalog                      an input
-reconstruction/outputs/xi               an output in the `reconstruction` sub-analysis
+outputs.hubble_diagram                  an output (figure / table / metric / …)
+decisions.algorithm                     a decision
+decisions.algorithm.options.gp          a child — one option of a decision
+findings.sig.evidence.fig1              a child — one evidence record of a finding
+prior_insights.recon_sharpens_bao       a prior insight
+inputs.raw_catalog                      an input
+reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis
 reconstruction                          the sub-analysis itself
 outputs                                 a whole collection (a registry)
 ```
 
 Collections are the `astra.yaml` keys: `inputs`, `outputs`, `decisions`,
 `findings`, `prior_insights` (hyphen alias `prior-insights`), `analyses`,
-`universes`. A sub-analysis id may be written directly (the `analyses/` prefix is
-implied) and nests to any depth (`clustering/correlation/outputs/xi`). In roles
+`universes`. A sub-analysis id may be written directly (the `analyses.` prefix is
+implied) and nests to any depth (`clustering.correlation.outputs.xi`). In roles
 and directives a path resolves from the **root analysis** (a leading `/` is
 optional); the `#astra:` link scheme (below) resolves relative to the **page**,
 and additionally supports `../` to climb scopes.
@@ -152,10 +154,10 @@ and additionally supports `../` to climb scopes.
 ### Inline references — the `{astra}` role
 
 ```markdown
-We adopt the {astra}`decisions/algorithm` and report {astra}`outputs/hubble_diagram`,
-which confirms {astra}`findings/signal_detected`.
+We adopt the {astra}`decisions.algorithm` and report {astra}`outputs.hubble_diagram`,
+which confirms {astra}`findings.signal_detected`.
 
-{astra}`our preferred method <decisions/algorithm>`     # custom display text
+{astra}`our preferred method <decisions.algorithm>`     # custom display text
 ```
 
 Each renders as a neutral text label (a rich theme adds a kind glyph and a hover
@@ -163,28 +165,28 @@ preview card). A few specialised variants follow MyST's colon convention
 (`{cite:p}` / `{cite:t}`):
 
 ```markdown
-{astra:ref}`outputs/hubble_diagram`                     # "Figure 3" (like {ref}; supports %s)
-{astra:ref}`see Fig. %s <outputs/hubble_diagram>`       # ({astra:numref} works as an alias)
-{astra:cite}`prior_insights/recon_sharpens_bao`         # "(Chen et al., 2024)"  — parenthetical
-{astra:cite:t}`prior_insights/recon_sharpens_bao`       # "Chen et al. (2024)"   — textual
+{astra:ref}`outputs.hubble_diagram`                     # "Figure 3" (like {ref}; supports %s)
+{astra:ref}`see Fig. %s <outputs.hubble_diagram>`       # ({astra:numref} works as an alias)
+{astra:cite}`prior_insights.recon_sharpens_bao`         # "(Chen et al., 2024)"  — parenthetical
+{astra:cite:t}`prior_insights.recon_sharpens_bao`       # "Chen et al. (2024)"   — textual
 ```
 
 ### Block embeds — the `{astra}` directive
 
 ```markdown
-:::{astra} decisions/algorithm
+:::{astra} decisions.algorithm
 :::                                   # the decision + its tabbed options
-:::{astra} outputs/hubble_diagram
+:::{astra} outputs.hubble_diagram
 :::                                   # the figure (or table / metric), with provenance
-:::{astra} findings/signal_detected
+:::{astra} findings.signal_detected
 :::                                   # claim + notes + scope + evidence
-:::{astra} prior_insights/recon_sharpens_bao
+:::{astra} prior_insights.recon_sharpens_bao
 :::                                   # the prior insight as an admonition
 :::{astra} reconstruction
 :::                                   # a nav card linking to the sub-analysis page
 :::{astra} outputs
 :::                                   # a whole collection → the outputs registry
-:::{astra} reconstruction/inputs
+:::{astra} reconstruction.inputs
 :::                                   # the inputs registry for a sub-analysis
 ```
 
@@ -204,15 +206,15 @@ Options follow MyST's `:key: value` form:
 Pull a number straight from the resolved analysis at build time:
 
 ```markdown
-{astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
-{astra:value}`outputs/bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
-{astra:value}`decisions/algorithm`                                            → the selected option
+{astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
+{astra:value}`outputs.bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
+{astra:value}`decisions.algorithm`                                            → the selected option
 ```
 
 Grammar: `<path> [col=<col>] [<key>=<val> …] [±|pm] [err=<col>] [sig=N]`. For a
 table output it reads the CSV/JSON, filters rows by each `key=val`, and renders
 the selected cell — append `±` (or `pm`/`err=<col>`) to show `± std`, `sig=N` to
-set significant figures. A metric output renders its scalar; a `decisions/<id>`
+set significant figures. A metric output renders its scalar; a `decisions.<id>`
 path renders the option selected under the active universe.
 
 ### Native cross-references and embeds
@@ -222,11 +224,11 @@ plain MyST links work — resolved relative to the current page, with `../` and 
 leading `/`:
 
 ```markdown
-[](#astra:outputs/hubble_diagram)              # auto-filled link text
-[the diagram](#astra:outputs/hubble_diagram)   # custom text
-![](#astra:outputs/hubble_diagram)             # embed a figure output
+[](#astra:outputs.hubble_diagram)              # auto-filled link text
+[the diagram](#astra:outputs.hubble_diagram)   # custom text
+![](#astra:outputs.hubble_diagram)             # embed a figure output
 
-:::{figure} #astra:outputs/hubble_diagram
+:::{figure} #astra:outputs.hubble_diagram
 :label: fig-hubble
 A caption written here, in the report.
 :::

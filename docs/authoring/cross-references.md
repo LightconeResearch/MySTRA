@@ -3,9 +3,9 @@
 Every ASTRA element is also a MyST cross-reference target under the `astra:` scheme, so **plain MyST link and embed syntax** works alongside the roles and directives:
 
 ```markdown
-[](#astra:outputs/hubble_diagram)              # auto-filled link text
-[the diagram](#astra:outputs/hubble_diagram)   # custom text
-![](#astra:outputs/hubble_diagram)             # embed a figure output
+[](#astra:outputs.hubble_diagram)              # auto-filled link text
+[the diagram](#astra:outputs.hubble_diagram)   # custom text
+![](#astra:outputs.hubble_diagram)             # embed a figure output
 ```
 
 Use this surface when you want MyST-native behaviour — numbered links, figure embeds with your own caption — rather than the plugin's rendered blocks.
@@ -15,7 +15,7 @@ Use this surface when you want MyST-native behaviour — numbered links, figure 
 The image form composes with MyST's `{figure}` directive, which lets the caption and label live in the report while the image stays single-sourced in the results tree:
 
 ```markdown
-:::{figure} #astra:outputs/hubble_diagram
+:::{figure} #astra:outputs.hubble_diagram
 :label: fig-hubble
 A caption written here, in the report.
 :::
@@ -26,10 +26,10 @@ A caption written here, in the report.
 Unlike [roles and directives](paths.md#where-paths-resolve-from) (which resolve from the root analysis), `#astra:` paths resolve **relative to the current page's scope** (see [multi-page reports](multi-page.md)), and support the full relative grammar:
 
 ```markdown
-[](#astra:outputs/xi)              # `xi` in this page's scope
-[](#astra:../outputs/xi)           # climb one scope towards the root
-[](#astra:/outputs/hubble)         # absolute — from the root analysis
-[](#astra:features/outputs/pca)    # descend into the `features` sub-analysis
+[](#astra:outputs.xi)              # `xi` in this page's scope
+[](#astra:../outputs.xi)           # climb one scope towards the root
+[](#astra:/outputs.hubble)         # absolute — from the root analysis
+[](#astra:features.outputs.pca)    # descend into the `features` sub-analysis
 ```
 
 On the root `index.md` page the two conventions coincide.
@@ -49,8 +49,8 @@ The same scheme works *inside* the analysis: narrative sections, decision ration
 
 | You want | Write |
 |---|---|
-| A semantic mention with a hover card on rich themes | `` {astra}`decisions/algorithm` `` |
-| "Figure 3"-style numbering | `` {astra:ref}`outputs/hubble_diagram` `` |
-| A plain MyST link (auto or custom text) | `[](#astra:outputs/hubble_diagram)` |
-| The output embedded with the plugin's provenance block | `:::{astra} outputs/hubble_diagram` |
-| The bare image under your own figure/caption | `:::{figure} #astra:outputs/hubble_diagram` |
+| A semantic mention with a hover card on rich themes | `` {astra}`decisions.algorithm` `` |
+| "Figure 3"-style numbering | `` {astra:ref}`outputs.hubble_diagram` `` |
+| A plain MyST link (auto or custom text) | `[](#astra:outputs.hubble_diagram)` |
+| The output embedded with the plugin's provenance block | `:::{astra} outputs.hubble_diagram` |
+| The bare image under your own figure/caption | `:::{figure} #astra:outputs.hubble_diagram` |

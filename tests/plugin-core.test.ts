@@ -242,8 +242,8 @@ function runStore(path: string): Record<string, any> {
 // ── Block directive: elements ───────────────────────────────────────────────
 
 describe('directive — elements', () => {
-  it('decisions/<id> → tabSet carrier tagged astra-decision with identifier', () => {
-    const nodes = runAstra('decisions/method');
+  it('decisions.<id> → tabSet carrier tagged astra-decision with identifier', () => {
+    const nodes = runAstra('decisions.method');
     const carrier = byIdentifier(nodes, 'decision-method');
     expect(carrier).toBeDefined();
     expect(hasClass(carrier, 'astra-decision')).toBe(true);
@@ -253,8 +253,8 @@ describe('directive — elements', () => {
     expect(JSON.stringify(nodes)).not.toContain('/static/');
   });
 
-  it('outputs/<id> figure → container[figure] with project-relative image url', () => {
-    const nodes = runAstra('outputs/scatter_plot');
+  it('outputs.<id> figure → container[figure] with project-relative image url', () => {
+    const nodes = runAstra('outputs.scatter_plot');
     const carrier = byIdentifier(nodes, 'output-scatter_plot');
     expect(carrier?.type).toBe('container');
     expect(carrier?.kind).toBe('figure');
@@ -264,37 +264,37 @@ describe('directive — elements', () => {
     expect(image?.url).toBe('results/baseline/scatter_plot/scatter_plot.png');
   });
 
-  it('outputs/<id> table → container[table] tagged astra-output--table', () => {
-    const nodes = runAstra('outputs/measurements');
+  it('outputs.<id> table → container[table] tagged astra-output--table', () => {
+    const nodes = runAstra('outputs.measurements');
     const carrier = byIdentifier(nodes, 'output-measurements');
     expect(carrier?.kind).toBe('table');
     expect(hasClass(carrier, 'astra-output--table')).toBe(true);
     expect(findFirst(nodes, (n) => n.type === 'table')).toBeDefined();
   });
 
-  it('outputs/<id> metric → carrier tagged astra-output--metric', () => {
-    expect(hasClass(byIdentifier(runAstra('outputs/summary_metric'), 'output-summary_metric'), 'astra-output--metric')).toBe(true);
+  it('outputs.<id> metric → carrier tagged astra-output--metric', () => {
+    expect(hasClass(byIdentifier(runAstra('outputs.summary_metric'), 'output-summary_metric'), 'astra-output--metric')).toBe(true);
   });
 
   it('aliased output (from: sub.sub_plot) resolves the source type → figure', () => {
-    expect(byIdentifier(runAstra('outputs/aliased_plot'), 'output-aliased_plot')?.kind).toBe('figure');
+    expect(byIdentifier(runAstra('outputs.aliased_plot'), 'output-aliased_plot')?.kind).toBe('figure');
   });
 
-  it('findings/<id> → astra-finding carrier; no /static scheme leaks', () => {
-    const nodes = runAstra('findings/signal_detected');
+  it('findings.<id> → astra-finding carrier; no /static scheme leaks', () => {
+    const nodes = runAstra('findings.signal_detected');
     expect(hasClass(byIdentifier(nodes, 'finding-signal_detected'), 'astra-finding')).toBe(true);
     expect(JSON.stringify(nodes)).not.toContain('/static/');
   });
 
-  it('prior_insights/<id> → seealso admonition tagged astra-prior-insight', () => {
-    const adm = findFirst(runAstra('prior_insights/prior_literature_result'), (n) => n.type === 'admonition');
+  it('prior_insights.<id> → seealso admonition tagged astra-prior-insight', () => {
+    const adm = findFirst(runAstra('prior_insights.prior_literature_result'), (n) => n.type === 'admonition');
     expect(adm?.kind).toBe('seealso');
     expect(hasClass(adm, 'astra-prior-insight')).toBe(true);
     expect(adm?.identifier).toBe('prior_insight-prior_literature_result');
   });
 
-  it('inputs/<id> → one-row registry table tagged astra-input', () => {
-    const nodes = runAstra('inputs/raw_catalog');
+  it('inputs.<id> → one-row registry table tagged astra-input', () => {
+    const nodes = runAstra('inputs.raw_catalog');
     expect(hasClass(nodes[0], 'astra-input')).toBe(true);
     expect(textOf(nodes)).toContain('Raw catalog');
   });
@@ -307,8 +307,8 @@ describe('directive — elements', () => {
     expect(carrier?.title).toBe('Sub Analysis');
   });
 
-  it('universes/<id> → selections table tagged astra-universe', () => {
-    const nodes = runAstra('universes/baseline');
+  it('universes.<id> → selections table tagged astra-universe', () => {
+    const nodes = runAstra('universes.baseline');
     expect(hasClass(byIdentifier(nodes, 'universe-baseline'), 'astra-universe')).toBe(true);
     expect(textOf(nodes)).toContain('Grid search');
   });
@@ -317,16 +317,16 @@ describe('directive — elements', () => {
 // ── Block directive: children ────────────────────────────────────────────────
 
 describe('directive — children', () => {
-  it('decisions/<id>/options/<opt> → one option, selected marker, astra-option', () => {
-    const nodes = runAstra('decisions/method/options/grid');
+  it('decisions.<id>.options.<opt> → one option, selected marker, astra-option', () => {
+    const nodes = runAstra('decisions.method.options.grid');
     const head = byIdentifier(nodes, 'option-method-grid');
     expect(hasClass(head, 'astra-option')).toBe(true);
     expect(textOf(nodes)).toContain('Grid search');
     expect(textOf(nodes)).toContain('(selected)'); // grid is the universe selection
   });
 
-  it('findings/<id>/evidence/<id> → the single evidence record', () => {
-    const nodes = runAstra('findings/signal_detected/evidence/f1');
+  it('findings.<id>.evidence.<id> → the single evidence record', () => {
+    const nodes = runAstra('findings.signal_detected.evidence.f1');
     expect(textOf(nodes)).toContain('A clear peak appears.');
     // the source artifact id renders as inline code
     expect(findFirst(nodes, (n) => n.type === 'inlineCode' && n.value === 'scatter_plot')).toBeDefined();
@@ -358,48 +358,48 @@ describe('directive — registries', () => {
 
 describe('directive — options', () => {
   it(':caption: overrides an output caption', () => {
-    const nodes = runAstra('outputs/scatter_plot', { caption: 'Custom caption text' });
+    const nodes = runAstra('outputs.scatter_plot', { caption: 'Custom caption text' });
     const cap = findFirst(nodes, (n) => n.type === 'caption');
     expect(textOf(cap as Node)).toBe('Custom caption text');
   });
 
   it(':label: overrides the carrier identifier', () => {
-    const nodes = runAstra('outputs/scatter_plot', { label: 'fig-custom' });
+    const nodes = runAstra('outputs.scatter_plot', { label: 'fig-custom' });
     expect(byIdentifier(nodes, 'fig-custom')).toBeDefined();
   });
 
   it(':class: adds a CSS class to the carrier', () => {
-    const nodes = runAstra('findings/signal_detected', { class: 'highlight' });
+    const nodes = runAstra('findings.signal_detected', { class: 'highlight' });
     expect(hasClass(byIdentifier(nodes, 'finding-signal_detected'), 'highlight')).toBe(true);
   });
 
   it(':compact: / :hide: evidence trims a finding to claim + scope (no figure)', () => {
-    const nodes = runAstra('findings/signal_detected', { compact: true });
+    const nodes = runAstra('findings.signal_detected', { compact: true });
     expect(findFirst(nodes, (n) => n.type === 'image')).toBeUndefined();
     expect(textOf(nodes)).toContain('baseline universe');
-    expect(findFirst(runAstra('findings/signal_detected', { hide: 'evidence' }), (n) => n.type === 'image')).toBeUndefined();
+    expect(findFirst(runAstra('findings.signal_detected', { hide: 'evidence' }), (n) => n.type === 'image')).toBeUndefined();
   });
 });
 
 // ── Block directive: scoping + errors ────────────────────────────────────────
 
 describe('directive — scoping & errors', () => {
-  it('resolves a scoped table output (sub/outputs/sub_table)', () => {
-    expect(byIdentifier(runAstra('sub/outputs/sub_table'), 'output-sub_table')?.kind).toBe('table');
+  it('resolves a scoped table output (sub.outputs.sub_table)', () => {
+    expect(byIdentifier(runAstra('sub.outputs.sub_table'), 'output-sub_table')?.kind).toBe('table');
   });
 
-  it('resolves a scoped decision (sub/decisions/sub_decision)', () => {
-    expect(byIdentifier(runAstra('sub/decisions/sub_decision'), 'decision-sub_decision')).toBeDefined();
+  it('resolves a scoped decision (sub.decisions.sub_decision)', () => {
+    expect(byIdentifier(runAstra('sub.decisions.sub_decision'), 'decision-sub_decision')).toBeDefined();
   });
 
   it('a bare from-reference decision yields an error admonition', () => {
-    const nodes = runAstra('sub/decisions/inherited_method');
+    const nodes = runAstra('sub.decisions.inherited_method');
     expect(nodes[0].type).toBe('admonition');
     expect(nodes[0].kind).toBe('error');
   });
 
   it('an unknown component id yields an error admonition', () => {
-    expect(runAstra('outputs/no_such_output')[0].kind).toBe('error');
+    expect(runAstra('outputs.no_such_output')[0].kind).toBe('error');
   });
 });
 
@@ -407,30 +407,30 @@ describe('directive — scoping & errors', () => {
 
 describe('role {astra}', () => {
   it('→ neutral astra-ref token carrying the store join key', () => {
-    const [token] = runRole('astra', 'decisions/method');
+    const [token] = runRole('astra', 'decisions.method');
     expect(hasClass(token, 'astra-ref')).toBe(true);
     expect(hasClass(token, 'astra-ref--decision')).toBe(true);
     expect(token.data?.astra).toEqual({ kind: 'decision', id: 'method', path: 'method' });
   });
 
   it('an output ref carries the output subtype modifier class', () => {
-    const [token] = runRole('astra', 'outputs/scatter_plot');
+    const [token] = runRole('astra', 'outputs.scatter_plot');
     expect(hasClass(token, 'astra-ref--output')).toBe(true);
     expect(hasClass(token, 'astra-ref--figure')).toBe(true);
   });
 
   it('honours MyST display text <path> override', () => {
-    const [token] = runRole('astra', 'the prior <prior_insights/prior_literature_result>');
+    const [token] = runRole('astra', 'the prior <prior_insights.prior_literature_result>');
     expect(textOf([token])).toBe('the prior');
     expect(token.data?.astra).toMatchObject({ kind: 'prior_insight', id: 'prior_literature_result' });
   });
 
   it('an input ref resolves to the inputs kind', () => {
-    expect(runRole('astra', 'inputs/raw_catalog')[0].data?.astra).toMatchObject({ kind: 'input', id: 'raw_catalog' });
+    expect(runRole('astra', 'inputs.raw_catalog')[0].data?.astra).toMatchObject({ kind: 'input', id: 'raw_catalog' });
   });
 
   it('an option ref resolves to the option label + kind', () => {
-    const [token] = runRole('astra', 'decisions/method/options/grid');
+    const [token] = runRole('astra', 'decisions.method.options.grid');
     expect(token.data?.astra).toMatchObject({ kind: 'option', id: 'grid' });
     expect(textOf([token])).toBe('Grid search');
   });
@@ -442,7 +442,7 @@ describe('role {astra}', () => {
   });
 
   it('a scoped ref keeps the dotted store path', () => {
-    expect(runRole('astra', 'sub/outputs/sub_table')[0].data?.astra).toMatchObject({
+    expect(runRole('astra', 'sub.outputs.sub_table')[0].data?.astra).toMatchObject({
       id: 'sub_table',
       path: 'sub.sub_table',
     });
@@ -456,14 +456,14 @@ describe('role {astra:ref}', () => {
   // own resolver fills the "Figure N" number for link nodes, but leaves
   // plugin-injected crossReferences unresolved.
   it('emits a link to the output carrier identifier', () => {
-    const [node] = runRole('astra:ref', 'outputs/scatter_plot');
+    const [node] = runRole('astra:ref', 'outputs.scatter_plot');
     expect(node.type).toBe('link');
     expect(node.url).toBe('#output-scatter_plot');
     expect(node.children).toEqual([]); // empty → MyST fills "Figure N"
   });
 
   it('carries %s display text through', () => {
-    const [node] = runRole('astra:ref', 'see Fig. %s <outputs/scatter_plot>');
+    const [node] = runRole('astra:ref', 'see Fig. %s <outputs.scatter_plot>');
     expect(node.type).toBe('link');
     expect(node.url).toBe('#output-scatter_plot');
     expect(textOf([node])).toBe('see Fig. %s');
@@ -471,7 +471,7 @@ describe('role {astra:ref}', () => {
 
   it('keeps astra:numref as an alias', () => {
     expect(role('astra:ref').alias).toContain('astra:numref');
-    const [node] = runRole('astra:numref', 'outputs/scatter_plot');
+    const [node] = runRole('astra:numref', 'outputs.scatter_plot');
     expect(node.url).toBe('#output-scatter_plot');
   });
 });
@@ -480,18 +480,18 @@ describe('role {astra:ref}', () => {
 
 describe('roles {astra:cite} / {astra:cite:t}', () => {
   it('cite → a parenthetical cite from the insight DOI', () => {
-    const [node] = runRole('astra:cite', 'prior_insights/prior_literature_result');
+    const [node] = runRole('astra:cite', 'prior_insights.prior_literature_result');
     expect(node.type).toBe('cite');
     expect(node.kind).toBe('parenthetical');
     expect(node.label).toBe('10.1234/example.doi');
   });
 
   it('cite:t → a narrative cite from the insight DOI', () => {
-    expect(runRole('astra:cite:t', 'prior_insights/prior_literature_result')[0].kind).toBe('narrative');
+    expect(runRole('astra:cite:t', 'prior_insights.prior_literature_result')[0].kind).toBe('narrative');
   });
 
   it('falls back to a plain reference when there is no DOI', () => {
-    const [node] = runRole('astra:cite', 'findings/signal_detected');
+    const [node] = runRole('astra:cite', 'findings.signal_detected');
     expect(hasClass(node, 'astra-ref--finding')).toBe(true);
   });
 });
@@ -500,35 +500,35 @@ describe('roles {astra:cite} / {astra:cite:t}', () => {
 
 describe('role {astra:value}', () => {
   it('interpolates a real cell with ± uncertainty (pm convention)', () => {
-    const [token] = runRole('astra:value', 'outputs/measurements tracer=lrg col=value pm');
+    const [token] = runRole('astra:value', 'outputs.measurements tracer=lrg col=value pm');
     expect(textOf([token])).toBe('19.88 ± 0.17');
     expect(token.data?.astra).toMatchObject({ kind: 'value', id: 'measurements', col: 'value' });
   });
 
   it('accepts the ± token as a synonym for pm', () => {
-    expect(textOf(runRole('astra:value', 'outputs/measurements tracer=lrg col=value ±'))).toBe('19.88 ± 0.17');
+    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=lrg col=value ±'))).toBe('19.88 ± 0.17');
   });
 
   it('honours an explicit err=<col>', () => {
-    expect(textOf(runRole('astra:value', 'outputs/measurements tracer=lrg col=value err=value_std'))).toBe('19.88 ± 0.17');
+    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=lrg col=value err=value_std'))).toBe('19.88 ± 0.17');
   });
 
   it('formats to significant figures and respects sig=N', () => {
-    expect(textOf(runRole('astra:value', 'outputs/measurements tracer=elg col=value'))).toBe('0.0696');
-    expect(textOf(runRole('astra:value', 'outputs/measurements tracer=lrg col=value sig=2'))).toBe('20');
+    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=elg col=value'))).toBe('0.0696');
+    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=lrg col=value sig=2'))).toBe('20');
   });
 
-  it('resolves a scoped product (sub/outputs/sub_table)', () => {
-    expect(textOf(runRole('astra:value', 'sub/outputs/sub_table tracer=lrg col=value'))).toBe('19.88');
+  it('resolves a scoped product (sub.outputs.sub_table)', () => {
+    expect(textOf(runRole('astra:value', 'sub.outputs.sub_table tracer=lrg col=value'))).toBe('19.88');
   });
 
   it('a decision value resolves to the selected option label', () => {
-    expect(textOf(runRole('astra:value', 'decisions/method'))).toBe('Grid search');
+    expect(textOf(runRole('astra:value', 'decisions.method'))).toBe('Grid search');
   });
 
   it('surfaces clear errors for a missing column / non-matching row', () => {
-    expect(runRole('astra:value', 'outputs/measurements tracer=lrg col=nope')[0].type).toBe('inlineCode');
-    expect(runRole('astra:value', 'outputs/measurements tracer=ghost col=value')[0].type).toBe('inlineCode');
+    expect(runRole('astra:value', 'outputs.measurements tracer=lrg col=nope')[0].type).toBe('inlineCode');
+    expect(runRole('astra:value', 'outputs.measurements tracer=ghost col=value')[0].type).toBe('inlineCode');
   });
 });
 
@@ -620,7 +620,7 @@ describe('dotted-filename page scope', () => {
 
 describe('decision option-tab supporting insights', () => {
   it('emits store-driven astra-ref tokens, not native crossReferences', () => {
-    const nodes = runAstra('decisions/method');
+    const nodes = runAstra('decisions.method');
     const tok = findFirst(nodes, (n) => hasClass(n, 'astra-ref--prior_insight'));
     expect(tok?.data?.astra).toMatchObject({ kind: 'prior_insight', id: 'prior_literature_result' });
   });

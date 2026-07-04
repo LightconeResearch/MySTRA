@@ -259,7 +259,7 @@ function nearestPriorInsightScope(
 /**
  * Walk a node tree and rewrite `link` nodes whose URL is a `#astra:` reference
  * into the resolver's verdict — either a `crossReference` (identifier resolved)
- * or a plain `link` (cross-page / unresolved). `![](#astra:outputs/<id>)` image
+ * or a plain `link` (cross-page / unresolved). `![](#astra:outputs.<id>)` image
  * embeds (in-scope figures) are rewritten to their `/static/` artifact URL.
  */
 export function resolveNarrativeAnchors(
@@ -327,7 +327,7 @@ function rewrite(
 }
 
 /**
- * Rewrite an `![](#astra:outputs/<id>)` figure embed to its artifact URL. Only
+ * Rewrite an `![](#astra:outputs.<id>)` figure embed to its artifact URL. Only
  * in-scope figure outputs are embeddable this way (the page's artifact resolver
  * is scope-local); a non-figure, cross-scope, unknown, or unproduced target is
  * dropped with a warning.

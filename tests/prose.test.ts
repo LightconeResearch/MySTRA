@@ -55,15 +55,15 @@ describe('parseProseBlocks (via myst-parser)', () => {
   });
 
   it('preserves #astra: links as link nodes pre-resolution', () => {
-    const out = parseProseBlocks('See the [scaling](#astra:decisions/scaling) decision.');
+    const out = parseProseBlocks('See the [scaling](#astra:decisions.scaling) decision.');
     const links = (out[0].children as any[]).filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
-    expect(links[0].url).toBe('#astra:decisions/scaling');
+    expect(links[0].url).toBe('#astra:decisions.scaling');
   });
 
   it('parses inline strong/emphasis/code alongside anchors', () => {
     const out = parseProseBlocks(
-      'Run **fast** _slow_ with `python` and see [finding](#astra:findings/best_model).',
+      'Run **fast** _slow_ with `python` and see [finding](#astra:findings.best_model).',
     );
     const types = (out[0].children as any[]).map((c) => c.type);
     expect(types).toContain('strong');
@@ -112,7 +112,7 @@ describe('parseProseInline', () => {
   });
 
   it('resolves inline #astra: links when input is a heading (block context)', () => {
-    const out = parseProseInline('# See [the finding](#astra:findings/best_model) for details', {
+    const out = parseProseInline('# See [the finding](#astra:findings.best_model) for details', {
       analysis: fixtureAnalysis(),
       slug: 'index',
     });
@@ -125,8 +125,8 @@ describe('parseProseInline', () => {
 describe('parseProse* with context (anchor resolution)', () => {
   const a = fixtureAnalysis();
 
-  it('resolves [finding](#astra:findings/<id>) to a local-identifier link', () => {
-    const out = parseProseBlocks('See [the finding](#astra:findings/best_model).', {
+  it('resolves [finding](#astra:findings.<id>) to a local-identifier link', () => {
+    const out = parseProseBlocks('See [the finding](#astra:findings.best_model).', {
       analysis: a,
       slug: 'index',
     });
@@ -135,8 +135,8 @@ describe('parseProse* with context (anchor resolution)', () => {
     expect(links[0].url).toBe('#finding-best_model'); // MyST resolves the number/label
   });
 
-  it('resolves [input](#astra:inputs/<id>) to a local-identifier link', () => {
-    const out = parseProseBlocks('Driven by the [iris dataset](#astra:inputs/iris_data).', {
+  it('resolves [input](#astra:inputs.<id>) to a local-identifier link', () => {
+    const out = parseProseBlocks('Driven by the [iris dataset](#astra:inputs.iris_data).', {
       analysis: a,
       slug: 'index',
     });
@@ -145,10 +145,10 @@ describe('parseProse* with context (anchor resolution)', () => {
   });
 
   it('without context: #astra: anchors are left untouched', () => {
-    const out = parseProseBlocks('See [it](#astra:findings/best_model).');
+    const out = parseProseBlocks('See [it](#astra:findings.best_model).');
     const links = (out[0].children as any[]).filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
-    expect(links[0].url).toBe('#astra:findings/best_model');
+    expect(links[0].url).toBe('#astra:findings.best_model');
   });
 });
 
@@ -156,32 +156,32 @@ describe('resolveAstraAnchor', () => {
   const a = fixtureAnalysis();
 
   it('resolves in-scope elements to <kind>-<id> identifiers', () => {
-    expect(resolveAstraAnchor('#astra:findings/best_model', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:findings.best_model', a, 'index')).toEqual({
       identifier: 'finding-best_model',
     });
-    expect(resolveAstraAnchor('#astra:decisions/scaling', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:decisions.scaling', a, 'index')).toEqual({
       identifier: 'decision-scaling',
     });
-    expect(resolveAstraAnchor('#astra:inputs/iris_data', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:inputs.iris_data', a, 'index')).toEqual({
       identifier: 'input-iris_data',
     });
-    expect(resolveAstraAnchor('#astra:outputs/accuracy', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:outputs.accuracy', a, 'index')).toEqual({
       identifier: 'output-accuracy',
     });
   });
 
   it('collapses an option child to the parent decision identifier', () => {
-    expect(resolveAstraAnchor('#astra:decisions/scaling/options/standard', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:decisions.scaling.options.standard', a, 'index')).toEqual({
       identifier: 'decision-scaling',
     });
   });
 
   it('falls back to a link URL for unknown in-scope ids', () => {
-    expect(resolveAstraAnchor('#astra:findings/nope', a, 'index')).toEqual({
-      url: '#astra:findings/nope',
+    expect(resolveAstraAnchor('#astra:findings.nope', a, 'index')).toEqual({
+      url: '#astra:findings.nope',
     });
-    expect(resolveAstraAnchor('#astra:outputs/nope', a, 'index')).toEqual({
-      url: '#astra:outputs/nope',
+    expect(resolveAstraAnchor('#astra:outputs.nope', a, 'index')).toEqual({
+      url: '#astra:outputs.nope',
     });
   });
 
@@ -193,25 +193,25 @@ describe('resolveAstraAnchor', () => {
   });
 
   it('builds a cross-page URL with the <kind>-<id> fragment for sub-analysis elements', () => {
-    expect(resolveAstraAnchor('#astra:preprocessing/outputs/features', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:preprocessing.outputs.features', a, 'index')).toEqual({
       url: '/preprocessing#output-features',
     });
-    expect(resolveAstraAnchor('#astra:preprocessing/decisions/scaling', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:preprocessing.decisions.scaling', a, 'index')).toEqual({
       url: '/preprocessing#decision-scaling',
     });
   });
 
   it('resolves an absolute /path from the root (cross-page when off-root)', () => {
-    expect(resolveAstraAnchor('#astra:/findings/best_model', a, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:/findings.best_model', a, 'index')).toEqual({
       identifier: 'finding-best_model',
     });
-    expect(resolveAstraAnchor('#astra:/findings/best_model', a, 'preprocessing')).toEqual({
+    expect(resolveAstraAnchor('#astra:/findings.best_model', a, 'preprocessing')).toEqual({
       url: '/#finding-best_model',
     });
   });
 
   it('climbs scopes with ../', () => {
-    expect(resolveAstraAnchor('#astra:../decisions/scaling', a, 'preprocessing')).toEqual({
+    expect(resolveAstraAnchor('#astra:../decisions.scaling', a, 'preprocessing')).toEqual({
       url: '/#decision-scaling',
     });
   });
@@ -231,10 +231,10 @@ describe('resolveAstraAnchor', () => {
       },
     ];
     expect(
-      resolveAstraAnchor('#astra:prior_insights/compute_scaling', a, 'preprocessing', scopes),
+      resolveAstraAnchor('#astra:prior_insights.compute_scaling', a, 'preprocessing', scopes),
     ).toEqual({ url: '/#prior_insight-compute_scaling' });
     expect(
-      resolveAstraAnchor('#astra:../prior_insights/compute_scaling', a, 'preprocessing', scopes),
+      resolveAstraAnchor('#astra:../prior_insights.compute_scaling', a, 'preprocessing', scopes),
     ).toEqual({ url: '/#prior_insight-compute_scaling' });
   });
 
@@ -245,7 +245,7 @@ describe('resolveAstraAnchor', () => {
         compute_scaling: { id: 'compute_scaling', claim: 'x', created_at: '2024-01-01', evidence: [] },
       },
     };
-    expect(resolveAstraAnchor('#astra:prior_insights/compute_scaling', withPrior, 'index')).toEqual({
+    expect(resolveAstraAnchor('#astra:prior_insights.compute_scaling', withPrior, 'index')).toEqual({
       identifier: 'prior_insight-compute_scaling',
     });
   });
@@ -254,7 +254,7 @@ describe('resolveAstraAnchor', () => {
 describe('resolveNarrativeAnchors', () => {
   it('rewrites in-scope anchors to local-identifier links, keeping the text', () => {
     const a = fixtureAnalysis();
-    const md = 'See [the finding](#astra:findings/best_model) and [scaling](#astra:decisions/scaling).';
+    const md = 'See [the finding](#astra:findings.best_model) and [scaling](#astra:decisions.scaling).';
     const resolved = resolveNarrativeAnchors(parseProseBlocks(md), a, 'index');
     const links = (resolved[0].children as any[]).filter((c) => c.type === 'link');
     expect(links.map((x) => x.url).sort()).toEqual(['#decision-scaling', '#finding-best_model']);
@@ -264,13 +264,13 @@ describe('resolveNarrativeAnchors', () => {
   it('leaves unresolvable anchors as their original #astra: link', () => {
     const a = fixtureAnalysis();
     const resolved = resolveNarrativeAnchors(
-      parseProseBlocks('See [missing](#astra:findings/does_not_exist).'),
+      parseProseBlocks('See [missing](#astra:findings.does_not_exist).'),
       a,
       'index',
     );
     const links = (resolved[0].children as any[]).filter((c) => c.type === 'link');
     expect(links).toHaveLength(1);
-    expect(links[0].url).toBe('#astra:findings/does_not_exist');
+    expect(links[0].url).toBe('#astra:findings.does_not_exist');
   });
 
   it('routes a sub-analysis reference to a relative page URL', () => {
@@ -286,7 +286,7 @@ describe('resolveNarrativeAnchors', () => {
 
   it('rewrites in-scope figure image embeds to /static artifact URLs', () => {
     const a = fixtureAnalysis();
-    const resolved = parseProseBlocks('![Accuracy](#astra:outputs/accuracy_plot)', {
+    const resolved = parseProseBlocks('![Accuracy](#astra:outputs.accuracy_plot)', {
       analysis: a,
       slug: 'index',
       results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.PNG' : undefined),
@@ -298,7 +298,7 @@ describe('resolveNarrativeAnchors', () => {
 
   it('rewrites image URLs inside MyST figure directives', () => {
     const a = fixtureAnalysis();
-    const resolved = parseProseBlocks(':::{figure} #astra:outputs/accuracy_plot\nCaption\n:::', {
+    const resolved = parseProseBlocks(':::{figure} #astra:outputs.accuracy_plot\nCaption\n:::', {
       analysis: a,
       slug: 'index',
       results: (id) => (id === 'accuracy_plot' ? '/tmp/accuracy_plot.svg' : undefined),
@@ -311,7 +311,7 @@ describe('resolveNarrativeAnchors', () => {
   it('drops image embeds that point at non-figure outputs', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const a = fixtureAnalysis();
-    const resolved = parseProseBlocks('![Table](#astra:outputs/results_table)', {
+    const resolved = parseProseBlocks('![Table](#astra:outputs.results_table)', {
       analysis: a,
       slug: 'index',
       results: (id) => (id === 'results_table' ? '/tmp/results_table.csv' : undefined),

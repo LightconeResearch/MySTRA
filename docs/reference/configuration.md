@@ -30,7 +30,7 @@ The `…/releases/latest/download/…` URL always tracks the newest release; pin
 ASTRA_UNIVERSE=no_recon myst build --html
 ```
 
-The active universe determines every decision selection in the report: which option a decision block marks as selected, what `` {astra:value}`decisions/<id>` `` renders, which conditional (`when:`) decisions are shown, and which `results/<universe>/` tree artifacts resolve from. Individual blocks can override it with the [`:universe:` option](../authoring/block-embeds.md#options).
+The active universe determines every decision selection in the report: which option a decision block marks as selected, what `` {astra:value}`decisions.<id>` `` renders, which conditional (`when:`) decisions are shown, and which `results/<universe>/` tree artifacts resolve from. Individual blocks can override it with the [`:universe:` option](../authoring/block-embeds.md#options).
 
 ## Results layout
 

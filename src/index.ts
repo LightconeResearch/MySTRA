@@ -11,23 +11,23 @@
  * a directive):
  *
  *   Inline reference (role):
- *     {astra}`outputs/hubble_diagram`              link + hover card
- *     {astra}`our method <decisions/algorithm>`    custom display text
- *     {astra:ref}`outputs/hubble_diagram`             numbered ("Figure 3")
- *     {astra:value}`outputs/bao_table col=DV tracer=lrg3 ±`   live number
- *     {astra:cite}`prior_insights/recon`           parenthetical citation
- *     {astra:cite:t}`prior_insights/recon`         textual citation
+ *     {astra}`outputs.hubble_diagram`              link + hover card
+ *     {astra}`our method <decisions.algorithm>`    custom display text
+ *     {astra:ref}`outputs.hubble_diagram`             numbered ("Figure 3")
+ *     {astra:value}`outputs.bao_table col=DV tracer=lrg3 ±`   live number
+ *     {astra:cite}`prior_insights.recon`           parenthetical citation
+ *     {astra:cite:t}`prior_insights.recon`         textual citation
  *
  *   Block embed (directive):
- *     :::{astra} decisions/algorithm    :::        the decision + its options
- *     :::{astra} outputs/hubble_diagram :::        the figure / table / metric
- *     :::{astra} findings/signal        :::        claim + scope + evidence
+ *     :::{astra} decisions.algorithm    :::        the decision + its options
+ *     :::{astra} outputs.hubble_diagram :::        the figure / table / metric
+ *     :::{astra} findings.signal        :::        claim + scope + evidence
  *     :::{astra} reconstruction         :::        a sub-analysis nav card
  *     :::{astra} outputs                :::        the outputs registry
  *
  *   Native cross-reference scheme (resolved relative to the page scope):
- *     [text](#astra:outputs/hubble_diagram)        crossReference / page link
- *     ![](#astra:outputs/hubble_diagram)           embed a figure output
+ *     [text](#astra:outputs.hubble_diagram)        crossReference / page link
+ *     ![](#astra:outputs.hubble_diagram)           embed a figure output
  *
  * Paths in roles and directives resolve from the **root analysis** (a leading
  * `/` is optional); the `#astra:` link scheme resolves relative to the **page
@@ -195,7 +195,7 @@ function resolveScope(
     const child = analysis.analyses?.[seg];
     if (!child) {
       throw new Error(
-        `unknown sub-analysis "${seg}" (path: ${analysisPath.join('/') || '<root>'})`,
+        `unknown sub-analysis "${seg}" (path: ${analysisPath.join('.') || '<root>'})`,
       );
     }
     const parentSlug = slugParts.length ? slugParts.join('/') : 'index';
@@ -636,7 +636,7 @@ function applyCaption(nodes: any[], scope: Scope, captionMd: string): void {
 
 const astraDirective = {
   name: 'astra',
-  doc: 'Embed any ASTRA element, child, or collection by its path (e.g. outputs/hubble_diagram).',
+  doc: 'Embed any ASTRA element, child, or collection by its path (e.g. outputs.hubble_diagram).',
   arg: {
     type: String,
     required: true,
@@ -799,7 +799,7 @@ const astraRole = {
     } catch (err) {
       reportWarn(vfile, `astra "${path}": ${(err as Error).message} — rendering a plain label`, data?.node);
       const id = p.id ?? p.scope[p.scope.length - 1] ?? path;
-      return [refNode('output', id, path.replace(/\//g, '.'), display ?? humanize(id))];
+      return [refNode('output', id, path, display ?? humanize(id))];
     }
   },
 };
@@ -893,8 +893,8 @@ function valueError(msg: string): any {
  * Body grammar (whitespace-separated):
  *   <path> [col=<column>] [<key>=<val> ...] [±|pm] [err=<column>] [sig=N]
  *
- *   - `<path>`     a table/metric output (`outputs/bao_table`, scoped allowed),
- *                  or a decision (`decisions/algorithm` → its selected option).
+ *   - `<path>`     a table/metric output (`outputs.bao_table`, scoped allowed),
+ *                  or a decision (`decisions.algorithm` → its selected option).
  *   - `col=`       the column to read (table outputs).
  *   - `<key>=<val>`row filters, e.g. `tracer=lrg3 recon=Post`.
  *   - `±` / `pm`   also render `± <col>_std` when that column exists.

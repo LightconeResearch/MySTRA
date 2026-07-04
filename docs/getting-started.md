@@ -75,14 +75,14 @@ Create an `index.md` and reference the analysis instead of restating it. Everyth
 ```markdown title="index.md"
 # My analysis report
 
-We adopt the {astra}`decisions/fit_method` and find
-{astra:value}`outputs/fit_params col=slope sig=3`
+We adopt the {astra}`decisions.fit_method` and find
+{astra:value}`outputs.fit_params col=slope sig=3`
 for the slope of the relation.
 
-:::{astra} outputs/fit_params
+:::{astra} outputs.fit_params
 :::
 
-:::{astra} decisions/fit_method
+:::{astra} decisions.fit_method
 :::
 ```
 

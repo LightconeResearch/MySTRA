@@ -1,18 +1,23 @@
 /**
  * The unified ASTRA reference path grammar.
  *
- * A *path* is a slash-separated route through the analysis tree — the same
- * structure as `astra.yaml`:
+ * A *path* is a dot-separated route through the analysis tree — the same
+ * structure as `astra.yaml`, and the same dotted spelling the spec itself uses
+ * for element references (`when: decision.option`, `from: scope.id`, recipe
+ * placeholders `{inputs.id}`, and RFC-0002's `<sub>.<id>` addressing). Dots
+ * address elements; slashes are reserved for files. `../` (climb) and a
+ * leading `/` (root) are prefix *operators* on a path, exactly as in the
+ * spec's `from:` grammar:
  *
- *   outputs/hubble_diagram                    an output in the current scope
- *   decisions/algorithm/options/gp            a child (one Option of a Decision)
- *   findings/sig/evidence/fig1                a child (one Evidence of a Finding)
- *   reconstruction/outputs/xi                 a sub-analysis (the `analyses/` is implied)
- *   analyses/reconstruction/outputs/xi        … the explicit long form
+ *   outputs.hubble_diagram                    an output in the current scope
+ *   decisions.algorithm.options.gp            a child (one Option of a Decision)
+ *   findings.sig.evidence.fig1                a child (one Evidence of a Finding)
+ *   reconstruction.outputs.xi                 a sub-analysis (the `analyses.` is implied)
+ *   analyses.reconstruction.outputs.xi        … the explicit long form
  *   reconstruction                            the sub-analysis itself
  *   outputs                                   a whole collection (a registry)
- *   /decisions/method                         absolute, from the root analysis
- *   ../outputs/xi                             the parent scope
+ *   /decisions.method                         absolute, from the root analysis
+ *   ../outputs.xi                             the parent scope
  *
  * `parseAstraPath` turns the string into a structured {@link AstraPath}. One
  * grammar drives every surface: the `{astra}` role, the `{astra}` directive, the
@@ -82,8 +87,8 @@ export interface AstraPath {
  * Split a role/directive body into its display-text override and the path,
  * following MyST's `text <target>` convention (as used by `{ref}`):
  *
- *   "our preferred method <decisions/algorithm>"  → { display: "our preferred method", path: "decisions/algorithm" }
- *   "outputs/hubble_diagram"                       → { display: null, path: "outputs/hubble_diagram" }
+ *   "our preferred method <decisions.algorithm>"  → { display: "our preferred method", path: "decisions.algorithm" }
+ *   "outputs.hubble_diagram"                       → { display: null, path: "outputs.hubble_diagram" }
  */
 export function splitDisplay(body: string): { display: string | null; path: string } {
   const m = /^(.*?)<([^>]*)>\s*$/.exec(body ?? '');
@@ -94,28 +99,36 @@ export function splitDisplay(body: string): { display: string | null; path: stri
 /**
  * Parse a path string into a structured {@link AstraPath}.
  *
- * Resolution is left-to-right: leading `/` and `../` are consumed first, then
- * each segment is either a *collection keyword* (which begins the target) or a
- * *sub-analysis step* (the `analyses/` shorthand). The first non-`analyses`
- * collection keyword fixes the target; everything before it is scope.
+ * The prefix operators (`/`, `../`) are consumed first, then the dotted body is
+ * read left-to-right: each segment is either a *collection keyword* (which
+ * begins the target) or a *sub-analysis step* (the `analyses.` shorthand). The
+ * first non-`analyses` collection keyword fixes the target; everything before
+ * it is scope.
  *
  * The parse is purely syntactic — it never checks the element exists. Callers
  * resolve {@link AstraPath} against a loaded analysis and report missing ids.
  */
 export function parseAstraPath(raw: string): AstraPath {
   const trimmed = (raw ?? '').trim();
-  const absolute = trimmed.startsWith('/');
-  const segs = trimmed
-    .replace(/^\//, '')
-    .split('/')
+
+  // Prefix operators: a leading `/` roots the path; `../` climbs one scope.
+  let rest = trimmed;
+  const absolute = rest.startsWith('/');
+  if (absolute) rest = rest.slice(1);
+  let up = 0;
+  while (rest.startsWith('../')) {
+    up++;
+    rest = rest.slice(3);
+  }
+  if (rest === '..') {
+    up++;
+    rest = '';
+  }
+
+  const segs = rest
+    .split('.')
     .map((s) => s.trim())
     .filter(Boolean);
-
-  let up = 0;
-  while (segs[0] === '..') {
-    up++;
-    segs.shift();
-  }
 
   const scope: string[] = [];
   let collection: Collection | null = null;
@@ -128,7 +141,7 @@ export function parseAstraPath(raw: string): AstraPath {
     const col = canonicalCollection(seg);
 
     if (col === 'analyses') {
-      // `analyses/<sub>` is a scope step (the sub becomes the target only when
+      // `analyses.<sub>` is a scope step (the sub becomes the target only when
       // it's the final segment); a trailing bare `analyses` is the registry.
       if (i + 1 < segs.length) {
         scope.push(segs[i + 1]);
@@ -154,7 +167,7 @@ export function parseAstraPath(raw: string): AstraPath {
       break;
     }
 
-    // Not a collection keyword → a sub-analysis step (the `analyses/` shorthand).
+    // Not a collection keyword → a sub-analysis step (the `analyses.` shorthand).
     scope.push(seg);
     i++;
   }
@@ -175,9 +188,9 @@ export function pathIdentifier(p: AstraPath): string | null {
 }
 
 /**
- * The dotted scope key (`reconstruction.xi`) used internally as the resolved-store
- * join key and the cross-scope merge prefix. Authoring is slash-based; the store
- * stays dotted, so this is the single conversion point.
+ * The dotted scope key (`reconstruction.xi`) used as the resolved-store join
+ * key and the cross-scope merge prefix. Since authoring is dot-based too, this
+ * is simply the collection-elided form of an element's path.
  */
 export function dottedKey(scope: string[], id: string): string {
   return [...scope, id].join('.');

@@ -3,9 +3,9 @@
 `{astra:value}` interpolates a real number from the resolved analysis at build time, so **no measured value is ever hard-typed into prose**:
 
 ```markdown
-{astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
-{astra:value}`outputs/bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
-{astra:value}`decisions/algorithm`                                             → MultiGrid
+{astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
+{astra:value}`outputs.bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
+{astra:value}`decisions.algorithm`                                             → MultiGrid
 ```
 
 Edit `astra.yaml` or rerun the analysis, rebuild, and every number in the prose updates itself.
@@ -20,7 +20,7 @@ The role body is whitespace-separated:
 
 | Token | Meaning |
 |---|---|
-| `<path>` | A table or metric output (`outputs/bao_table`; sub-analysis scopes allowed), or a decision (`decisions/algorithm` → its selected option). |
+| `<path>` | A table or metric output (`outputs.bao_table`; sub-analysis scopes allowed), or a decision (`decisions.algorithm` → its selected option). |
 | `col=<column>` | The column to read (required for table outputs). |
 | `<key>=<val>` | Row filters — every pair must match, e.g. `tracer=lrg3 recon=Post`. Matching is case-insensitive. |
 | `±` or `pm` | Also render `± <col>_std` when that column exists in the table. |
@@ -33,7 +33,7 @@ For a table output MySTRA reads the materialised CSV/JSON result, filters rows b
 
 ```markdown
 The LRG3 bin gives $D_V/r_d =$
-{astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3 ±`.
+{astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3 ±`.
 ```
 
 The filters must select **exactly the row you mean** — if no row matches, the role renders an inline error naming the filter, so a stale filter is visible in the preview rather than silently wrong.
@@ -44,13 +44,13 @@ A metric output renders its scalar value directly — no `col=` needed beyond wh
 
 ## Decisions
 
-A `decisions/<id>` path renders the **label of the option selected under the active universe**:
+A `decisions.<id>` path renders the **label of the option selected under the active universe**:
 
 ```markdown
-All results use the {astra:value}`decisions/algorithm` reconstruction.
+All results use the {astra:value}`decisions.algorithm` reconstruction.
 ```
 
-This is subtly different from `` {astra}`decisions/algorithm` ``: the plain role names the *decision* ("Reconstruction algorithm"), while the value role names the *selection* ("MultiGrid"). Use the value form whenever the prose depends on which option is active — it changes automatically when the universe does.
+This is subtly different from `` {astra}`decisions.algorithm` ``: the plain role names the *decision* ("Reconstruction algorithm"), while the value role names the *selection* ("MultiGrid"). Use the value form whenever the prose depends on which option is active — it changes automatically when the universe does.
 
 ## Errors
 

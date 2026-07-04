@@ -47,8 +47,8 @@ A page that maps to no valid scope (e.g. an appendix about something else entire
 
 ## What the scope changes — and what it doesn't
 
-- **Roles and directives always resolve from the root analysis**, on every page. `` {astra}`reconstruction/outputs/xi` `` means the same thing everywhere.
-- **`#astra:` links resolve from the page's scope.** On `reconstruction.md`, `[](#astra:outputs/xi)` finds the sub-analysis's own `xi`; `[](#astra:../outputs/hubble)` climbs to the root; `[](#astra:/outputs/hubble)` is always absolute.
+- **Roles and directives always resolve from the root analysis**, on every page. `` {astra}`reconstruction.outputs.xi` `` means the same thing everywhere.
+- **`#astra:` links resolve from the page's scope.** On `reconstruction.md`, `[](#astra:outputs.xi)` finds the sub-analysis's own `xi`; `[](#astra:../outputs.hubble)` climbs to the root; `[](#astra:/outputs.hubble)` is always absolute.
 - **Cross-page links do the right thing:** a link to an element rendered on another page points at that page.
 
 ## Navigation between pages

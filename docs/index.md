@@ -6,11 +6,11 @@ It runs on the **stock `myst` CLI and themes** — no custom server, no copy-pas
 
 ```markdown
 The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value}`outputs/bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
-at $z_\mathrm{eff} =$ {astra:value}`outputs/bao_distance_table col=z_eff tracer=lrg3_elg1`,
-consistent with the {astra}`findings/bao_detected_post_recon` detection.
+$D_V/r_d =$ {astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
+at $z_\mathrm{eff} =$ {astra:value}`outputs.bao_distance_table col=z_eff tracer=lrg3_elg1`,
+consistent with the {astra}`findings.bao_detected_post_recon` detection.
 
-:::{astra} outputs/bao_fit_plot
+:::{astra} outputs.bao_fit_plot
 :::
 ```
 
@@ -45,15 +45,15 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     ```markdown
     # BAO from the ELG sample
 
-    We adopt the {astra}`decisions/algorithm` and measure
-    $\alpha =$ {astra:value}`outputs/alpha_table col=alpha tracer=elg1 ±`,
-    consistent with {astra:cite}`prior_insights/recon_sharpens_bao`.
+    We adopt the {astra}`decisions.algorithm` and measure
+    $\alpha =$ {astra:value}`outputs.alpha_table col=alpha tracer=elg1 ±`,
+    consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
-    :::{astra} outputs/bao_fit_plot
+    :::{astra} outputs.bao_fit_plot
     :caption: The post-reconstruction BAO fit.
     :::
 
-    :::{astra} findings/bao_detected
+    :::{astra} findings.bao_detected
     :compact:
     :::
     ```

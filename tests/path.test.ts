@@ -13,7 +13,7 @@ import {
 
 describe('parseAstraPath', () => {
   it('parses a collection + id in the current scope', () => {
-    expect(parseAstraPath('outputs/hubble_diagram')).toMatchObject({
+    expect(parseAstraPath('outputs.hubble_diagram')).toMatchObject({
       absolute: false,
       up: 0,
       scope: [],
@@ -24,7 +24,7 @@ describe('parseAstraPath', () => {
   });
 
   it('parses a child (option of a decision)', () => {
-    expect(parseAstraPath('decisions/algorithm/options/gp')).toMatchObject({
+    expect(parseAstraPath('decisions.algorithm.options.gp')).toMatchObject({
       collection: 'decisions',
       id: 'algorithm',
       child: { collection: 'options', id: 'gp' },
@@ -32,23 +32,23 @@ describe('parseAstraPath', () => {
   });
 
   it('parses a child (evidence of a finding)', () => {
-    expect(parseAstraPath('findings/sig/evidence/fig1')).toMatchObject({
+    expect(parseAstraPath('findings.sig.evidence.fig1')).toMatchObject({
       collection: 'findings',
       id: 'sig',
       child: { collection: 'evidence', id: 'fig1' },
     });
   });
 
-  it('treats a leading bare id as a sub-analysis scope step (analyses/ implied)', () => {
-    expect(parseAstraPath('reconstruction/outputs/xi')).toMatchObject({
+  it('treats a leading bare id as a sub-analysis scope step (analyses. implied)', () => {
+    expect(parseAstraPath('reconstruction.outputs.xi')).toMatchObject({
       scope: ['reconstruction'],
       collection: 'outputs',
       id: 'xi',
     });
   });
 
-  it('parses the explicit analyses/<sub>/… long form identically', () => {
-    expect(parseAstraPath('analyses/reconstruction/outputs/xi')).toMatchObject({
+  it('parses the explicit analyses.<sub>.… long form identically', () => {
+    expect(parseAstraPath('analyses.reconstruction.outputs.xi')).toMatchObject({
       scope: ['reconstruction'],
       collection: 'outputs',
       id: 'xi',
@@ -56,7 +56,7 @@ describe('parseAstraPath', () => {
   });
 
   it('parses nested scopes', () => {
-    expect(parseAstraPath('clustering/correlation/outputs/xi')).toMatchObject({
+    expect(parseAstraPath('clustering.correlation.outputs.xi')).toMatchObject({
       scope: ['clustering', 'correlation'],
       collection: 'outputs',
       id: 'xi',
@@ -69,7 +69,7 @@ describe('parseAstraPath', () => {
       collection: null,
       id: null,
     });
-    expect(parseAstraPath('analyses/reconstruction')).toMatchObject({
+    expect(parseAstraPath('analyses.reconstruction')).toMatchObject({
       scope: ['reconstruction'],
       collection: null,
       id: null,
@@ -78,7 +78,7 @@ describe('parseAstraPath', () => {
 
   it('parses a whole collection (a registry)', () => {
     expect(parseAstraPath('outputs')).toMatchObject({ collection: 'outputs', id: null });
-    expect(parseAstraPath('reconstruction/inputs')).toMatchObject({
+    expect(parseAstraPath('reconstruction.inputs')).toMatchObject({
       scope: ['reconstruction'],
       collection: 'inputs',
       id: null,
@@ -86,30 +86,36 @@ describe('parseAstraPath', () => {
     expect(parseAstraPath('analyses')).toMatchObject({ collection: 'analyses', id: null });
   });
 
-  it('handles leading / (absolute) and ../ (parent climbs)', () => {
-    expect(parseAstraPath('/decisions/method')).toMatchObject({
+  it('handles the leading / (absolute) and ../ (parent climb) prefix operators', () => {
+    expect(parseAstraPath('/decisions.method')).toMatchObject({
       absolute: true,
       up: 0,
       collection: 'decisions',
       id: 'method',
     });
-    expect(parseAstraPath('../../outputs/xi')).toMatchObject({
+    expect(parseAstraPath('../../outputs.xi')).toMatchObject({
       absolute: false,
       up: 2,
       collection: 'outputs',
       id: 'xi',
     });
+    expect(parseAstraPath('..')).toMatchObject({
+      up: 1,
+      scope: [],
+      collection: null,
+      id: null,
+    });
   });
 
   it('accepts the prior-insights hyphen alias for prior_insights', () => {
-    expect(parseAstraPath('prior-insights/recon')).toMatchObject({
+    expect(parseAstraPath('prior-insights.recon')).toMatchObject({
       collection: 'prior_insights',
       id: 'recon',
     });
   });
 
-  it('tolerates surrounding/duplicate slashes and whitespace', () => {
-    expect(parseAstraPath('  outputs//xi/  ')).toMatchObject({
+  it('tolerates surrounding/duplicate dots and whitespace', () => {
+    expect(parseAstraPath('  outputs..xi.  ')).toMatchObject({
       collection: 'outputs',
       id: 'xi',
     });
@@ -118,14 +124,14 @@ describe('parseAstraPath', () => {
 
 describe('pathIdentifier', () => {
   it('maps collection + id to <kind>-<id>', () => {
-    expect(pathIdentifier(parseAstraPath('outputs/xi'))).toBe('output-xi');
-    expect(pathIdentifier(parseAstraPath('decisions/m'))).toBe('decision-m');
-    expect(pathIdentifier(parseAstraPath('prior_insights/p'))).toBe('prior_insight-p');
+    expect(pathIdentifier(parseAstraPath('outputs.xi'))).toBe('output-xi');
+    expect(pathIdentifier(parseAstraPath('decisions.m'))).toBe('decision-m');
+    expect(pathIdentifier(parseAstraPath('prior_insights.p'))).toBe('prior_insight-p');
   });
 
   it('collapses children to their parent element identifier', () => {
-    expect(pathIdentifier(parseAstraPath('decisions/m/options/a'))).toBe('decision-m');
-    expect(pathIdentifier(parseAstraPath('findings/f/evidence/e'))).toBe('finding-f');
+    expect(pathIdentifier(parseAstraPath('decisions.m.options.a'))).toBe('decision-m');
+    expect(pathIdentifier(parseAstraPath('findings.f.evidence.e'))).toBe('finding-f');
   });
 
   it('returns null for registries and bare sub-analyses', () => {
@@ -136,20 +142,20 @@ describe('pathIdentifier', () => {
 
 describe('splitDisplay', () => {
   it('extracts MyST-style display text <target>', () => {
-    expect(splitDisplay('our method <decisions/algorithm>')).toEqual({
+    expect(splitDisplay('our method <decisions.algorithm>')).toEqual({
       display: 'our method',
-      path: 'decisions/algorithm',
+      path: 'decisions.algorithm',
     });
   });
 
   it('returns a bare path unchanged with null display', () => {
-    expect(splitDisplay('outputs/xi')).toEqual({ display: null, path: 'outputs/xi' });
+    expect(splitDisplay('outputs.xi')).toEqual({ display: null, path: 'outputs.xi' });
   });
 
   it('supports %s placeholders in the display text', () => {
-    expect(splitDisplay('see Fig. %s <outputs/xi>')).toEqual({
+    expect(splitDisplay('see Fig. %s <outputs.xi>')).toEqual({
       display: 'see Fig. %s',
-      path: 'outputs/xi',
+      path: 'outputs.xi',
     });
   });
 });
