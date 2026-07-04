@@ -81,7 +81,7 @@ The report-wide default universe comes from `ASTRA_UNIVERSE` (see [configuration
 
 ## Cross-referencing an embedded block
 
-Every embedded element carries a stable anchor `<kind>-<id>` (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …), so you can point at it from anywhere with plain MyST links, `{astra:numref}`, or the [`#astra:` scheme](cross-references.md). Figures and tables are numbered by MyST as usual.
+Every embedded element carries a stable anchor `<kind>-<id>` (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …), so you can point at it from anywhere with plain MyST links, `{astra:ref}`, or the [`#astra:` scheme](cross-references.md). Figures and tables are numbered by MyST as usual.
 
 ## Errors
 

@@ -3,7 +3,7 @@
  *
  * Builds a tiny but complete ASTRA project in a temp dir (its own astra.yaml,
  * universe, and result artifacts), then drives the plugin's single `{astra}`
- * directive, the inline roles ({astra}, {astra:numref}, {astra:cite[:t]},
+ * directive, the inline roles ({astra}, {astra:ref}, {astra:cite[:t]},
  * {astra:value}), and the transforms against it, asserting the emitted mdast.
  *
  * Exercises the unified path grammar: elements, children (options / evidence),
@@ -222,7 +222,8 @@ function runAstra(arg?: string, options: Record<string, any> = {}): Node[] {
   return astraDirective().run({ arg, options }) as Node[];
 }
 function role(name: string) {
-  const r = plugin.roles.find((x: any) => x.name === name);
+  // Match by name or alias, mirroring how MyST resolves role invocations.
+  const r = plugin.roles.find((x: any) => x.name === name || x.alias?.includes(name));
   if (!r) throw new Error(`no role ${name}`);
   return r as any;
 }
@@ -448,24 +449,30 @@ describe('role {astra}', () => {
   });
 });
 
-// ── Inline role: {astra:numref} ─────────────────────────────────────────────────
+// ── Inline role: {astra:ref} (alias {astra:numref}) ─────────────────────────
 
-describe('role {astra:numref}', () => {
+describe('role {astra:ref}', () => {
   // Emits a link to the output identifier (not a crossReference node): MyST's
   // own resolver fills the "Figure N" number for link nodes, but leaves
   // plugin-injected crossReferences unresolved.
   it('emits a link to the output carrier identifier', () => {
-    const [node] = runRole('astra:numref', 'outputs/scatter_plot');
+    const [node] = runRole('astra:ref', 'outputs/scatter_plot');
     expect(node.type).toBe('link');
     expect(node.url).toBe('#output-scatter_plot');
     expect(node.children).toEqual([]); // empty → MyST fills "Figure N"
   });
 
   it('carries %s display text through', () => {
-    const [node] = runRole('astra:numref', 'see Fig. %s <outputs/scatter_plot>');
+    const [node] = runRole('astra:ref', 'see Fig. %s <outputs/scatter_plot>');
     expect(node.type).toBe('link');
     expect(node.url).toBe('#output-scatter_plot');
     expect(textOf([node])).toBe('see Fig. %s');
+  });
+
+  it('keeps astra:numref as an alias', () => {
+    expect(role('astra:ref').alias).toContain('astra:numref');
+    const [node] = runRole('astra:numref', 'outputs/scatter_plot');
+    expect(node.url).toBe('#output-scatter_plot');
   });
 });
 

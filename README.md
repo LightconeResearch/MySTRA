@@ -163,8 +163,8 @@ preview card). A few specialised variants follow MyST's colon convention
 (`{cite:p}` / `{cite:t}`):
 
 ```markdown
-{astra:numref}`outputs/hubble_diagram`                     # "Figure 3" (like {numref}; supports %s)
-{astra:numref}`see Fig. %s <outputs/hubble_diagram>`
+{astra:ref}`outputs/hubble_diagram`                     # "Figure 3" (like {ref}; supports %s)
+{astra:ref}`see Fig. %s <outputs/hubble_diagram>`       # ({astra:numref} works as an alias)
 {astra:cite}`prior_insights/recon_sharpens_bao`         # "(Chen et al., 2024)"  — parenthetical
 {astra:cite:t}`prior_insights/recon_sharpens_bao`       # "Chen et al. (2024)"   — textual
 ```

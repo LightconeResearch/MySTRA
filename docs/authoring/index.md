@@ -9,7 +9,7 @@ Everything else — prose, math, figures you author yourself, the table of conte
 | I want to… | Use | Example |
 |---|---|---|
 | Mention an element in a sentence | [`{astra}` role](inline-references.md) | `` {astra}`decisions/algorithm` `` |
-| Refer to a figure by number ("Figure 3") | [`{astra:numref}`](inline-references.md#numbered-references-astranumref) | `` {astra:numref}`outputs/hubble_diagram` `` |
+| Refer to a figure by number ("Figure 3") | [`{astra:ref}`](inline-references.md#numbered-references-astraref) | `` {astra:ref}`outputs/hubble_diagram` `` |
 | Cite the literature behind an insight | [`{astra:cite}` / `{astra:cite:t}`](inline-references.md#citations-astracite-and-astracitet) | `` {astra:cite}`prior_insights/recon` `` |
 | Put a measured number in prose | [`{astra:value}`](live-values.md) | `` {astra:value}`outputs/table col=alpha ±` `` |
 | Embed a figure, decision, finding, … as a block | [`{astra}` directive](block-embeds.md) | `:::{astra} outputs/hubble_diagram` |
@@ -37,7 +37,7 @@ the {astra}`decisions/algorithm/options/multigrid` option follows
 ## Results
 
 The fit yields $\alpha =$ {astra:value}`outputs/alpha_table col=alpha tracer=elg1 ±`
-({astra:numref}`see Fig. %s <outputs/bao_fit_plot>`).
+({astra:ref}`see Fig. %s <outputs/bao_fit_plot>`).
 
 :::{astra} outputs/bao_fit_plot
 :caption: Correlation function and best-fit model, post-reconstruction.

@@ -32,16 +32,16 @@ Any [path](paths.md) works — elements, children, and sub-analyses:
 {astra}`reconstruction/outputs/xi`              an element inside a sub-analysis
 ```
 
-## Numbered references — `{astra:numref}`
+## Numbered references — `{astra:ref}`
 
-A few specialised variants follow MyST's colon convention (`{cite:p}` / `{cite:t}`). `{astra:numref}` produces a native numbered cross-reference — "Figure 3" — to an output that is [placed as a block](block-embeds.md) somewhere in the report:
+A few specialised variants follow MyST's colon convention (`{cite:p}` / `{cite:t}`). `{astra:ref}` produces a native numbered cross-reference — "Figure 3" — to an output that is [placed as a block](block-embeds.md) somewhere in the report:
 
 ```markdown
-{astra:numref}`outputs/hubble_diagram`                # "Figure 3" (like {numref})
-{astra:numref}`see Fig. %s <outputs/hubble_diagram>`  # custom text; %s is the number
+{astra:ref}`outputs/hubble_diagram`                # "Figure 3" (like {ref})
+{astra:ref}`see Fig. %s <outputs/hubble_diagram>`  # custom text; %s is the number
 ```
 
-MyST fills in the number during its own reference resolution, exactly as it numbers a plain `[](#some-figure)` link. The target must actually be embedded on some page — a numbered reference to an output that is never placed has nothing to point at.
+MyST fills in the number during its own reference resolution, exactly as it numbers a plain `[](#some-figure)` link — the role is sugar for writing `[Fig. %s](#output-hubble_diagram)` without knowing the anchor convention. The target must actually be embedded on some page — a numbered reference to an output that is never placed has nothing to point at. `{astra:numref}` is accepted as an alias (mirroring MyST, where `numref` is itself an alias of `{ref}`).
 
 ## Citations — `{astra:cite}` and `{astra:cite:t}`
 

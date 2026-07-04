@@ -50,7 +50,7 @@ The same scheme works *inside* the analysis: narrative sections, decision ration
 | You want | Write |
 |---|---|
 | A semantic mention with a hover card on rich themes | `` {astra}`decisions/algorithm` `` |
-| "Figure 3"-style numbering | `` {astra:numref}`outputs/hubble_diagram` `` |
+| "Figure 3"-style numbering | `` {astra:ref}`outputs/hubble_diagram` `` |
 | A plain MyST link (auto or custom text) | `[](#astra:outputs/hubble_diagram)` |
 | The output embedded with the plugin's provenance block | `:::{astra} outputs/hubble_diagram` |
 | The bare image under your own figure/caption | `:::{figure} #astra:outputs/hubble_diagram` |
