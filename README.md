@@ -10,7 +10,6 @@ One source of truth, no copy-pasted values, no figures that drift out of sync.
 [![Docs](https://img.shields.io/badge/docs-online-3178C6.svg)](https://lightconeresearch.github.io/MySTRA/)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](./LICENSE)
 [![MyST](https://img.shields.io/badge/MyST-plugin-DE5C42.svg)](https://mystmd.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![status](https://img.shields.io/badge/status-alpha-orange.svg)](#)
 
 </div>
@@ -19,10 +18,10 @@ One source of truth, no copy-pasted values, no figures that drift out of sync.
 
 > [!WARNING]
 > **Early development.** MySTRA is in active, pre-1.0 development. The plugin
-> vocabulary, the resolved-store shape, and the public API may change without
-> notice between releases, and there are rough edges. Pin a specific release
-> tag in your `myst.yml` rather than tracking `latest`, and expect breaking
-> changes. Feedback and issues are very welcome.
+> vocabulary and public API may change without notice between releases, and
+> there are rough edges. Pin a specific release tag in your `myst.yml` rather
+> than tracking `latest`, and expect breaking changes. Feedback and issues are
+> very welcome.
 
 You write a normal MyST Markdown document and reference ASTRA components —
 decisions, outputs, findings, prior insights, data tables, live numbers. The
@@ -42,8 +41,10 @@ consistent with the {astra}`findings.bao_detected_post_recon` detection.
 ```
 
 → the values are interpolated live from the result product, the finding renders
-as a card with its full record, and the figure is pulled in with its provenance.
-Edit `astra.yaml` and rerun the analysis; the report updates itself.
+with its full record, and the figure is pulled in with its provenance. Edit
+`astra.yaml` and rerun the analysis; the report updates itself.
+
+**[Full documentation →](https://lightconeresearch.github.io/MySTRA/)**
 
 ## Contents
 
@@ -51,11 +52,9 @@ Edit `astra.yaml` and rerun the analysis; the report updates itself.
 - [Quick start](#quick-start)
 - [Authoring](#authoring)
 - [ASTRA project layout](#astra-project-layout)
-- [Two render modes](#two-render-modes)
+- [Themes](#themes)
 - [What MyST handles for you](#what-myst-handles-for-you)
-- [How it works (for theme authors)](#how-it-works-for-theme-authors)
-- [Project structure](#project-structure)
-- [Developing MySTRA](#developing-mystra)
+- [Developing](#developing)
 - [License](#license)
 
 ## Why
@@ -111,6 +110,9 @@ That's it — no custom server and no build step of your own. MySTRA reads
 `astra.yaml` from the working directory — run `myst` from the ASTRA project
 root — and resolves the first universe in `universes/`.
 
+For a five-minute walk-through, see
+[getting started](https://lightconeresearch.github.io/MySTRA/getting-started/).
+
 ## Authoring
 
 You reference **any part** of an ASTRA analysis with one idea: a **path** that
@@ -123,8 +125,8 @@ block.
 
 A path is a dot-separated route through the analysis tree — the same dotted
 spelling `astra.yaml` itself uses for element references (`when:
-decision.option`, `from: scope.id`). Dots address elements, slashes are for
-files; the first meaningful segment is a top-level `astra.yaml` collection.
+decision.option`, `from: scope.id`). Leading segments step into sub-analyses;
+the first collection keyword fixes the target.
 
 ```
 outputs.hubble_diagram                  an output (figure / table / metric / …)
@@ -201,14 +203,16 @@ Pull a number straight from the resolved analysis at build time:
 ```markdown
 {astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
 {astra:value}`outputs.bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
-{astra:value}`decisions.algorithm`                                            → the selected option
+{astra:value}`outputs.chi2_reduced`                                            → a metric's scalar
+{astra:value}`decisions.algorithm`                                             → the selected option
 ```
 
 Grammar: `<path> [col=<col>] [<key>=<val> …] [±|pm] [err=<col>] [sig=N]`. For a
 table output it reads the CSV/JSON, filters rows by each `key=val`, and renders
 the selected cell — append `±` (or `pm`/`err=<col>`) to show `± std`, `sig=N` to
-set significant figures. A metric output renders its scalar; a `decisions.<id>`
-path renders the option selected under the active universe.
+set significant figures. A metric output interpolates its scalar directly (no
+`col=`); a `decisions.<id>` path renders the option selected under the active
+universe.
 
 ### Native cross-references
 
@@ -222,7 +226,11 @@ so plain MyST links work against it from anywhere in the project:
 ```
 
 Everything else — prose, math, figures you author yourself, the table of
-contents, multi-page structure — is ordinary MyST.
+contents, multi-page structure — is ordinary MyST. The
+[authoring guide](https://lightconeresearch.github.io/MySTRA/authoring/) covers
+each surface in depth, including
+[multi-page reports](https://lightconeresearch.github.io/MySTRA/authoring/multi-page/)
+that mirror your sub-analyses.
 
 ## ASTRA project layout
 
@@ -242,100 +250,35 @@ deterministically from the convention above (the analysis's `path:` + universe +
 output id) and resolves the artifact file lazily, as it renders. A sub-analysis
 that declares `path: ./analyses/<sub>` roots its own `results/<universe>/` there.
 
-## Two render modes
+## Themes
 
-- **Basic — plugin only.** On the stock `book-theme` with no stylesheet, the
-  document is already clean and readable: decisions are dropdowns, outputs are
-  real figures/tables, findings and prior insights are cards, numbers show their
-  value, and inline references show a plain label. **No user CSS required.**
-- **Rich — a dedicated ASTRA theme.** A MyST theme keyed on the `astra-*`
-  classes the plugin emits can add glyphs, per-kind colours, hover preview
-  cards, and richer patterns (e.g. a product-dependency graph), all driven from
-  the resolved data the plugin bakes into the build. The only change is the
-  `site.template:` line. (This theme is a separate deliverable; until it ships,
-  `book-theme` is the baseline.)
+On the stock `book-theme` with no stylesheet, the document is already clean and
+readable: decisions are dropdowns, outputs are real figures/tables, findings and
+prior insights are cards, numbers show their value. **No user CSS required.**
+
+A dedicated MyST theme can go further — kind glyphs, per-kind colours, hover
+preview cards — driven by the stable `astra-*` classes and the resolved data
+store the plugin bakes into every page. Building one? The contract is documented
+in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
 
 ## What MyST handles for you
 
 MySTRA writes only the ASTRA→AST bridge and leans on the stock `myst` engine for
-everything else: building, serving, asset hashing/copying (it rewrites the
-plugin's project-relative image paths into hashed assets), live reload of
+everything else: building, serving, asset hashing/copying, live reload of
 Markdown, numbering, cross-references, and search. **Citations** are delegated to
 MyST too — DOI evidence renders as a `doi.org` link, and a linked reference list
 comes for free once a project bibliography is wired.
 
-## How it works (for theme authors)
-
-Every placed block carries a stable `astra-<kind>` class
-(`astra-decision`, `astra-output`/`--figure`, `astra-finding`,
-`astra-prior-insight`, `astra-input`/`astra-inputs`/`astra-outputs`,
-`astra-option`, `astra-universe`, `astra-subanalysis`) on the node bearing its
-`<kind>-<id>` identifier; inline tokens are neutral
-(`span.astra-ref--<kind>`). For rich rendering the plugin also bakes a **resolved
-store** onto a hidden `div.astra-store` carrier's `data` (per page): the fully
-resolved outputs (project-relative paths, parsed table/metric values, recipes,
-provenance), inputs, decisions, findings, prior insights, and sub-analyses, all
-keyed by id. A theme selects a placed node by class/identifier and joins it to
-the store — it never reads `astra.yaml`. Insight DOIs are additionally emitted
-as hidden `cite` nodes (a `div.astra-cites` carrier) so MyST's citation
-pipeline resolves them at build time and a theme can render the formatted
-citation (author–year + bibliography entry) instead of the raw DOI.
-
-The exact shape a theme consumes is defined by
-[`src/transform/resolved-store.ts`](./src/transform/resolved-store.ts) and its
-exported `ResolvedStore` / `Serialized*` types.
-
-## Project structure
-
-```
-src/
-├── index.ts                  The MyST plugin + package entry (default export = the plugin)
-├── path.ts                   The unified reference path grammar (parse + resolve)
-├── loader.ts                 Load a project for one universe (via the SDK) + resolve result files
-└── transform/                Per-component renderers used by the plugin
-    ├── ast-helpers.ts        Pure AST node constructors
-    ├── prose.ts              Parse component Markdown into MyST mdast
-    ├── parse-table-data.ts   CSV/JSON table parser
-    ├── resolve-output.ts     Resolves `from:` output/alias chains
-    ├── provenance.ts         Traces an output's decision/input provenance frames
-    ├── resolved-store.ts     Builds the resolved data store for rich themes
-    ├── render-methods.ts     renderDecision (details/summary + tabbed options)
-    ├── render-findings.ts    renderFinding (claim + notes + scope + evidence)
-    ├── render-evidence.ts    renderOneOutput + evidence/table rendering
-    └── render-data-sources.ts  Inputs/outputs registry tables
-```
-
-Data-model types come directly from **`@astra-spec/sdk`** (`Analysis`,
-`Decision`, `Output`, …) — MySTRA defines none of its own.
-
-## Developing MySTRA
+## Developing
 
 Working on the plugin itself (not needed to *use* it):
 
 ```bash
 npm install
-npm run build    # type-check + compile src/ → dist/ (tsc)
+npm run build    # type-check + compile
 npm run bundle   # bundle the single-file plugin → dist/mystra.mjs
-npm test         # plugin-emission + store + parser tests (vitest)
+npm test         # plugin-emission + store + parser tests
 ```
-
-`astra.yaml` is parsed once and cached; `myst start` watches Markdown, not
-`astra.yaml`, so editing the spec needs a server restart.
-
-### Releasing
-
-Distribution is a single bundled `.mjs` attached to a GitHub Release — MyST does
-not consume npm packages ([why](https://mystmd.org/guide/plugins-distribute)).
-Cutting a release is just pushing a tag:
-
-```bash
-git tag v0.0.1
-git push origin v0.0.1
-```
-
-The [`release`](./.github/workflows/release.yml) workflow then tests, bundles
-`dist/mystra.mjs`, and publishes a GitHub Release with that file attached — which
-is the URL users reference in `myst.yml` (above).
 
 ## License
 
