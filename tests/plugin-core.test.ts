@@ -345,6 +345,13 @@ describe('directive — children', () => {
     // the source artifact id renders as inline code
     expect(findFirst(nodes, (n) => n.type === 'inlineCode' && n.value === 'scatter_plot')).toBeDefined();
   });
+
+  it('accepts the short child form (options / evidence implied)', () => {
+    expect(byIdentifier(runAstra('decisions.method.grid'), 'option-method-grid')).toBeDefined();
+    expect(textOf(runAstra('findings.signal_detected.f1'))).toContain('A clear peak appears.');
+    // …and inline: the option ref resolves the same as the long form
+    expect(textOf(runRole('astra', 'decisions.method.grid'))).toBe('Grid search');
+  });
 });
 
 // ── Block directive: collections (registries) ────────────────────────────────

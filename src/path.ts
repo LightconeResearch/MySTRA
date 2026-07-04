@@ -9,8 +9,9 @@
  * the root analysis (a leading `/` is tolerated):
  *
  *   outputs.hubble_diagram                    an output in the root analysis
- *   decisions.algorithm.options.gp            a child (one Option of a Decision)
- *   findings.sig.evidence.fig1                a child (one Evidence of a Finding)
+ *   decisions.algorithm.gp                    a child (one Option of a Decision)
+ *   decisions.algorithm.options.gp            … the explicit long form
+ *   findings.sig.fig1                         a child (one Evidence of a Finding)
  *   reconstruction.outputs.xi                 a sub-analysis (the `analyses.` is implied)
  *   analyses.reconstruction.outputs.xi        … the explicit long form
  *   reconstruction                            the sub-analysis itself
@@ -45,6 +46,18 @@ const COLLECTIONS = new Set<string>([
 ]);
 
 const CHILD_COLLECTIONS = new Set<string>(['options', 'evidence']);
+
+/**
+ * The single child collection each element kind carries — what a bare segment
+ * after `<collection>.<id>` addresses (`decisions.d.gp` ≡ `decisions.d.options.gp`).
+ * Each kind has exactly one child collection, so the short form is unambiguous;
+ * the explicit keyword stays accepted as the long form.
+ */
+const CHILD_BY_COLLECTION: Partial<Record<Collection, ChildCollection>> = {
+  decisions: 'options',
+  findings: 'evidence',
+  prior_insights: 'evidence',
+};
 
 /** Map a collection to the singular `<kind>` used in mdast identifiers + classes. */
 export const KIND_BY_COLLECTION: Record<Collection, string> = {
@@ -136,10 +149,17 @@ export function parseAstraPath(raw: string): AstraPath {
         id = segs[i];
         i++;
       }
-      if (i < segs.length && CHILD_COLLECTIONS.has(segs[i])) {
-        const cc = segs[i] as ChildCollection;
-        const cid = segs[i + 1];
-        if (cid) child = { collection: cc, id: cid };
+      if (i < segs.length) {
+        if (CHILD_COLLECTIONS.has(segs[i])) {
+          // Explicit long form: `…options.<id>` / `…evidence.<id>`.
+          const cc = segs[i] as ChildCollection;
+          const cid = segs[i + 1];
+          if (cid) child = { collection: cc, id: cid };
+        } else {
+          // Short form: the child collection is implied by the parent kind.
+          const implied = CHILD_BY_COLLECTION[collection];
+          if (implied) child = { collection: implied, id: segs[i] };
+        }
       }
       break;
     }

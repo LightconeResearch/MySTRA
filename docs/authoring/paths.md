@@ -5,8 +5,8 @@ A **path** is a dot-separated route through the analysis tree — the same struc
 ```
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
-decisions.algorithm.options.gp          a child — one option of a decision
-findings.sig.evidence.fig1              a child — one evidence record of a finding
+decisions.algorithm.gp                  a child — one option of a decision
+findings.sig.fig1                       a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis
@@ -45,12 +45,15 @@ Each segment before the first collection keyword is a step into a sub-analysis; 
 
 ## Children
 
-Two element kinds have addressable children:
+Two element kinds have addressable children — decisions have **options**, findings and prior insights have **evidence**. Since each kind has exactly one child collection, the collection keyword is implied (just like `analyses.`):
 
 ```
-decisions.<id>.options.<option-id>      one option of a decision
-findings.<id>.evidence.<evidence-id>    one evidence record of a finding
-prior_insights.<id>.evidence.<id>       one evidence record of a prior insight
+decisions.<id>.<option-id>              one option of a decision
+findings.<id>.<evidence-id>             one evidence record of a finding
+prior_insights.<id>.<evidence-id>       one evidence record of a prior insight
+
+decisions.<id>.options.<option-id>      … the explicit long forms
+findings.<id>.evidence.<evidence-id>
 ```
 
 ## Registries

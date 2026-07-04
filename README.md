@@ -131,8 +131,8 @@ the first collection keyword fixes the target.
 ```
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
-decisions.algorithm.options.gp          a child — one option of a decision
-findings.sig.evidence.fig1              a child — one evidence record of a finding
+decisions.algorithm.gp                  a child — one option of a decision
+findings.sig.fig1                       a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis

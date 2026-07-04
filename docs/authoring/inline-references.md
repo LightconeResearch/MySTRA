@@ -23,7 +23,7 @@ Any [path](paths.md) works — elements, children, and sub-analyses:
 
 ```markdown
 {astra}`decisions.algorithm`                    a decision (renders its label)
-{astra}`decisions.algorithm.options.gp`         one option (renders the option label)
+{astra}`decisions.algorithm.gp`                 one option (renders the option label)
 {astra}`outputs.hubble_diagram`                 an output
 {astra}`findings.signal_detected`               a finding
 {astra}`prior_insights.recon_sharpens_bao`      a prior insight

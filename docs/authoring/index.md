@@ -28,7 +28,7 @@ Everything else — prose, math, figures you author yourself, the table of conte
 ## Method
 
 We adopt the {astra}`decisions.algorithm` for density-field reconstruction;
-the {astra}`decisions.algorithm.options.multigrid` option follows
+the {astra}`decisions.algorithm.multigrid` option follows
 {astra:cite:t}`prior_insights.recon_sharpens_bao`.
 
 :::{astra} decisions.algorithm

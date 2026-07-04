@@ -37,6 +37,30 @@ describe('parseAstraPath', () => {
     });
   });
 
+  it('implies the child collection in the short form (options / evidence elided)', () => {
+    expect(parseAstraPath('decisions.algorithm.gp')).toMatchObject({
+      collection: 'decisions',
+      id: 'algorithm',
+      child: { collection: 'options', id: 'gp' },
+    });
+    expect(parseAstraPath('findings.sig.fig1')).toMatchObject({
+      collection: 'findings',
+      id: 'sig',
+      child: { collection: 'evidence', id: 'fig1' },
+    });
+    expect(parseAstraPath('prior_insights.recon.e1')).toMatchObject({
+      collection: 'prior_insights',
+      id: 'recon',
+      child: { collection: 'evidence', id: 'e1' },
+    });
+    // Collections without children ignore a trailing segment (as before).
+    expect(parseAstraPath('outputs.xi.extra')).toMatchObject({
+      collection: 'outputs',
+      id: 'xi',
+      child: null,
+    });
+  });
+
   it('treats a leading bare id as a sub-analysis scope step (analyses. implied)', () => {
     expect(parseAstraPath('reconstruction.outputs.xi')).toMatchObject({
       scope: ['reconstruction'],
@@ -121,6 +145,7 @@ describe('pathIdentifier', () => {
   it('collapses children to their parent element identifier', () => {
     expect(pathIdentifier(parseAstraPath('decisions.m.options.a'))).toBe('decision-m');
     expect(pathIdentifier(parseAstraPath('findings.f.evidence.e'))).toBe('finding-f');
+    expect(pathIdentifier(parseAstraPath('decisions.m.a'))).toBe('decision-m');
   });
 
   it('returns null for registries and sub-analyses (separate pages)', () => {

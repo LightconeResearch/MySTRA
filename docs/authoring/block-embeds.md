@@ -12,10 +12,10 @@ The `{astra}` directive embeds any addressable element, child, or collection as 
 | Path | Renders |
 |---|---|
 | `decisions.<id>` | The decision: label, rationale, and its options as tabs, with the universe's selection marked |
-| `decisions.<id>.options.<id>` | One option: label, description, supporting insights |
+| `decisions.<id>.<option>` | One option: label, description, supporting insights |
 | `outputs.<id>` | The output — a real figure, table, or metric — with its provenance |
 | `findings.<id>` | The finding: claim + notes + scope + evidence |
-| `findings.<id>.evidence.<id>` | One evidence record |
+| `findings.<id>.<evidence>` | One evidence record |
 | `prior_insights.<id>` | The prior insight as a "see also" admonition with its evidence |
 | `inputs.<id>` | The input as a one-row registry table |
 | `<sub-analysis>` | A navigation card linking to the sub-analysis page |

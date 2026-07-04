@@ -579,7 +579,7 @@ const astraDirective = {
   arg: {
     type: String,
     required: true,
-    doc: 'A path: <collection>.<id>[.<options|evidence>.<id>], a sub-analysis, or a collection.',
+    doc: 'A path: <collection>.<id>[.<child-id>], a sub-analysis, or a collection.',
   },
   options: {
     label: { type: String, doc: 'Cross-reference label for the rendered block.' },
