@@ -1,6 +1,6 @@
 # Paths — addressing any element
 
-A **path** is a dot-separated route through the analysis tree — the same structure as `astra.yaml`, and the same dotted spelling the spec itself uses for element references (`when: decision.option`, `from: scope.id`, recipe placeholders `{inputs.id}`). Dots address elements; slashes are reserved for files. The first meaningful segment is a top-level `astra.yaml` collection. One grammar drives every surface: the `{astra}` role, the `{astra}` directive, the `{astra:*}` variants, and the [`#astra:` cross-reference scheme](cross-references.md).
+A **path** is a dot-separated route through the analysis tree — the same structure as `astra.yaml`, and the same dotted spelling the spec itself uses for element references (`when: decision.option`, `from: scope.id`, recipe placeholders `{inputs.id}`). Dots address elements; slashes are reserved for files. The first meaningful segment is a top-level `astra.yaml` collection. One grammar drives every surface: the `{astra}` role, the `{astra}` directive, and the `{astra:*}` variants.
 
 ```
 outputs.hubble_diagram                  an output (figure / table / metric / …)
@@ -64,8 +64,7 @@ reconstruction.inputs                   the inputs registry of a sub-analysis
 
 ## Where paths resolve from
 
-- In **roles and directives**, a path resolves from the **root analysis**; a leading `/` is optional (`decisions.algorithm` and `/decisions.algorithm` are the same). To address something inside a sub-analysis, spell the scope out: `reconstruction.outputs.xi`.
-- In the **[`#astra:` link scheme](cross-references.md)**, a path resolves **relative to the current page's scope** (see [multi-page reports](multi-page.md)), and additionally supports `../` to climb scopes and a leading `/` to force root resolution.
+A path always resolves from the **root analysis**, so it means the same thing on every page; a leading `/` is tolerated (`decisions.algorithm` and `/decisions.algorithm` are the same). To address something inside a sub-analysis, spell the scope out: `reconstruction.outputs.xi`.
 
 ## IDs and labels
 

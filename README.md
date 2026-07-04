@@ -146,10 +146,9 @@ outputs                                 a whole collection (a registry)
 Collections are the `astra.yaml` keys: `inputs`, `outputs`, `decisions`,
 `findings`, `prior_insights` (hyphen alias `prior-insights`), `analyses`,
 `universes`. A sub-analysis id may be written directly (the `analyses.` prefix is
-implied) and nests to any depth (`clustering.correlation.outputs.xi`). In roles
-and directives a path resolves from the **root analysis** (a leading `/` is
-optional); the `#astra:` link scheme (below) resolves relative to the **page**,
-and additionally supports `../` to climb scopes.
+implied) and nests to any depth (`clustering.correlation.outputs.xi`). Paths
+always resolve from the **root analysis**, so a path means the same thing on
+every page (a leading `/` is tolerated).
 
 ### Inline references — the `{astra}` role
 
@@ -217,21 +216,15 @@ the selected cell — append `±` (or `pm`/`err=<col>`) to show `± std`, `sig=N
 set significant figures. A metric output renders its scalar; a `decisions.<id>`
 path renders the option selected under the active universe.
 
-### Native cross-references and embeds
+### Native cross-references
 
-Every element is also a MyST cross-reference target under the `astra:` scheme, so
-plain MyST links work — resolved relative to the current page, with `../` and a
-leading `/`:
+Every embedded element carries a stable MyST anchor `<kind>-<id>`
+(`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …),
+so plain MyST links work against it from anywhere in the project:
 
 ```markdown
-[](#astra:outputs.hubble_diagram)              # auto-filled link text
-[the diagram](#astra:outputs.hubble_diagram)   # custom text
-![](#astra:outputs.hubble_diagram)             # embed a figure output
-
-:::{figure} #astra:outputs.hubble_diagram
-:label: fig-hubble
-A caption written here, in the report.
-:::
+[](#output-hubble_diagram)              # auto-filled, numbered link text
+[the diagram](#output-hubble_diagram)   # custom text
 ```
 
 Everything else — prose, math, figures you author yourself, the table of
@@ -307,7 +300,7 @@ src/
 ├── loader.ts                 Load a project for one universe (via the SDK) + resolve result files
 └── transform/                Per-component renderers used by the plugin
     ├── ast-helpers.ts        Pure AST node constructors
-    ├── prose.ts              Parse component Markdown + resolve #astra: cross-references
+    ├── prose.ts              Parse component Markdown into MyST mdast
     ├── parse-table-data.ts   CSV/JSON table parser
     ├── resolve-output.ts     Resolves `from:` output/alias chains
     ├── provenance.ts         Traces an output's decision/input provenance frames

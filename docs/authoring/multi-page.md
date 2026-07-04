@@ -1,6 +1,6 @@
 # Multi-page reports
 
-A report can mirror the analysis tree: one page for the root analysis, and one page per sub-analysis. Pages are ordinary MyST pages — you list them in `myst.yml`'s `toc:` — and MySTRA maps each page to an ASTRA **scope** that governs how [`#astra:` links](cross-references.md) resolve and which elements the page's [resolved store](../reference/theming.md) contains.
+A report can mirror the analysis tree: one page for the root analysis, and one page per sub-analysis. Pages are ordinary MyST pages — you list them in `myst.yml`'s `toc:` — and MySTRA maps each page to an ASTRA **scope** that determines which elements the page's [resolved store](../reference/theming.md) contains.
 
 ## The dotted-filename convention
 
@@ -43,13 +43,13 @@ astra_scope:
 ---
 ```
 
-A page that maps to no valid scope (e.g. an appendix about something else entirely) simply gets no ASTRA scope: roles and directives still work — they resolve from the root — but page-relative `#astra:` links and the per-page store are skipped.
+A page that maps to no valid scope (e.g. an appendix about something else entirely) simply gets no ASTRA scope: roles and directives still work — they resolve from the root — but the per-page store is skipped.
 
 ## What the scope changes — and what it doesn't
 
 - **Roles and directives always resolve from the root analysis**, on every page. `` {astra}`reconstruction.outputs.xi` `` means the same thing everywhere.
-- **`#astra:` links resolve from the page's scope.** On `reconstruction.md`, `[](#astra:outputs.xi)` finds the sub-analysis's own `xi`; `[](#astra:../outputs.hubble)` climbs to the root; `[](#astra:/outputs.hubble)` is always absolute.
-- **Cross-page links do the right thing:** a link to an element rendered on another page points at that page.
+- **The scope only selects the page's [resolved store](../reference/theming.md)** — which elements a rich theme can join against on that page.
+- **Cross-page links work through plain MyST anchors:** every placed block carries a `<kind>-<id>` identifier, and MyST resolves `[](#output-xi)` project-wide to whichever page embeds it.
 
 ## Navigation between pages
 

@@ -20,7 +20,6 @@ nav = [
       { "Inline references" = "authoring/inline-references.md" },
       { "Block embeds" = "authoring/block-embeds.md" },
       { "Live values" = "authoring/live-values.md" },
-      { "Cross-references" = "authoring/cross-references.md" },
       { "Multi-page reports" = "authoring/multi-page.md" },
   ] },
   { "Reference" = [

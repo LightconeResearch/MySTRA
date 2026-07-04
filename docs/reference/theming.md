@@ -43,4 +43,4 @@ Besides the store, the plugin appends two more hidden carriers per page when rel
 
 ## Anchors
 
-Rendered elements carry `<kind>-<id>` identifiers (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, `prior_insight-recon`, `option-<decision>-<option>`, `universe-<id>`, `analysis-<sub>`), which is what `{astra:ref}`, `#astra:` links, and plain MyST references resolve against. An author's `:label:` option replaces the default identifier on that block.
+Rendered elements carry `<kind>-<id>` identifiers (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, `prior_insight-recon`, `option-<decision>-<option>`, `universe-<id>`, `analysis-<sub>`), which is what `{astra:ref}` and plain MyST references resolve against. An author's `:label:` option replaces the default identifier on that block.

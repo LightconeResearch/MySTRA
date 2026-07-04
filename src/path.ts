@@ -5,23 +5,20 @@
  * structure as `astra.yaml`, and the same dotted spelling the spec itself uses
  * for element references (`when: decision.option`, `from: scope.id`, recipe
  * placeholders `{inputs.id}`, and RFC-0002's `<sub>.<id>` addressing). Dots
- * address elements; slashes are reserved for files. `../` (climb) and a
- * leading `/` (root) are prefix *operators* on a path, exactly as in the
- * spec's `from:` grammar:
+ * address elements; slashes are reserved for files. Paths always resolve from
+ * the root analysis (a leading `/` is tolerated):
  *
- *   outputs.hubble_diagram                    an output in the current scope
+ *   outputs.hubble_diagram                    an output in the root analysis
  *   decisions.algorithm.options.gp            a child (one Option of a Decision)
  *   findings.sig.evidence.fig1                a child (one Evidence of a Finding)
  *   reconstruction.outputs.xi                 a sub-analysis (the `analyses.` is implied)
  *   analyses.reconstruction.outputs.xi        … the explicit long form
  *   reconstruction                            the sub-analysis itself
  *   outputs                                   a whole collection (a registry)
- *   /decisions.method                         absolute, from the root analysis
- *   ../outputs.xi                             the parent scope
  *
  * `parseAstraPath` turns the string into a structured {@link AstraPath}. One
- * grammar drives every surface: the `{astra}` role, the `{astra}` directive, the
- * `{astra:*}` variants, and the `#astra:<path>` cross-reference scheme.
+ * grammar drives every surface: the `{astra}` role, the `{astra}` directive,
+ * and the `{astra:*}` variants.
  */
 
 /** The top-level ASTRA collections — exactly the keys of `astra.yaml`. */
@@ -67,12 +64,8 @@ function canonicalCollection(seg: string): Collection | null {
 }
 
 export interface AstraPath {
-  /** The trimmed source string (scheme + display already stripped). */
+  /** The trimmed source string (display text already stripped). */
   raw: string;
-  /** A leading `/` — resolve from the root analysis rather than the current scope. */
-  absolute: boolean;
-  /** Count of leading `../` — scopes to climb from the current scope. */
-  up: number;
   /** Sub-analysis ids walked into (the analysis path), innermost last. */
   scope: string[];
   /** The target collection, or `null` when the target is a bare sub-analysis. */
@@ -99,33 +92,19 @@ export function splitDisplay(body: string): { display: string | null; path: stri
 /**
  * Parse a path string into a structured {@link AstraPath}.
  *
- * The prefix operators (`/`, `../`) are consumed first, then the dotted body is
- * read left-to-right: each segment is either a *collection keyword* (which
- * begins the target) or a *sub-analysis step* (the `analyses.` shorthand). The
- * first non-`analyses` collection keyword fixes the target; everything before
- * it is scope.
+ * The dotted body is read left-to-right: each segment is either a *collection
+ * keyword* (which begins the target) or a *sub-analysis step* (the `analyses.`
+ * shorthand). The first non-`analyses` collection keyword fixes the target;
+ * everything before it is scope. A leading `/` is tolerated (paths always
+ * resolve from the root analysis).
  *
  * The parse is purely syntactic — it never checks the element exists. Callers
  * resolve {@link AstraPath} against a loaded analysis and report missing ids.
  */
 export function parseAstraPath(raw: string): AstraPath {
   const trimmed = (raw ?? '').trim();
-
-  // Prefix operators: a leading `/` roots the path; `../` climbs one scope.
-  let rest = trimmed;
-  const absolute = rest.startsWith('/');
-  if (absolute) rest = rest.slice(1);
-  let up = 0;
-  while (rest.startsWith('../')) {
-    up++;
-    rest = rest.slice(3);
-  }
-  if (rest === '..') {
-    up++;
-    rest = '';
-  }
-
-  const segs = rest
+  const segs = trimmed
+    .replace(/^\//, '')
     .split('.')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -172,7 +151,7 @@ export function parseAstraPath(raw: string): AstraPath {
     i++;
   }
 
-  return { raw: trimmed, absolute, up, scope, collection, id, child };
+  return { raw: trimmed, scope, collection, id, child };
 }
 
 /**

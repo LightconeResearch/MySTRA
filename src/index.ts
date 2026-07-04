@@ -25,13 +25,8 @@
  *     :::{astra} reconstruction         :::        a sub-analysis nav card
  *     :::{astra} outputs                :::        the outputs registry
  *
- *   Native cross-reference scheme (resolved relative to the page scope):
- *     [text](#astra:outputs.hubble_diagram)        crossReference / page link
- *     ![](#astra:outputs.hubble_diagram)           embed a figure output
- *
- * Paths in roles and directives resolve from the **root analysis** (a leading
- * `/` is optional); the `#astra:` link scheme resolves relative to the **page
- * scope** and supports `../`. See README.md for the authoring guide.
+ * Paths always resolve from the **root analysis** (a leading `/` is tolerated).
+ * See README.md for the authoring guide.
  *
  * The plugin reads the ASTRA project once (cached) and renders each element via
  * the per-kind helpers in `./transform/`.
@@ -51,7 +46,7 @@ import {
 } from './loader.js';
 import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
 import { fileError, fileWarn } from 'myst-common';
-import { makeProseParser, resolveNarrativeAnchors } from './transform/prose.js';
+import { makeProseParser } from './transform/prose.js';
 import type {
   AnalysisScope,
   PriorInsightScope,
@@ -181,7 +176,6 @@ function resolveScope(
   root: string,
   universe: string | undefined,
   analysisPath: string[],
-  vfile?: any,
 ): Scope {
   const source = getSource(root, universe);
   let analysis = source.analysis;
@@ -220,14 +214,7 @@ function resolveScope(
   const slug = slugParts.length ? slugParts.join('/') : 'index';
   const universeId = source.universe.id;
   const results: ArtifactResolver = (id) => resolveArtifact(resultsBase, universeId, id);
-  const prose = makeProseParser({
-    analysis,
-    slug,
-    priorInsightScopes,
-    analysisScopes,
-    results,
-    vfile,
-  });
+  const prose = makeProseParser();
   const priorInsights = Object.assign(
     {},
     ...priorInsightScopes.map((s) => s.priorInsights),
@@ -668,7 +655,7 @@ const astraDirective = {
       options.universe ?? (p.collection === 'universes' ? p.id ?? undefined : undefined) ?? universeName();
 
     try {
-      const scope = resolveScope(projectRoot(), universe, analysisPath, vfile);
+      const scope = resolveScope(projectRoot(), universe, analysisPath);
       let nodes: any[];
       if (isBareSub) {
         nodes = renderSubAnalysisCard(analysisPath, p.scope[p.scope.length - 1], scope);
@@ -793,7 +780,7 @@ const astraRole = {
     const p = parseAstraPath(path);
     if (!p.collection && p.scope.length === 0) return [text(String(data?.body ?? ''))];
     try {
-      const scope = resolveScope(projectRoot(), universeName(), p.scope, vfile);
+      const scope = resolveScope(projectRoot(), universeName(), p.scope);
       const r = resolveInlineRef(p, scope, display);
       return [refNode(r.kind, r.id, r.path, r.label, r.subtype)];
     } catch (err) {
@@ -852,7 +839,7 @@ function citeRole(name: string, kind: 'parenthetical' | 'narrative') {
       const { display, path } = splitDisplay(String(data?.body ?? ''));
       const p = parseAstraPath(path);
       try {
-        const scope = resolveScope(projectRoot(), universeName(), p.scope, vfile);
+        const scope = resolveScope(projectRoot(), universeName(), p.scope);
         if (p.collection !== 'findings' && p.collection !== 'prior_insights') {
           throw new Error('astra:cite expects a finding or prior_insight path');
         }
@@ -983,7 +970,7 @@ const valueRole = {
   },
 };
 
-// ── Transform: ASTRA anchor scheme in author prose ───────────────────────────
+// ── Transform: emit the resolved ASTRA store for rich themes ─────────────────
 
 /**
  * The ASTRA scope a page maps to, or `null` for non-ASTRA pages. Scope is
@@ -1002,39 +989,11 @@ function scopeForFile(vfile: any): Scope | null {
     analysisPath = explicit.split('.').filter(Boolean);
   }
   try {
-    return resolveScope(projectRoot(), universeName(), analysisPath, vfile);
+    return resolveScope(projectRoot(), universeName(), analysisPath);
   } catch {
     return null;
   }
 }
-
-/**
- * Rewrite `#astra:<path>` cross-reference links the author writes directly in
- * page prose into `crossReference` nodes (same page) or sub-page links — reusing
- * the shared `resolveNarrativeAnchors`. Directives resolve anchors in the prose
- * they render; this covers the author's own page prose.
- */
-const anchorTransform = {
-  name: 'astra-anchor-grammar',
-  doc: 'Resolve ASTRA #astra:<path> cross-reference links to crossReferences.',
-  stage: 'document',
-  plugin: () => (tree: any, vfile: any) => {
-    const scope = scopeForFile(vfile);
-    if (!scope) return;
-    const resolved = resolveNarrativeAnchors(
-      tree.children ?? [],
-      scope.analysis,
-      scope.slug,
-      scope.priorInsightScopes,
-      scope.results,
-      scope.analysisScopes,
-      vfile,
-    );
-    tree.children = rewriteStaticImages(resolved, scope);
-  },
-};
-
-// ── Transform: emit the resolved ASTRA store for rich themes ─────────────────
 
 /** Ancestor input maps (innermost-last) for resolving aliased `from:` inputs. */
 function parentInputMaps(scope: Scope): Map<string, Input>[] {
@@ -1093,7 +1052,7 @@ function mergeCrossScopeRefs(
   const subStoreFor = (prefix: string) => {
     if (!subStores.has(prefix)) {
       try {
-        const refScope = resolveScope(projectRoot(), universeName(), prefix.split('.'), vfile);
+        const refScope = resolveScope(projectRoot(), universeName(), prefix.split('.'));
         subStores.set(
           prefix,
           buildResolvedStore(
@@ -1219,7 +1178,7 @@ const plugin = {
     citeRole('astra:cite:t', 'narrative'),
     valueRole,
   ],
-  transforms: [anchorTransform, storeTransform],
+  transforms: [storeTransform],
 };
 
 export default plugin;

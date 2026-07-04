@@ -48,7 +48,7 @@ Options follow MyST's `:key: value` form:
 | Option | Meaning |
 |---|---|
 | `:label:` | Cross-reference label for the rendered block. This **replaces** the default `<kind>-<id>` anchor — manage the anchor yourself if you set it. |
-| `:caption:` | Caption text (figure / table outputs). Markdown is allowed and may itself contain `#astra:` links. |
+| `:caption:` | Caption text (figure / table outputs). Markdown is allowed. |
 | `:compact:` | Findings: claim + notes + scope only (no evidence). |
 | `:show:` | Findings: parts to include, from `claim, notes, scope, evidence` (comma- or space-separated). The claim is always kept. |
 | `:hide:` | Findings: parts to exclude (same part names). |
@@ -81,7 +81,7 @@ The report-wide default universe comes from `ASTRA_UNIVERSE` (see [configuration
 
 ## Cross-referencing an embedded block
 
-Every embedded element carries a stable anchor `<kind>-<id>` (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …), so you can point at it from anywhere with plain MyST links, `{astra:ref}`, or the [`#astra:` scheme](cross-references.md). Figures and tables are numbered by MyST as usual.
+Every embedded element carries a stable anchor `<kind>-<id>` (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …), so you can point at it from anywhere with plain MyST links (`[](#output-hubble_diagram)`) or `{astra:ref}`. Figures and tables are numbered by MyST as usual.
 
 ## Errors
 

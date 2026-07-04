@@ -12,10 +12,8 @@ import {
 } from '../src/path.js';
 
 describe('parseAstraPath', () => {
-  it('parses a collection + id in the current scope', () => {
+  it('parses a collection + id in the root analysis', () => {
     expect(parseAstraPath('outputs.hubble_diagram')).toMatchObject({
-      absolute: false,
-      up: 0,
       scope: [],
       collection: 'outputs',
       id: 'hubble_diagram',
@@ -86,24 +84,10 @@ describe('parseAstraPath', () => {
     expect(parseAstraPath('analyses')).toMatchObject({ collection: 'analyses', id: null });
   });
 
-  it('handles the leading / (absolute) and ../ (parent climb) prefix operators', () => {
+  it('tolerates a leading / (paths always resolve from the root)', () => {
     expect(parseAstraPath('/decisions.method')).toMatchObject({
-      absolute: true,
-      up: 0,
       collection: 'decisions',
       id: 'method',
-    });
-    expect(parseAstraPath('../../outputs.xi')).toMatchObject({
-      absolute: false,
-      up: 2,
-      collection: 'outputs',
-      id: 'xi',
-    });
-    expect(parseAstraPath('..')).toMatchObject({
-      up: 1,
-      scope: [],
-      collection: null,
-      id: null,
     });
   });
 

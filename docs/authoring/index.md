@@ -13,7 +13,7 @@ Everything else — prose, math, figures you author yourself, the table of conte
 | Cite the literature behind an insight | [`{astra:cite}` / `{astra:cite:t}`](inline-references.md#citations-astracite-and-astracitet) | `` {astra:cite}`prior_insights.recon` `` |
 | Put a measured number in prose | [`{astra:value}`](live-values.md) | `` {astra:value}`outputs.table col=alpha ±` `` |
 | Embed a figure, decision, finding, … as a block | [`{astra}` directive](block-embeds.md) | `:::{astra} outputs.hubble_diagram` |
-| Link or embed with plain MyST syntax | [`#astra:` scheme](cross-references.md) | `[](#astra:outputs.hubble_diagram)` |
+| Link to a placed block with plain MyST syntax | its `<kind>-<id>` [anchor](block-embeds.md#cross-referencing-an-embedded-block) | `[](#output-hubble_diagram)` |
 | Split the report along sub-analyses | [Multi-page reports](multi-page.md) | `reconstruction.md` |
 
 ## The golden rule
