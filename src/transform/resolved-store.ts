@@ -38,7 +38,7 @@ import type {
 } from './provenance.js';
 
 export type { SerializedProvenanceDecision, SerializedRootInput };
-import { isDecisionRendered } from './render-methods.js';
+import { isDecisionRendered, selectedOptionId } from './render-methods.js';
 import { parseTableData, type TableData } from './parse-table-data.js';
 
 // ── Serialized shapes ───────────────────────────────────────────────────────
@@ -285,7 +285,7 @@ function serializeDecision(
     id,
     label: dec.label,
     rationale: dec.rationale,
-    selected: universe.decisions?.[id] ?? dec.default,
+    selected: selectedOptionId(id, dec, universe),
     options,
     option_insights: Object.keys(option_insights).length ? option_insights : undefined,
   };
@@ -318,17 +318,29 @@ function serializeEvidence(evidence: Evidence[] | undefined): SerializedEvidence
  * multiverse jargon, and the active universe is implicit page-wide. Returns
  * `undefined` when nothing but the universe clause was authored.
  */
+let clauseReCache: { universeId: string; re: RegExp } | undefined;
+
+/** The universe-clause regex for one universe id, compiled once per build. */
+function universeClauseRe(universeId: string): RegExp {
+  if (clauseReCache?.universeId !== universeId) {
+    const escaped = universeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clauseReCache = {
+      universeId,
+      re: new RegExp(
+        `\\s*(?:[,;:—–-]|\\b(?:under|in|for)\\s+the\\b)?\\s*(?:the\\s+)?${escaped}\\s+universe\\b`,
+        'gi',
+      ),
+    };
+  }
+  return clauseReCache.re;
+}
+
 function stripUniverseClause(
   scope: string | undefined,
   universeId: string | undefined,
 ): string | undefined {
   if (!scope || !universeId) return scope || undefined;
-  const escaped = universeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const clause = new RegExp(
-    `\\s*(?:[,;:—–-]|\\b(?:under|in|for)\\s+the\\b)?\\s*(?:the\\s+)?${escaped}\\s+universe\\b`,
-    'gi',
-  );
-  let out = scope.replace(clause, '');
+  let out = scope.replace(universeClauseRe(universeId), '');
   out = out.replace(/\s{2,}/g, ' ').trim();
   out = out.replace(/^[,;:—–-]\s*/, '').replace(/\s*[,;:—–-]+\s*(\.?)$/, '$1').trim();
   if (out === '.') out = '';

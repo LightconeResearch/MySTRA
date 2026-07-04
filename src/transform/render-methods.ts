@@ -24,6 +24,7 @@ import {
   refNode,
 } from './ast-helpers.js';
 import type { ProseParser } from './prose.js';
+import { reportWarn } from '../diagnostics.js';
 
 /**
  * tabItem factory bound to the current render pass. Created once per
@@ -54,6 +55,53 @@ export function isDecisionRendered(
   return true;
 }
 
+/**
+ * The option id a universe selects for a decision, falling back to the
+ * decision's declared default. THE "what did the universe pick" rule —
+ * every surface (tabs, values, store, provenance) resolves through here.
+ */
+export function selectedOptionId(
+  id: string,
+  decision: { default?: string } | undefined,
+  universe: { decisions?: Record<string, string> },
+): string | undefined {
+  return universe.decisions?.[id] ?? decision?.default;
+}
+
+/**
+ * The "Supporting insight(s): a, b" paragraph of store-driven `astra-ref`
+ * tokens for an option's cited prior insights, or `null` when none resolve.
+ * Broken references warn through the vfile channel so unresolved insight ids
+ * don't silently disappear. Shared by the option tabs and the single-option
+ * embed.
+ */
+export function supportingInsightsParagraph(
+  insightIds: string[],
+  priorInsights: Record<string, Insight>,
+  vfile?: any,
+): any | null {
+  const refs: any[] = [];
+  for (const insightId of insightIds) {
+    const insight = priorInsights[insightId];
+    if (!insight) {
+      reportWarn(
+        vfile,
+        `Option references unknown prior_insight id "${insightId}" — broken reference dropped from output.`,
+      );
+      continue;
+    }
+    const linkText = insight.label ?? insight.claim ?? insightId;
+    refs.push(refNode('prior_insight', insightId, insightId, linkText));
+  }
+  if (refs.length === 0) return null;
+  const para: any[] = [text(refs.length === 1 ? 'Supporting insight: ' : 'Supporting insights: ')];
+  refs.forEach((ref, i) => {
+    if (i > 0) para.push(text(', '));
+    para.push(ref);
+  });
+  return paragraph(para);
+}
+
 export function renderDecision(
   id: string,
   decision: Decision,
@@ -61,11 +109,12 @@ export function renderDecision(
   universe: Universe,
   prose: ProseParser,
   tabItem: TabItemFn,
+  vfile?: any,
 ): any[] {
   const options = decision.options!;
-  const selectedOptionId = universe.decisions?.[id] ?? decision.default;
-  const selectedOption = selectedOptionId ? options[selectedOptionId] : undefined;
-  const selectedLabel = selectedOption?.label ?? selectedOptionId ?? '(none)';
+  const selectedId = selectedOptionId(id, decision, universe);
+  const selectedOption = selectedId ? options[selectedId] : undefined;
+  const selectedLabel = selectedOption?.label ?? selectedId ?? '(none)';
   const decisionLabel = decision.label ?? id;
 
   const nodes: any[] = [];
@@ -83,12 +132,12 @@ export function renderDecision(
 
   // Build option tabs in declaration order…
   const tabs = Object.entries(options).map(([optionId, option]) =>
-    renderOptionTab(optionId, option, optionId === selectedOptionId, priorInsights, prose, tabItem),
+    renderOptionTab(optionId, option, optionId === selectedId, priorInsights, prose, tabItem, vfile),
   );
   // …then move the selected tab to first position (book-theme defaults to the
   // first tab). `indexOf` returns -1 when nothing is selected, so the splice
   // is skipped.
-  const selectedIndex = Object.keys(options).indexOf(selectedOptionId ?? '');
+  const selectedIndex = Object.keys(options).indexOf(selectedId ?? '');
   if (selectedIndex > 0) tabs.unshift(...tabs.splice(selectedIndex, 1));
 
   // Build details/summary dropdown (neutral styling, not admonition)
@@ -126,6 +175,7 @@ function renderOptionTab(
   priorInsights: Record<string, Insight>,
   prose: ProseParser,
   tabItem: TabItemFn,
+  vfile?: any,
 ): any {
   // Tab title with selection marker
   let marker: string;
@@ -159,32 +209,8 @@ function renderOptionTab(
   // Supporting insights — emit store-driven `astra-ref` tokens (the same inline
   // reference the `{astra:prior-insight}` role produces). A rich theme renders
   // each one's card from the resolved store by id; a bare theme shows the label.
-  // Broken references emit a console.warn so unresolved insight ids don't
-  // silently disappear.
-  if (option.insights && option.insights.length > 0) {
-    const refs: any[] = [];
-    for (const insightId of option.insights) {
-      const insight = priorInsights[insightId];
-      if (!insight) {
-        console.warn(
-          `[mystra] Option references unknown prior_insight id "${insightId}" — broken reference dropped from output.`,
-        );
-        continue;
-      }
-      const linkText = insight.label ?? insight.claim ?? insightId;
-      refs.push(refNode('prior_insight', insightId, insightId, linkText));
-    }
-    if (refs.length > 0) {
-      const count = refs.length;
-      const label = count === 1 ? 'Supporting insight: ' : 'Supporting insights: ';
-      const para: any[] = [text(label)];
-      for (let i = 0; i < refs.length; i++) {
-        if (i > 0) para.push(text(', '));
-        para.push(refs[i]);
-      }
-      children.push(paragraph(para));
-    }
-  }
+  const insightsPara = supportingInsightsParagraph(option.insights ?? [], priorInsights, vfile);
+  if (insightsPara) children.push(insightsPara);
 
   return tabItem(title, children, isSelected);
 }

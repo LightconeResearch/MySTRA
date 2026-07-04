@@ -30,7 +30,18 @@ export function renderFinding(
   results: ArtifactResolver,
   outputs: Map<string, Output>,
   prose: ProseParser,
+  opts?: {
+    /** Parts to render (of notes / scope / evidence); all when absent. The
+     *  claim heading — the finding's identifier carrier — is always kept. */
+    parts?: Set<string>;
+    /** Absolute artifact path → servable URL, for figure evidence. */
+    resultUrl?: (absPath: string) => string;
+    /** The page's vfile, for broken-reference diagnostics. */
+    vfile?: any;
+  },
 ): any[] {
+  const parts = opts?.parts;
+  const has = (part: string) => !parts || parts.has(part);
   const nodes: any[] = [];
   const identifier = `finding-${findingId}`;
 
@@ -51,18 +62,25 @@ export function renderFinding(
 
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
-  if (finding.notes) {
+  if (has('notes') && finding.notes) {
     nodes.push(...prose.blocks(finding.notes));
   }
 
   // Scope
-  if (finding.scope) {
+  if (has('scope') && finding.scope) {
     nodes.push(paragraph([emphasis([text(`Scope: ${finding.scope}`)])]));
   }
 
   // Evidence blocks (figures, tables, artifact references)
-  for (const evidence of finding.evidence ?? []) {
-    nodes.push(...renderEvidenceBlock(evidence, results, outputs, prose));
+  if (has('evidence')) {
+    for (const evidence of finding.evidence ?? []) {
+      nodes.push(
+        ...renderEvidenceBlock(evidence, results, outputs, prose, {
+          resultUrl: opts?.resultUrl,
+          vfile: opts?.vfile,
+        }),
+      );
+    }
   }
 
   return nodes;

@@ -27,6 +27,7 @@
 
 import type { Analysis, Decision, Input, Output } from '@astra-spec/sdk';
 import { resolveOutput } from './resolve-output.js';
+import { selectedOptionId } from './render-methods.js';
 
 /** The subset of Universe/UniverseNode the tracer needs. */
 export interface UniverseLike {
@@ -80,7 +81,12 @@ export function pageFrames(
   return frame;
 }
 
-function narrow(universe: UniverseLike, seg: string): UniverseLike {
+/**
+ * Narrow a universe to one sub-analysis's selections — the same narrowing
+ * `resolveScope` applies for pages (which spreads the root `id`/`description`
+ * back on top).
+ */
+export function narrow(universe: UniverseLike, seg: string): UniverseLike {
   const sub = universe.analyses?.[seg];
   return { decisions: sub?.decisions ?? {}, analyses: sub?.analyses };
 }
@@ -109,7 +115,7 @@ export function traceProvenance(output: Output, page: ProvFrame): TracedProvenan
       id = rel;
       dec = at.analysis.decisions?.[id];
     }
-    const selectedId = at.universe.decisions?.[id] ?? dec?.default;
+    const selectedId = selectedOptionId(id, dec, at.universe);
     const selection =
       (selectedId != null ? dec?.options?.[selectedId]?.label : undefined) ?? selectedId;
     const whereStr = at.where.join('.');

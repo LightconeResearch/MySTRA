@@ -33,12 +33,6 @@ export interface ResolvedOutput {
    */
   resolved: Output;
   /**
-   * The dot-separated chain that was walked, e.g.
-   * `['preprocessing', 'features']` for `from: preprocessing.features`.
-   * Empty when no resolution happened.
-   */
-  fromChain: string[];
-  /**
    * True if `from:` was set but the path failed to resolve to an
    * output. Renderers can surface this as a broken-reference warning.
    */
@@ -60,11 +54,10 @@ export function resolveOutput(
   scope: Analysis,
 ): ResolvedOutput {
   if (!output.from) {
-    return { declared: output, resolved: output, fromChain: [], unresolved: false };
+    return { declared: output, resolved: output, unresolved: false };
   }
 
-  const chain = output.from.split('.');
-  const source = walkOutputPath(chain, scope);
+  const source = walkOutputPath(output.from.split('.'), scope);
 
   if (!source) {
     // `from:` was set but the path didn't land on an output. The
@@ -79,12 +72,7 @@ export function resolveOutput(
       when: output.when,
       label: output.label,
     };
-    return {
-      declared: output,
-      resolved: empty,
-      fromChain: chain,
-      unresolved: true,
-    };
+    return { declared: output, resolved: empty, unresolved: true };
   }
 
   // Source might itself be aliased — recurse, scoped to the source's
@@ -94,12 +82,7 @@ export function resolveOutput(
   const { output: sourceOutput, parent } = source;
   if (sourceOutput.from) {
     const recursed = resolveOutput(sourceOutput, parent);
-    return {
-      declared: output,
-      resolved: recursed.resolved,
-      fromChain: chain,
-      unresolved: recursed.unresolved,
-    };
+    return { declared: output, resolved: recursed.resolved, unresolved: recursed.unresolved };
   }
 
   // Merge: declared keeps its id/from/when (and label, if explicit);
@@ -116,12 +99,7 @@ export function resolveOutput(
     recipe: sourceOutput.recipe,
   };
 
-  return {
-    declared: output,
-    resolved: merged,
-    fromChain: chain,
-    unresolved: false,
-  };
+  return { declared: output, resolved: merged, unresolved: false };
 }
 
 /**

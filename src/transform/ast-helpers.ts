@@ -25,10 +25,6 @@ export function link(url: string, children: any[]) {
   return { type: 'link' as const, url, children };
 }
 
-export function crossReference(identifier: string, children: any[]) {
-  return { type: 'crossReference' as const, identifier, children };
-}
-
 // ── Block nodes ──
 
 export function heading(depth: 1 | 2 | 3 | 4 | 5 | 6, children: any[], identifier?: string, label?: string) {
@@ -46,14 +42,6 @@ export function paragraph(children: any[]) {
 
 export function blockquote(children: any[]) {
   return { type: 'blockquote' as const, children };
-}
-
-export function thematicBreak() {
-  return { type: 'thematicBreak' as const };
-}
-
-export function code(lang: string, value: string) {
-  return { type: 'code' as const, lang, value };
 }
 
 // ── Container nodes ──
@@ -182,10 +170,6 @@ export function summary(children: any[]) {
   return { type: 'summary' as const, children };
 }
 
-export function blockBreak(meta?: string) {
-  return { type: 'blockBreak' as const, ...(meta ? { meta } : {}) };
-}
-
 // ── Generic nodes & tree utilities ──
 
 /**
@@ -214,7 +198,7 @@ export function walkNodes(node: any, visit: (n: any) => void): void {
 // ── ASTRA store-driven reference ──
 
 /** Generic inline `span` with a class and children. */
-export function span(cls: string, children: any[]) {
+function span(cls: string, children: any[]) {
   return { type: 'span' as const, class: cls, children };
 }
 

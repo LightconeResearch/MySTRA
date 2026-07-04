@@ -66,7 +66,7 @@ function canonicalCollection(seg: string): Collection | null {
 export interface AstraPath {
   /** Sub-analysis ids walked into (the analysis path), innermost last. */
   scope: string[];
-  /** The target collection, or `null` when the target is a bare sub-analysis. */
+  /** The target collection; `null` only for an empty path. */
   collection: Collection | null;
   /** The element id; `null` when the path stops at a collection (a registry). */
   id: string | null;
@@ -149,18 +149,26 @@ export function parseAstraPath(raw: string): AstraPath {
     i++;
   }
 
+  // A path that ends on a bare sub-analysis step targets that sub-analysis:
+  // normalize to the explicit `analyses.<id>` form so every consumer sees one
+  // shape instead of special-casing `collection: null`.
+  if (!collection && scope.length > 0) {
+    collection = 'analyses';
+    id = scope.pop()!;
+  }
+
   return { scope, collection, id, child };
 }
 
 /**
  * The in-page mdast identifier a path resolves to (`<kind>-<id>`), or `null`
- * when the path has no single anchorable element (a registry, or a bare
+ * when the path has no single anchorable element (a registry, or a
  * sub-analysis, which is a separate page). Children collapse to their parent
  * element's identifier: an option → its decision, an evidence → its
  * finding/insight, matching where the rendered anchor actually lives.
  */
 export function pathIdentifier(p: AstraPath): string | null {
-  if (!p.collection || !p.id) return null;
+  if (!p.collection || !p.id || p.collection === 'analyses') return null;
   return `${KIND_BY_COLLECTION[p.collection]}-${p.id}`;
 }
 

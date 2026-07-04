@@ -16,6 +16,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, statSync, utimes
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { VFile } from 'vfile';
+
 import plugin from '../src/index.js';
 import { buildResolvedStore } from '../src/transform/resolved-store.js';
 import { traceProvenance, pageFrames } from '../src/transform/provenance.js';
@@ -174,16 +176,18 @@ function buildFixture(): string {
 }
 
 let PROJECT_ROOT: string;
+const ORIGINAL_CWD = process.cwd();
 
 beforeAll(() => {
   PROJECT_ROOT = buildFixture();
-  process.env.ASTRA_PROJECT_ROOT = PROJECT_ROOT;
-  delete process.env.ASTRA_UNIVERSE;
+  // The plugin resolves the ASTRA project from the working directory (the
+  // same convention as running `myst` from the project dir).
+  process.chdir(PROJECT_ROOT);
 });
 
 afterAll(() => {
+  process.chdir(ORIGINAL_CWD);
   if (PROJECT_ROOT) rmSync(PROJECT_ROOT, { recursive: true, force: true });
-  delete process.env.ASTRA_PROJECT_ROOT;
 });
 
 // ── mdast helpers ─────────────────────────────────────────────────────────
@@ -233,14 +237,17 @@ function role(name: string) {
   if (!r) throw new Error(`no role ${name}`);
   return r as any;
 }
-function runRole(name: string, body: string): Node[] {
-  return role(name).run({ body }) as Node[];
+function runRole(name: string, body: string, vfile?: VFile): Node[] {
+  return role(name).run({ body }, vfile) as Node[];
 }
-function runStore(path: string): Record<string, any> {
+function runStoreTree(path: string): Node {
   const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
   const tree: Node = { type: 'root', children: [] };
-  (t as any).plugin()(tree, { path });
-  const carrier = tree.children.find((n: any) => n.class === 'astra-store');
+  (t as any).plugin()(tree, new VFile({ path }));
+  return tree;
+}
+function runStore(path: string): Record<string, any> {
+  const carrier = runStoreTree(path).children.find((n: any) => n.class === 'astra-store');
   if (!carrier) throw new Error('no astra-store carrier emitted');
   return carrier.data.astra;
 }
@@ -456,11 +463,14 @@ describe('role {astra}', () => {
 
   it('an unresolvable ref falls back with a collection-elided key, marked unresolved', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const [token] = runRole('astra', 'ghost.outputs.xi');
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra', 'ghost.outputs.xi', vf);
     // Same key format as resolved refs (no collection segment), and flagged so
     // the store transform skips the cross-scope merge for it.
     expect(token.data?.astra).toMatchObject({ id: 'xi', path: 'ghost.xi', unresolved: true });
-    expect(warn).toHaveBeenCalled();
+    // The diagnostic routes through MyST's vfile channel, not the console.
+    expect(vf.messages.some((m) => String(m.message).includes('ghost'))).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 });
@@ -548,14 +558,14 @@ describe('role {astra:value}', () => {
   });
 
   it('treats an unproduced result as a warning, not an error (pending state)', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const [token] = runRole('astra:value', 'outputs.unproduced_metric col=x');
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra:value', 'outputs.unproduced_metric col=x', vf);
     expect(token.type).toBe('inlineCode');
-    expect(warn).toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
-    warn.mockRestore();
-    error.mockRestore();
+    // A vfile warning (fatal: false), not a vfile error — pending outputs
+    // must not fail strict builds.
+    const pending = vf.messages.filter((m) => String(m.message).includes('unproduced_metric'));
+    expect(pending).toHaveLength(1);
+    expect(pending[0].fatal).not.toBe(true);
   });
 });
 
@@ -590,9 +600,7 @@ describe('resolved-store transform', () => {
   });
 
   it('routes result images through a hidden astra-assets carrier', () => {
-    const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
-    const tree: Node = { type: 'root', children: [] };
-    (t as any).plugin()(tree, { path: 'index.md' });
+    const tree = runStoreTree('index.md');
     const assets = tree.children.find((n: any) => n.class === 'astra-assets');
     expect(assets?.style).toEqual({ display: 'none' });
     expect(assets!.children.find((n: any) => n.data?.astraAsset === 'scatter_plot')).toMatchObject({
@@ -602,16 +610,12 @@ describe('resolved-store transform', () => {
   });
 
   it('the store carrier is invisible on book-theme', () => {
-    const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
-    const tree: Node = { type: 'root', children: [] };
-    (t as any).plugin()(tree, { path: 'index.md' });
+    const tree = runStoreTree('index.md');
     expect(tree.children.find((n: any) => n.class === 'astra-store')?.style).toEqual({ display: 'none' });
   });
 
   it('emits a hidden astra-cites carrier with narrative + parenthetical cites per DOI', () => {
-    const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
-    const tree: Node = { type: 'root', children: [] };
-    (t as any).plugin()(tree, { path: 'index.md' });
+    const tree = runStoreTree('index.md');
     const cites = tree.children.find((n: any) => n.class === 'astra-cites');
     const nodes = cites!.children[0].children;
     expect(nodes.map((c: any) => [c.label, c.kind])).toEqual([
@@ -636,9 +640,7 @@ describe('dotted-filename page scope', () => {
     expect(runStore('index.md').analysis.slug).toBe('index');
   });
   it('a non-ASTRA basename yields no store carrier (null scope)', () => {
-    const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
-    const tree: Node = { type: 'root', children: [] };
-    (t as any).plugin()(tree, { path: 'not_an_analysis.md' });
+    const tree = runStoreTree('not_an_analysis.md');
     expect(tree.children.find((n: any) => n.class === 'astra-store')).toBeUndefined();
   });
 });
@@ -712,14 +714,14 @@ describe('source cache freshness', () => {
   let tmpRoot: string;
 
   afterEach(() => {
-    process.env.ASTRA_PROJECT_ROOT = PROJECT_ROOT;
+    process.chdir(PROJECT_ROOT);
     if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   it('reuses the cache for an unchanged mtime and re-reads after the universe file advances', () => {
     tmpRoot = mkdtempSync(join(tmpdir(), 'mystra-reload-'));
     cpSync(PROJECT_ROOT, tmpRoot, { recursive: true });
-    process.env.ASTRA_PROJECT_ROOT = tmpRoot;
+    process.chdir(tmpRoot);
 
     const slug = () => runStore('index.md').analysis.slug;
     expect(slug()).toBe('index');

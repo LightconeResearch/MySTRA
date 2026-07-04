@@ -108,13 +108,8 @@ myst start        # → http://localhost:3000
 ```
 
 That's it — no custom server and no build step of your own. MySTRA reads
-`astra.yaml` from the working directory and resolves the first universe in
-`universes/`. Two optional environment variables override those defaults:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `ASTRA_PROJECT_ROOT` | `process.cwd()` | The ASTRA project directory (where `astra.yaml` lives) |
-| `ASTRA_UNIVERSE` | first in `universes/` | Which universe's decision selections to resolve |
+`astra.yaml` from the working directory — run `myst` from the ASTRA project
+root — and resolves the first universe in `universes/`.
 
 ## Authoring
 
@@ -197,7 +192,6 @@ Options follow MyST's `:key: value` form:
 | `:caption:` | Caption text (figure / table outputs). |
 | `:compact:` | Findings: claim + notes + scope only (no evidence figures). |
 | `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, notes, scope, evidence`). |
-| `:universe:` | Render the element as resolved under a specific universe id. |
 | `:class:` | Extra CSS class(es) on the rendered block. |
 
 ### Live values — never hard-type a measured number

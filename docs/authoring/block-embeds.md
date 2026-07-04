@@ -52,7 +52,6 @@ Options follow MyST's `:key: value` form:
 | `:compact:` | Findings: claim + notes + scope only (no evidence). |
 | `:show:` | Findings: parts to include, from `claim, notes, scope, evidence` (comma- or space-separated). The claim is always kept. |
 | `:hide:` | Findings: parts to exclude (same part names). |
-| `:universe:` | Render the element as resolved under a specific universe id. |
 | `:class:` | Extra CSS class(es) on the rendered block. |
 
 ```markdown
@@ -64,20 +63,11 @@ Options follow MyST's `:key: value` form:
 :::{astra} findings.bao_detected
 :hide: evidence, scope
 :::
-
-:::{astra} outputs.alpha_table
-:universe: no_recon
-:::
 ```
 
 ## Universes
 
-Two ways to look at alternative decision selections:
-
-- `:::{astra} universes.<id>` embeds a **selection table** for that universe (and resolves it under that universe).
-- The `:universe:` option renders **any single block** as resolved under another universe — useful for a side-by-side robustness comparison while the rest of the report stays on the active universe.
-
-The report-wide default universe comes from `ASTRA_UNIVERSE` (see [configuration](../reference/configuration.md)).
+`:::{astra} universes.<id>` embeds a **selection table** — the decision → selected-option pairs of the project's universe (the first `.yaml` file in `universes/`).
 
 ## Cross-referencing an embedded block
 

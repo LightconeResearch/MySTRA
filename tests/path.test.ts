@@ -61,16 +61,21 @@ describe('parseAstraPath', () => {
     });
   });
 
-  it('parses a bare sub-analysis target (collection null)', () => {
+  it('normalizes a bare sub-analysis target to the explicit analyses form', () => {
     expect(parseAstraPath('reconstruction')).toMatchObject({
-      scope: ['reconstruction'],
-      collection: null,
-      id: null,
+      scope: [],
+      collection: 'analyses',
+      id: 'reconstruction',
     });
     expect(parseAstraPath('analyses.reconstruction')).toMatchObject({
+      scope: [],
+      collection: 'analyses',
+      id: 'reconstruction',
+    });
+    expect(parseAstraPath('reconstruction.features')).toMatchObject({
       scope: ['reconstruction'],
-      collection: null,
-      id: null,
+      collection: 'analyses',
+      id: 'features',
     });
   });
 
@@ -118,9 +123,10 @@ describe('pathIdentifier', () => {
     expect(pathIdentifier(parseAstraPath('findings.f.evidence.e'))).toBe('finding-f');
   });
 
-  it('returns null for registries and bare sub-analyses', () => {
+  it('returns null for registries and sub-analyses (separate pages)', () => {
     expect(pathIdentifier(parseAstraPath('outputs'))).toBeNull();
     expect(pathIdentifier(parseAstraPath('reconstruction'))).toBeNull();
+    expect(pathIdentifier(parseAstraPath('analyses.reconstruction'))).toBeNull();
   });
 });
 

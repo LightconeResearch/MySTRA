@@ -1,6 +1,6 @@
 # Configuration
 
-MySTRA is deliberately configuration-light: one plugin line in `myst.yml`, two optional environment variables, and a results-layout convention. Everything else is data (`astra.yaml`) or composition (your Markdown).
+MySTRA is deliberately configuration-light: one plugin line in `myst.yml` and a results-layout convention. Everything else is data (`astra.yaml`) or composition (your Markdown).
 
 ## `myst.yml`
 
@@ -19,18 +19,9 @@ site:
 
 The `…/releases/latest/download/…` URL always tracks the newest release; pin a specific version by swapping `latest` for a tag (e.g. `download/v0.0.1/`). MyST fetches and caches the file on the first build. All other `myst.yml` settings — theme, numbering, math macros, bibliography, export targets — are [standard MyST project configuration](https://mystmd.org/guide/frontmatter).
 
-## Environment variables
+## Project root and universe
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `ASTRA_PROJECT_ROOT` | `process.cwd()` | The ASTRA project directory (where `astra.yaml` lives) |
-| `ASTRA_UNIVERSE` | first in `universes/` | Which universe's decision selections to resolve |
-
-```bash
-ASTRA_UNIVERSE=no_recon myst build --html
-```
-
-The active universe determines every decision selection in the report: which option a decision block marks as selected, what `` {astra:value}`decisions.<id>` `` renders, which conditional (`when:`) decisions are shown, and which `results/<universe>/` tree artifacts resolve from. Individual blocks can override it with the [`:universe:` option](../authoring/block-embeds.md#options).
+MySTRA reads `astra.yaml` from the working directory — run `myst` from the ASTRA project root. The project's universe — the first `.yaml` file in `universes/` — determines every decision selection in the report: which option a decision block marks as selected, what `` {astra:value}`decisions.<id>` `` renders, which conditional (`when:`) decisions are shown, and which `results/<universe>/` tree artifacts resolve from.
 
 ## Results layout
 

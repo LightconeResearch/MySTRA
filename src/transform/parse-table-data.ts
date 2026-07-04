@@ -11,7 +11,7 @@
  * CSV/JSON reader from appearing in the system (constitution constraint).
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { parse as parsePath } from 'node:path';
 import Papa from 'papaparse';
 
@@ -33,20 +33,46 @@ const MAX_INLINE_ROWS = 200;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+/** Lower-cased file extension without the dot (`'csv'`, `'json'`, `''`). */
+export function fileExt(filePath: string): string {
+  return parsePath(filePath).ext.slice(1).toLowerCase();
+}
+
+/** Parsed tables keyed by path, revalidated by mtime — the same file is
+ *  referenced many times per page ({astra:value} cells, evidence, the store). */
+const tableCache = new Map<string, { mtimeMs: number; data: TableData | null }>();
+
 /**
  * Parse a result file at `filePath` and return `TableData`, or `null` when
  * the extension is unsupported or the file cannot be read / parsed.
+ * Results are cached per file and revalidated by mtime.
  *
  * Supported extensions: `.csv`, `.json`.
  */
 export function parseTableData(filePath: string): TableData | null {
-  const ext = parsePath(filePath).ext.slice(1).toLowerCase();
-  if (ext === 'csv') return parseCSV(filePath);
-  if (ext === 'json') return parseJSON(filePath);
-  return null;
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+  const cached = tableCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.data;
+  const ext = fileExt(filePath);
+  const data = ext === 'csv' ? parseCSV(filePath) : ext === 'json' ? parseJSON(filePath) : null;
+  tableCache.set(filePath, { mtimeMs, data });
+  return data;
 }
 
-// ── Format helper (used by both CSV and JSON parsers) ─────────────────────────
+// ── Format helpers (used by both CSV and JSON parsers) ────────────────────────
+
+/** Apply the row cap, marking `truncated` when the source exceeds it. */
+function capRows(headers: string[], rows: string[][]): TableData {
+  if (rows.length > MAX_INLINE_ROWS) {
+    return { headers, rows: rows.slice(0, MAX_INLINE_ROWS), truncated: true };
+  }
+  return { headers, rows };
+}
 
 function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '—';
@@ -78,11 +104,7 @@ function parseCSV(filePath: string): TableData | null {
   const allRows = (result.data as Record<string, string>[]).map((row) =>
     headers.map((h) => row[h] ?? ''),
   );
-
-  if (allRows.length > MAX_INLINE_ROWS) {
-    return { headers, rows: allRows.slice(0, MAX_INLINE_ROWS), truncated: true };
-  }
-  return { headers, rows: allRows };
+  return capRows(headers, allRows);
 }
 
 // ── JSON ──────────────────────────────────────────────────────────────────────
@@ -101,10 +123,7 @@ function parseJSON(filePath: string): TableData | null {
     const allRows = (data as Record<string, unknown>[]).map((item) =>
       headers.map((h) => formatValue(item[h])),
     );
-    if (allRows.length > MAX_INLINE_ROWS) {
-      return { headers, rows: allRows.slice(0, MAX_INLINE_ROWS), truncated: true };
-    }
-    return { headers, rows: allRows };
+    return capRows(headers, allRows);
   }
 
   // Nested object: { key: { col1: val, col2: val }, ... }

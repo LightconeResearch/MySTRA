@@ -107,23 +107,6 @@ That's it — no custom server and no build step of your own. MySTRA reads `astr
 !!! note "Editing `astra.yaml` while the server runs"
     `myst start` watches your Markdown files, not the ASTRA spec. The plugin does detect spec and universe edits (it checks file modification times), but a re-render is only triggered by a Markdown change — so after editing `astra.yaml`, re-save any `.md` page (or restart the server) to see the update.
 
-## Pick a project root and universe
-
-Two optional environment variables override the defaults:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `ASTRA_PROJECT_ROOT` | `process.cwd()` | The ASTRA project directory (where `astra.yaml` lives) |
-| `ASTRA_UNIVERSE` | first in `universes/` | Which universe's decision selections to resolve |
-
-For example, to build the same report under an alternative universe:
-
-```bash
-ASTRA_UNIVERSE=alt myst build --html
-```
-
-Individual blocks can also be pinned to a universe with the [`:universe:` option](authoring/block-embeds.md#options).
-
 ## Build for publication
 
 ```bash

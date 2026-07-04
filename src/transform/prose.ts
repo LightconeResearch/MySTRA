@@ -50,14 +50,8 @@ export function parseProseInline(md: string | undefined): any[] {
   if (blocks.length === 1 && blocks[0].type === 'paragraph') {
     return (blocks[0].children ?? []).map(stripPositions);
   }
-  const inline: any[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const phrasing = extractInline(blocks[i]);
-    if (phrasing.length === 0) continue;
-    if (inline.length > 0) inline.push({ type: 'text', value: ' ' });
-    inline.push(...phrasing);
-  }
-  return inline;
+  // Multi-block input: flatten via extractInline's recursive space-joining.
+  return extractInline({ type: 'root', children: blocks });
 }
 
 /**

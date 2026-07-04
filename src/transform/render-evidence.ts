@@ -36,18 +36,27 @@ import {
   tableRow,
   tableCell,
 } from './ast-helpers.js';
-import { parse as parsePath } from 'node:path';
 import type { ArtifactResolver } from '../loader.js';
 import type { ProseParser } from './prose.js';
-import { parseTableData } from './parse-table-data.js';
+import { fileExt, parseTableData, type TableData } from './parse-table-data.js';
+import { reportWarn } from '../diagnostics.js';
+
+/** Options threaded from the plugin surfaces into evidence rendering. */
+export interface EvidenceRenderOptions {
+  /** Absolute artifact path → servable URL (the plugin passes a
+   *  project-relative mapping so MyST's asset pipeline copies the file). */
+  resultUrl?: (absPath: string) => string;
+  /** The page's vfile — broken references warn through MyST's channel. */
+  vfile?: any;
+}
 
 /**
  * Render a single evidence item as AST nodes.
  *
  * `outputs` is the host analysis's id→Output map; artifact
  * evidence dispatches on the referenced output's `type`. Broken
- * references (artifact id not declared) emit a console.warn
- * rather than silently rendering nothing.
+ * references (artifact id not declared) warn through the vfile
+ * channel rather than silently rendering nothing.
  *
  * DOI evidence renders as a plain DOI link. Resolving the citation
  * (author–year text, a reference list) is delegated to MyST natively;
@@ -58,14 +67,63 @@ export function renderEvidenceBlock(
   results: ArtifactResolver,
   outputs: Map<string, Output>,
   prose: ProseParser,
+  opts?: EvidenceRenderOptions,
 ): any[] {
   if (evidence.doi) {
     return renderLiteratureEvidence(evidence);
   }
   if (evidence.artifact) {
-    return renderArtifactEvidence(evidence, results, outputs, prose);
+    return renderArtifactEvidence(evidence, results, outputs, prose, opts);
   }
   return [];
+}
+
+/** The "declared but not produced yet" admonition, shared by every surface. */
+function pendingOutput(artifactId: string): any {
+  return admonition('warning', [
+    admonitionTitle([text('Pending Output')]),
+    paragraph([text(`Output "${artifactId}" has not been produced yet.`)]),
+  ]);
+}
+
+/**
+ * The servable URL of a produced artifact. Callers with a real URL mapping
+ * (the plugin) pass `resultUrl`; without one the legacy content-server
+ * `/static/<id>.<ext>` scheme is the fallback — this is the only place that
+ * scheme exists.
+ */
+function artifactUrl(
+  artifactId: string,
+  resultPath: string,
+  resultUrl?: (absPath: string) => string,
+): string {
+  return resultUrl ? resultUrl(resultPath) : `/static/${artifactId}.${fileExt(resultPath)}`;
+}
+
+/**
+ * A figure output as `container[figure]` (image + caption). The identifier
+ * is set only in directive context — in evidence context the `output-<id>`
+ * xref carrier lives on the per-output registry row, since a single output
+ * may be cited by multiple findings.
+ */
+function figureBlock(
+  output: Output,
+  artifactId: string,
+  url: string,
+  prose: ProseParser,
+  identifier?: string,
+): any[] {
+  const figureLabel = output.label ?? artifactId;
+  const captionChildren = output.description
+    ? prose.inline(output.description)
+    : [text(figureLabel)];
+  return [
+    container(
+      'figure',
+      [image(url, figureLabel, '100%'), caption([paragraph(captionChildren)])],
+      identifier,
+    ),
+  ];
 }
 
 /**
@@ -123,38 +181,24 @@ export function renderOneOutput(
   artifactId: string,
   results: ArtifactResolver,
   prose: ProseParser,
-  opts?: { resultUrl?: (absPath: string) => string },
+  opts?: EvidenceRenderOptions,
 ): any[] {
   const resultPath = results(artifactId);
   if (!resultPath) {
-    return [
-      admonition('warning', [
-        admonitionTitle([text('Pending Output')]),
-        paragraph([text(`Output "${artifactId}" has not been produced yet.`)]),
-      ]),
-    ];
+    return [pendingOutput(artifactId)];
   }
 
   const identifier = `output-${artifactId}`;
 
   switch (output.type) {
-    case 'figure': {
-      const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
-      const url = opts?.resultUrl
-        ? opts.resultUrl(resultPath)
-        : `/static/${artifactId}.${ext}`;
-      const figureLabel = output.label ?? artifactId;
-      const captionChildren = output.description
-        ? prose.inline(output.description)
-        : [text(figureLabel)];
-      return [
-        container(
-          'figure',
-          [image(url, figureLabel, '100%'), caption([paragraph(captionChildren)])],
-          identifier,
-        ),
-      ];
-    }
+    case 'figure':
+      return figureBlock(
+        output,
+        artifactId,
+        artifactUrl(artifactId, resultPath, opts?.resultUrl),
+        prose,
+        identifier,
+      );
     case 'table': {
       // Standalone table output: render as a clean, numbered `container[table]`
       // with a caption (not the collapsible `details` used in evidence context).
@@ -174,7 +218,7 @@ export function renderOneOutput(
     default: {
       // metric / data / report: render inline, then tag the first node with
       // the `output-<id>` carrier so cross-references resolve to it.
-      const nodes = renderInlineArtifact(output, {} as Evidence, artifactId, resultPath);
+      const nodes = renderInlineArtifact(output, artifactId, resultPath, undefined, opts?.vfile);
       if (nodes.length > 0 && !nodes[0].identifier) {
         nodes[0].identifier = identifier;
         nodes[0].label = identifier;
@@ -189,6 +233,7 @@ function renderArtifactEvidence(
   results: ArtifactResolver,
   outputs: Map<string, Output>,
   prose: ProseParser,
+  opts?: EvidenceRenderOptions,
 ): any[] {
   const nodes: any[] = [];
   const artifactId = evidence.artifact!;
@@ -198,8 +243,9 @@ function renderArtifactEvidence(
     // Broken reference — the evidence points at an artifact id
     // that's not declared in `analysis.outputs`. Surface it instead
     // of silently dropping; downstream tooling can lint for these.
-    console.warn(
-      `[mystra] Evidence references unknown output id "${artifactId}" — broken reference dropped from output.`,
+    reportWarn(
+      opts?.vfile,
+      `Evidence references unknown output id "${artifactId}" — broken reference dropped from output.`,
     );
     return nodes;
   }
@@ -209,12 +255,7 @@ function renderArtifactEvidence(
     // Output is declared but the artifact file hasn't been produced
     // yet. Render a "Pending Output" admonition so the page makes
     // the absence visible.
-    nodes.push(
-      admonition('warning', [
-        admonitionTitle([text('Pending Output')]),
-        paragraph([text(`Output "${artifactId}" has not been produced yet.`)]),
-      ]),
-    );
+    nodes.push(pendingOutput(artifactId));
     return nodes;
   }
 
@@ -224,53 +265,32 @@ function renderArtifactEvidence(
   // selector types are gone.
   switch (output.type) {
     case 'figure':
-      nodes.push(...renderFigureArtifact(output, artifactId, resultPath, prose));
+      nodes.push(
+        ...figureBlock(output, artifactId, artifactUrl(artifactId, resultPath, opts?.resultUrl), prose),
+      );
       break;
     case 'table':
-      nodes.push(...renderTableArtifact(output, artifactId, resultPath));
+      nodes.push(...renderTableArtifact(output, artifactId, resultPath, opts?.vfile));
       break;
     case 'metric':
     case 'data':
     case 'report':
-      nodes.push(...renderInlineArtifact(output, evidence, artifactId, resultPath));
+      nodes.push(...renderInlineArtifact(output, artifactId, resultPath, evidence, opts?.vfile));
       break;
   }
 
   return nodes;
 }
 
-function renderFigureArtifact(
-  output: Output,
-  artifactId: string,
-  resultPath: string,
-  prose: ProseParser,
-): any[] {
-  const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
-  // The `output-<id>` xref carrier lives on the per-output row
-  // (renderOutputsTable). The figure container is the visual
-  // rendering wherever the artifact is referenced as evidence; a
-  // single output may be cited by multiple findings, so the
-  // figure no longer carries the structural identifier.
-  const figureLabel = output.label ?? artifactId;
-  const captionChildren = output.description
-    ? prose.inline(output.description)
-    : [text(figureLabel)];
-  return [
-    container('figure', [
-      image(`/static/${artifactId}.${ext}`, figureLabel, '100%'),
-      caption([paragraph(captionChildren)]),
-    ]),
-  ];
-}
-
 function renderTableArtifact(
   output: Output,
   artifactId: string,
   resultPath: string,
+  vfile?: any,
 ): any[] {
-  const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
   const tableLabel = output.label ?? artifactId;
-  if (ext === 'json' || ext === 'csv') return renderTabularFile(resultPath, artifactId, tableLabel);
+  const ext = fileExt(resultPath);
+  if (ext === 'json' || ext === 'csv') return renderTabularFile(resultPath, artifactId, tableLabel, vfile);
   // Output declared as a table but the produced artifact isn't
   // a known tabular extension — fall back to a labelled reference.
   return [paragraph([text('Table: '), inlineCode(artifactId)])];
@@ -278,16 +298,17 @@ function renderTableArtifact(
 
 function renderInlineArtifact(
   output: Output,
-  evidence: Evidence,
   artifactId: string,
   resultPath: string,
+  evidence?: Evidence,
+  vfile?: any,
 ): any[] {
-  const ext = parsePath(resultPath).ext.slice(1).toLowerCase();
   // Metric / data / report types use the file extension as a hint
   // for tabular display; otherwise emit a labelled reference and
   // (when present) the author's quote as a blockquote.
+  const ext = fileExt(resultPath);
   if (ext === 'json' || ext === 'csv') {
-    return renderTabularFile(resultPath, artifactId, output.label ?? artifactId);
+    return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, vfile);
   }
 
   const nodes: any[] = [];
@@ -295,11 +316,11 @@ function renderInlineArtifact(
     text('Output: '),
     inlineCode(output.label ?? artifactId),
   ];
-  if (evidence.quote) {
+  if (evidence?.quote) {
     refParts.push(text(` — "${evidence.quote.exact}"`));
   }
   nodes.push(paragraph(refParts));
-  if (evidence.quote) {
+  if (evidence?.quote) {
     nodes.push(blockquote([paragraph([text(evidence.quote.exact)])]));
   }
   return nodes;
@@ -307,44 +328,31 @@ function renderInlineArtifact(
 
 /**
  * Render a JSON or CSV result file as a table inside a collapsible details
- * element. Delegates parsing to `parseTableData`; builds MDAST from the result.
- * When the file can't be rendered the fallback depends on the extension: an
- * unrenderable JSON shape is the likely cause for `.json` (so it warns), while
- * a `.csv` that can't be read falls back quietly.
+ * element (standalone output tables use `tableNodeFromData` directly for a
+ * clean render). When the file can't be rendered the fallback depends on the
+ * extension: an unrenderable JSON shape is the likely cause for `.json` (so
+ * it warns), while a `.csv` that can't be read falls back quietly.
  */
 function renderTabularFile(
   filePath: string,
   artifactId: string,
   tableLabel: string,
+  vfile?: any,
 ): any[] {
   const data = parseTableData(filePath);
   if (!data) {
-    const ext = parsePath(filePath).ext.slice(1).toLowerCase();
-    if (ext === 'json') {
-      console.warn(
-        `[mystra] JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
+    if (fileExt(filePath) === 'json') {
+      reportWarn(
+        vfile,
+        `JSON output "${artifactId}" did not match a renderable shape (object-of-objects, flat object, or array-of-objects); falling back to a labelled reference.`,
       );
       return [paragraph([text('Output: '), inlineCode(artifactId)])];
     }
     return [paragraph([text(`Could not read ${artifactId}.csv`)])];
   }
-  return renderTableDataAsMDAST(data, tableLabel, artifactId);
-}
-
-/**
- * Convert a `TableData` value into a MDAST `details` + `table` subtree
- * suitable for embedding in narrative evidence blocks.
- */
-function renderTableDataAsMDAST(
-  data: ReturnType<typeof parseTableData> & {},
-  tableLabel: string,
-  artifactId: string,
-): any[] {
   if (data.headers.length === 0 || data.rows.length === 0) {
     return [paragraph([text(`Empty table: ${artifactId}`)])];
   }
-  // Evidence context keeps the collapsible wrapper; standalone output tables
-  // (renderOneOutput) use `tableNodeFromData` directly for a clean render.
   return [details([summary([text(tableLabel)]), tableNodeFromData(data)], false)];
 }
 
@@ -354,7 +362,7 @@ function renderTableDataAsMDAST(
  * the first column as bold. No wrapper — callers decide whether to place it
  * in a `details`, a `container[table]`, etc.
  */
-export function tableNodeFromData(data: ReturnType<typeof parseTableData> & {}): any {
+export function tableNodeFromData(data: TableData): any {
   const isNestedObject = data.headers[0] === '';
   const displayHeaders = isNestedObject ? ['', ...data.headers.slice(1)] : data.headers;
   const headerRow = tableRow(

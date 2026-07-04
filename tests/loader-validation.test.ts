@@ -7,14 +7,14 @@
  * an obvious semantic error (an output `when:` naming a decision that doesn't
  * exist) still returns a source and routes a `[mystra]` warning through
  * `console.warn`, and that a well-formed spec produces no semantic-error
- * warnings (coverage warnings — "output not mentioned in any narrative" — are
- * advisory and allowed).
+ * warnings.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { VFile } from 'vfile';
 
 import { loadASTRASource } from '../src/loader.js';
 
@@ -34,15 +34,9 @@ afterEach(() => {
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
 
-// A well-formed minimal spec: one input, one output, narrative sections present
-// so `validateNarrativeSections` stays quiet. (`checkNarrativeCoverage` still
-// flags the unmentioned output, but that is a coverage *warning*, not an error.)
+// A well-formed minimal spec: one input, one output.
 const WELL_FORMED = `version: "1.0"
 name: Minimal
-narrative:
-  summary: A minimal analysis.
-  inputs: It takes one dataset.
-  outputs: It produces one figure.
 inputs:
   - id: a
     type: dataset
@@ -59,10 +53,6 @@ outputs:
 // declared — `validateAnalysis` flags this as INVALID_WHEN_REF.
 const MALFORMED = `version: "1.0"
 name: Minimal
-narrative:
-  summary: A minimal analysis.
-  inputs: It takes one dataset.
-  outputs: It produces one figure.
 inputs:
   - id: a
     type: dataset
@@ -86,7 +76,6 @@ describe('loadASTRASource validation', () => {
     // (a) it does not throw, (b) it returns a usable source...
     expect(source).toBeTruthy();
     expect(source.analysis).toBeTruthy();
-    expect(source.slug).toBe('index');
 
     // (c) ...and at least one `[mystra]` warning describes the semantic problem.
     const messages = warn.mock.calls.map((c) => String(c[0]));
@@ -97,6 +86,18 @@ describe('loadASTRASource validation', () => {
     );
   });
 
+  it('routes validation warnings through a provided vfile instead of the console', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dir = makeProject(MALFORMED);
+    const vf = new VFile({ path: 'index.md' });
+
+    const source = loadASTRASource(dir, vf);
+
+    expect(source.analysis).toBeTruthy();
+    expect(vf.messages.some((m) => String(m.message).includes('ghost_decision'))).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('emits no semantic-error warnings for a well-formed spec', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const dir = makeProject(WELL_FORMED);
@@ -104,15 +105,9 @@ describe('loadASTRASource validation', () => {
     const source = loadASTRASource(dir);
     expect(source.analysis).toBeTruthy();
 
-    // The error-class validators must stay silent. Coverage warnings
-    // (checkNarrativeCoverage) are advisory and explicitly allowed here.
+    // The error-class validator must stay silent.
     const messages = warn.mock.calls.map((c) => String(c[0]));
-    const errorClassPrefixes = [
-      '[mystra] validateAnalysis:',
-      '[mystra] validateNarrativeAnchors:',
-      '[mystra] validateNarrativeSections:',
-    ];
-    const offending = messages.filter((m) => errorClassPrefixes.some((p) => m.startsWith(p)));
+    const offending = messages.filter((m) => m.startsWith('[mystra] validateAnalysis:'));
     expect(offending).toEqual([]);
   });
 });
