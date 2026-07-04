@@ -76,7 +76,7 @@ Create an `index.md` and reference the analysis instead of restating it. Everyth
 # My analysis report
 
 We adopt the {astra}`decisions.fit_method` and find
-{astra:value}`outputs.fit_params col=slope sig=3`
+{astra:value col=slope sig=3}`outputs.fit_params`
 for the slope of the relation.
 
 :::{astra} outputs.fit_params

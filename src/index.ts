@@ -14,7 +14,7 @@
  *     {astra}`outputs.hubble_diagram`              link + hover card
  *     {astra}`our method <decisions.algorithm>`    custom display text
  *     {astra:ref}`outputs.hubble_diagram`             numbered ("Figure 3")
- *     {astra:value}`outputs.bao_table col=DV tracer=lrg3 ±`   live number
+ *     {astra:value col=DV where="tracer=lrg3" pm=true}`outputs.bao_table`   live number
  *     {astra:cite}`prior_insights.recon`           parenthetical citation
  *     {astra:cite:t}`prior_insights.recon`         textual citation
  *
@@ -813,44 +813,70 @@ function valueError(msg: string): any {
   return inlineCode(`⟨value: ${msg}⟩`);
 }
 
+/** Parse a `where="k=v k2=v2"` filter option into `[key, value]` pairs. */
+function parseWhere(where: string | undefined): [string, string][] {
+  if (!where) return [];
+  return where
+    .split(/[,\s]+/)
+    .filter(Boolean)
+    .map((token) => {
+      const i = token.indexOf('=');
+      if (i <= 0) throw new Error(`bad where= filter "${token}" (expected key=value)`);
+      return [token.slice(0, i), token.slice(i + 1)] as [string, string];
+    });
+}
+
 /**
  * `{astra:value}` — interpolate a real number from the resolved analysis, so no
- * measured value is ever hard-typed into prose.
+ * measured value is ever hard-typed into prose. The body is a path; the cell
+ * selection is expressed as role options (MyST inline attributes):
  *
- * Body grammar (whitespace-separated):
- *   <path> [col=<column>] [<key>=<val> ...] [±|pm] [err=<column>] [sig=N]
+ *   {astra:value}`outputs.chi2_reduced`                             a metric
+ *   {astra:value col=DV where="tracer=lrg3" pm=true}`outputs.bao_table`
+ *   {astra:value}`decisions.algorithm`                    the selected option
  *
- *   - `<path>`     a table/metric output (`outputs.bao_table`, scoped allowed),
- *                  or a decision (`decisions.algorithm` → its selected option).
- *                  A metric interpolates its scalar directly (no `col=`).
- *   - `col=`       the column to read (table outputs).
- *   - `<key>=<val>`row filters, e.g. `tracer=lrg3 recon=Post`.
- *   - `±` / `pm`   also render `± <col>_std` when that column exists.
- *   - `err=<col>`  explicit uncertainty column.
- *   - `sig=N`      significant figures (default 4).
+ *   - body       a table/metric output (`outputs.bao_table`, scoped allowed)
+ *                or a decision; a metric interpolates its scalar directly.
+ *   - col=       the column to read (table outputs).
+ *   - where=     row filters — space/comma-separated `key=value` pairs,
+ *                matched case-insensitively (e.g. "tracer=lrg3 recon=Post").
+ *   - pm=true    also render the uncertainty: `<col>_std` for tables, the
+ *                metric's own uncertainty field for metrics.
+ *   - err=       explicit uncertainty column (implies pm).
+ *   - sig=       significant figures (default 4; uncertainties use 2).
  */
 const valueRole = {
   name: 'astra:value',
   doc: 'Interpolate a numeric value (table cell, metric, or a decision selection).',
-  body: { type: String, required: true, doc: '<path> [col=<col>] [<key>=<val> ...] [±] [sig=N]' },
+  body: { type: String, required: true, doc: 'A path to a table/metric output or a decision.' },
+  options: {
+    col: { type: String, doc: 'Table outputs: the column to read.' },
+    where: {
+      type: String,
+      alias: ['filter'],
+      doc: 'Row filters: space/comma-separated key=value pairs (case-insensitive).',
+    },
+    pm: { type: Boolean, doc: 'Append the ± uncertainty (<col>_std, or the metric’s own).' },
+    err: { type: String, doc: 'Explicit uncertainty column (implies pm).' },
+    sig: { type: Number, doc: 'Significant figures (default 4).' },
+  },
   run(data: any, vfile: any): any[] {
     /** Report through MyST diagnostics and return the visible inline token. */
     const fail = (msg: string): any[] => {
       reportError(vfile, `astra:value: ${msg}`, data?.node);
       return [valueError(msg)];
     };
-    const tokens = String(data?.body ?? '').trim().split(/\s+/).filter(Boolean);
-    const pathStr = tokens.shift();
+    const pathStr = String(data?.body ?? '').trim();
+    const options: { col?: string; where?: string; pm?: boolean; err?: string; sig?: number } =
+      data?.options ?? {};
     if (!pathStr) return fail('missing path');
-    const opts: Record<string, string | true> = {};
-    for (const t of tokens) {
-      if (t === '±') {
-        opts['pm'] = true;
-        continue;
-      }
-      const i = t.indexOf('=');
-      if (i < 0) opts[t] = true;
-      else opts[t.slice(0, i)] = t.slice(i + 1);
+    if (/\s/.test(pathStr)) {
+      // The pre-options body grammar (`<path> col=… tracer=… ±`) — point at
+      // the role-options form instead of misparsing the path.
+      return fail(
+        `unexpected content after the path in "${pathStr}" — pass the selection as role options, ` +
+          `e.g. {astra:value col=… where="tracer=…"}\`${pathStr.split(/\s+/)[0]}\``,
+      );
     }
     try {
       const p = parseAstraPath(pathStr);
@@ -877,7 +903,7 @@ const valueRole = {
         reportWarn(vfile, `astra:value: no result file for "${pathStr}" (output not produced yet)`, data?.node);
         return [valueError(`no result file for "${pathStr}"`)];
       }
-      const sig = typeof opts['sig'] === 'string' ? parseInt(opts['sig'] as string, 10) : 4;
+      const sig = options.sig ?? 4;
       const output = scope.outputsById.get(id);
 
       // A metric output interpolates its scalar directly — no col= needed.
@@ -888,7 +914,7 @@ const valueRole = {
         if (metric?.value !== undefined) {
           let out = fmtNum(String(metric.value), sig);
           const unc = metric.uncertainty ?? metric.error;
-          if (opts['pm'] && unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
+          if (options.pm && unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
           const node = refNode('value', id, dottedKey(p.scope, id), out, 'metric');
           Object.assign(node.data.astra, { type: 'metric', product: output.label });
           return [node];
@@ -897,26 +923,24 @@ const valueRole = {
 
       const tbl = parseTableData(abs);
       if (!tbl) return fail(`"${id}" is not tabular`);
-      const col = typeof opts['col'] === 'string' ? (opts['col'] as string) : null;
+      const col = options.col;
       if (!col) return fail(`missing col= for "${id}"`);
       const ci = tbl.headers.indexOf(col);
       if (ci < 0) return fail(`no column "${col}" in "${id}"`);
-      const reserved = new Set(['col', 'pm', 'sig', 'err']);
-      const filters = Object.entries(opts).filter(([k]) => !reserved.has(k));
+      const filters = parseWhere(options.where);
       // Resolve each filter's column index once, not per row.
       const filterCols = filters.map(
-        ([k, v]) => [tbl.headers.indexOf(k), String(v).toLowerCase()] as const,
+        ([k, v]) => [tbl.headers.indexOf(k), v.toLowerCase()] as const,
       );
       const row = tbl.rows.find((r) =>
         filterCols.every(([ki, v]) => ki >= 0 && String(r[ki]).toLowerCase() === v),
       );
       if (!row) {
-        const desc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ') || '(no filter)';
+        const desc = filters.map(([k, v]) => `${k}=${v}`).join(', ') || '(no filter)';
         return fail(`no row [${desc}] in "${id}"`);
       }
       let out = fmtNum(row[ci], sig);
-      const errCol =
-        typeof opts['err'] === 'string' ? (opts['err'] as string) : opts['pm'] ? `${col}_std` : null;
+      const errCol = options.err ?? (options.pm ? `${col}_std` : null);
       if (errCol) {
         const ei = tbl.headers.indexOf(errCol);
         if (ei >= 0 && row[ei] != null && row[ei] !== '' && row[ei] !== '-') {
@@ -924,7 +948,7 @@ const valueRole = {
         }
       }
       const subtype = output?.type ?? 'table';
-      const filterDesc = filters.map(([k, v]) => `${k}=${v as string}`).join(', ');
+      const filterDesc = filters.map(([k, v]) => `${k}=${v}`).join(', ');
       const node = refNode('value', id, dottedKey(p.scope, id), out, subtype);
       Object.assign(node.data.astra, { col, filter: filterDesc, type: subtype, product: output?.label });
       return [node];

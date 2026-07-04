@@ -1,50 +1,46 @@
 # Live values — the `{astra:value}` role
 
-`{astra:value}` interpolates a real number from the resolved analysis at build time, so **no measured value is ever hard-typed into prose**:
+`{astra:value}` interpolates a real number from the resolved analysis at build time, so **no measured value is ever hard-typed into prose**. The role body is a [path](paths.md); everything else — which cell, how many digits — is expressed as **role options**, written inside the curly braces like MyST inline attributes:
 
 ```markdown
-{astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
-{astra:value}`outputs.bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
-{astra:value}`decisions.algorithm`                                             → MultiGrid
+{astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`   → 19.88 ± 0.17
+{astra:value col=alpha1 where="tracer=elg1 recon=Pre" sig=3}`outputs.bao_alpha_values`      → 0.0696
+{astra:value}`outputs.chi2_reduced`                                                          → 1.5
+{astra:value}`decisions.algorithm`                                                           → MultiGrid
 ```
 
 Edit `astra.yaml` or rerun the analysis, rebuild, and every number in the prose updates itself.
 
-## Grammar
+## Options
 
-The role body is whitespace-separated:
-
-```
-<path> [col=<column>] [<key>=<val> …] [±|pm] [err=<column>] [sig=N]
-```
-
-| Token | Meaning |
+| Option | Meaning |
 |---|---|
-| `<path>` | A table or metric output (`outputs.bao_table`; sub-analysis scopes allowed), or a decision (`decisions.algorithm` → its selected option). |
 | `col=<column>` | The column to read (required for table outputs). |
-| `<key>=<val>` | Row filters — every pair must match, e.g. `tracer=lrg3 recon=Post`. Matching is case-insensitive. |
-| `±` or `pm` | Also render `± <col>_std` when that column exists in the table. |
+| `where="<key>=<val> …"` | Row filters — space- or comma-separated `key=value` pairs; every pair must match, case-insensitively. Alias: `filter=`. |
+| `pm=true` | Also render the uncertainty: `<col>_std` for tables, the metric's own uncertainty for metrics. |
 | `err=<column>` | Explicit uncertainty column (instead of the `<col>_std` convention). |
-| `sig=N` | Significant figures for the value (default 4; uncertainties render with 2). |
+| `sig=<N>` | Significant figures for the value (default 4; uncertainties render with 2). |
+
+Option values without spaces can be unquoted (`col=alpha`); quote anything with spaces (`where="tracer=lrg3 recon=Post"`).
 
 ## Table outputs
 
-For a table output MySTRA reads the materialised CSV/JSON result, filters rows by each `key=val`, and renders the selected cell:
+For a table output MySTRA reads the materialised CSV/JSON result, filters rows by each `where=` pair, and renders the selected cell:
 
 ```markdown
 The LRG3 bin gives $D_V/r_d =$
-{astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3 ±`.
+{astra:value col=DV_over_rd where="tracer=lrg3" pm=true}`outputs.bao_distance_table`.
 ```
 
-The filters must select **exactly the row you mean** — if no row matches, the role renders an inline error naming the filter, so a stale filter is visible in the preview rather than silently wrong.
+The filter must select **exactly the row you mean** — if no row matches, the role renders an inline error naming the filter, so a stale filter is visible in the preview rather than silently wrong.
 
 ## Metric outputs
 
-A metric output — a JSON scalar, a `[value, uncertainty]` pair, or a `{value, uncertainty, unit}` object — interpolates its value directly, no `col=` needed. Add `±` (or `pm`) to append the metric's uncertainty when it carries one:
+A metric output — a JSON scalar, a `[value, uncertainty]` pair, or a `{value, uncertainty, unit}` object — interpolates its value directly, no options needed. Add `pm=true` to append the metric's uncertainty when it carries one:
 
 ```markdown
 The combined fit gives $\chi^2_\nu =$ {astra:value}`outputs.chi2_reduced`,
-with $\alpha =$ {astra:value}`outputs.alpha_best ±`.
+with $\alpha =$ {astra:value pm=true}`outputs.alpha_best`.
 ```
 
 ## Decisions

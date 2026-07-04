@@ -6,8 +6,8 @@ It runs on the **stock `myst` CLI and themes** — no custom server, no copy-pas
 
 ```markdown
 The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
-at $z_\mathrm{eff} =$ {astra:value}`outputs.bao_distance_table col=z_eff tracer=lrg3_elg1`,
+$D_V/r_d =$ {astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`
+at $z_\mathrm{eff} =$ {astra:value col=z_eff where="tracer=lrg3_elg1"}`outputs.bao_distance_table`,
 consistent with the {astra}`findings.bao_detected_post_recon` detection.
 
 :::{astra} outputs.bao_fit_plot
@@ -46,7 +46,7 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     # BAO from the ELG sample
 
     We adopt the {astra}`decisions.algorithm` and measure
-    $\alpha =$ {astra:value}`outputs.alpha_table col=alpha tracer=elg1 ±`,
+    $\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
     consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
     :::{astra} outputs.bao_fit_plot

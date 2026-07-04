@@ -32,8 +32,8 @@ with the analysis.
 
 ```markdown
 The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`
-at $z_\mathrm{eff} =$ {astra:value}`outputs.bao_distance_table col=z_eff tracer=lrg3_elg1`,
+$D_V/r_d =$ {astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`
+at $z_\mathrm{eff} =$ {astra:value col=z_eff where="tracer=lrg3_elg1"}`outputs.bao_distance_table`,
 consistent with the {astra}`findings.bao_detected_post_recon` detection.
 
 :::{astra} outputs.bao_fit_plot
@@ -201,18 +201,18 @@ Options follow MyST's `:key: value` form:
 Pull a number straight from the resolved analysis at build time:
 
 ```markdown
-{astra:value}`outputs.bao_distance_table col=DV_over_rd tracer=lrg3_elg1 ±`   → 19.88 ± 0.17
-{astra:value}`outputs.bao_alpha_values col=alpha1 tracer=elg1 recon=Pre sig=3` → 0.0696
-{astra:value}`outputs.chi2_reduced`                                            → a metric's scalar
-{astra:value}`decisions.algorithm`                                             → the selected option
+{astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`  → 19.88 ± 0.17
+{astra:value col=alpha1 where="tracer=elg1 recon=Pre" sig=3}`outputs.bao_alpha_values`     → 0.0696
+{astra:value}`outputs.chi2_reduced`                                                         → a metric's scalar
+{astra:value}`decisions.algorithm`                                                          → the selected option
 ```
 
-Grammar: `<path> [col=<col>] [<key>=<val> …] [±|pm] [err=<col>] [sig=N]`. For a
-table output it reads the CSV/JSON, filters rows by each `key=val`, and renders
-the selected cell — append `±` (or `pm`/`err=<col>`) to show `± std`, `sig=N` to
-set significant figures. A metric output interpolates its scalar directly (no
-`col=`); a `decisions.<id>` path renders the option selected under the active
-universe.
+The body is the path; the selection is expressed as role options: `col=` picks
+the column, `where="key=val …"` filters rows (all pairs must match,
+case-insensitively), `pm=true` appends the `± <col>_std` uncertainty
+(`err=<col>` names an explicit column), and `sig=N` sets significant figures. A
+metric output interpolates its scalar directly with no options; a
+`decisions.<id>` path renders the option selected under the active universe.
 
 ### Native cross-references
 

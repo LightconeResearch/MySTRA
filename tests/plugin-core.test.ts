@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { VFile } from 'vfile';
+import { mystParse } from 'myst-parser';
 
 import plugin from '../src/index.js';
 import { buildResolvedStore } from '../src/transform/resolved-store.js';
@@ -237,8 +238,8 @@ function role(name: string) {
   if (!r) throw new Error(`no role ${name}`);
   return r as any;
 }
-function runRole(name: string, body: string, vfile?: VFile): Node[] {
-  return role(name).run({ body }, vfile) as Node[];
+function runRole(name: string, body: string, options?: Record<string, any>, vfile?: VFile): Node[] {
+  return role(name).run({ body, options }, vfile) as Node[];
 }
 function runStoreTree(path: string): Node {
   const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
@@ -464,7 +465,7 @@ describe('role {astra}', () => {
   it('an unresolvable ref falls back with a collection-elided key, marked unresolved', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const vf = new VFile({ path: 'index.md' });
-    const [token] = runRole('astra', 'ghost.outputs.xi', vf);
+    const [token] = runRole('astra', 'ghost.outputs.xi', undefined, vf);
     // Same key format as resolved refs (no collection segment), and flagged so
     // the store transform skips the cross-scope merge for it.
     expect(token.data?.astra).toMatchObject({ id: 'xi', path: 'ghost.xi', unresolved: true });
@@ -525,27 +526,31 @@ describe('roles {astra:cite} / {astra:cite:t}', () => {
 // ── Inline role: {astra:value} ───────────────────────────────────────────────
 
 describe('role {astra:value}', () => {
-  it('interpolates a real cell with ± uncertainty (pm convention)', () => {
-    const [token] = runRole('astra:value', 'outputs.measurements tracer=lrg col=value pm');
+  it('interpolates a real cell with ± uncertainty (pm option)', () => {
+    const [token] = runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', pm: true });
     expect(textOf([token])).toBe('19.88 ± 0.17');
     expect(token.data?.astra).toMatchObject({ kind: 'value', id: 'measurements', col: 'value' });
   });
 
-  it('accepts the ± token as a synonym for pm', () => {
-    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=lrg col=value ±'))).toBe('19.88 ± 0.17');
-  });
-
   it('honours an explicit err=<col>', () => {
-    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=lrg col=value err=value_std'))).toBe('19.88 ± 0.17');
+    expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', err: 'value_std' }))).toBe('19.88 ± 0.17');
   });
 
   it('formats to significant figures and respects sig=N', () => {
-    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=elg col=value'))).toBe('0.0696');
-    expect(textOf(runRole('astra:value', 'outputs.measurements tracer=lrg col=value sig=2'))).toBe('20');
+    expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=elg' }))).toBe('0.0696');
+    expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', sig: 2 }))).toBe('20');
+  });
+
+  it('parses role options through the MyST inline-attribute syntax', () => {
+    const tree = mystParse(
+      '{astra:value col=value where="tracer=lrg" pm=true}`outputs.measurements`',
+      { roles: plugin.roles as any },
+    );
+    expect(textOf(tree as any)).toBe('19.88 ± 0.17');
   });
 
   it('resolves a scoped product (sub.outputs.sub_table)', () => {
-    expect(textOf(runRole('astra:value', 'sub.outputs.sub_table tracer=lrg col=value'))).toBe('19.88');
+    expect(textOf(runRole('astra:value', 'sub.outputs.sub_table', { col: 'value', where: 'tracer=lrg' }))).toBe('19.88');
   });
 
   it('a decision value resolves to the selected option label', () => {
@@ -554,17 +559,25 @@ describe('role {astra:value}', () => {
 
   it('interpolates a metric output directly — no col= needed', () => {
     expect(textOf(runRole('astra:value', 'outputs.summary_metric'))).toBe('1.5');
-    expect(textOf(runRole('astra:value', 'outputs.summary_metric pm'))).toBe('1.5 ± 0.3');
+    expect(textOf(runRole('astra:value', 'outputs.summary_metric', { pm: true }))).toBe('1.5 ± 0.3');
   });
 
-  it('surfaces clear errors for a missing column / non-matching row', () => {
-    expect(runRole('astra:value', 'outputs.measurements tracer=lrg col=nope')[0].type).toBe('inlineCode');
-    expect(runRole('astra:value', 'outputs.measurements tracer=ghost col=value')[0].type).toBe('inlineCode');
+  it('rejects the retired space-separated body grammar with a pointer to options', () => {
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra:value', 'outputs.measurements tracer=lrg col=value ±', undefined, vf);
+    expect(token.type).toBe('inlineCode');
+    expect(vf.messages.some((m) => String(m.message).includes('role options'))).toBe(true);
+  });
+
+  it('surfaces clear errors for a missing column / bad filter / non-matching row', () => {
+    expect(runRole('astra:value', 'outputs.measurements', { col: 'nope', where: 'tracer=lrg' })[0].type).toBe('inlineCode');
+    expect(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=ghost' })[0].type).toBe('inlineCode');
+    expect(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'notapair' })[0].type).toBe('inlineCode');
   });
 
   it('treats an unproduced result as a warning, not an error (pending state)', () => {
     const vf = new VFile({ path: 'index.md' });
-    const [token] = runRole('astra:value', 'outputs.unproduced_metric col=x', vf);
+    const [token] = runRole('astra:value', 'outputs.unproduced_metric', { col: 'x' }, vf);
     expect(token.type).toBe('inlineCode');
     // A vfile warning (fatal: false), not a vfile error — pending outputs
     // must not fail strict builds.
