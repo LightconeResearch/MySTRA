@@ -7,6 +7,7 @@
 Pull your decisions, outputs, findings, and live numbers in *by reference*.
 One source of truth, no copy-pasted values, no figures that drift out of sync.
 
+[![Docs](https://img.shields.io/badge/docs-online-3178C6.svg)](https://lightconeresearch.github.io/MySTRA/)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](./LICENSE)
 [![MyST](https://img.shields.io/badge/MyST-plugin-DE5C42.svg)](https://mystmd.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)

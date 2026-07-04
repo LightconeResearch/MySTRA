@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://lightconeresearch.github.io/MySTRA/sitemap.xml

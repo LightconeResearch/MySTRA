@@ -20,6 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "docs": "uvx zensical serve",
+    "docs:build": "uvx zensical build --strict",
     "clean": "rm -rf dist"
   },
   "engines": {

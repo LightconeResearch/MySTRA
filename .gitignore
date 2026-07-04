@@ -11,3 +11,5 @@ _build/
 snapshot.md
 # local fibers / notes are not part of the public repo
 .felt/
+# zensical docs build output
+site/
