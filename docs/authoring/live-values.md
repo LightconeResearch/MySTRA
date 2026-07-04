@@ -40,7 +40,12 @@ The filters must select **exactly the row you mean** — if no row matches, the 
 
 ## Metric outputs
 
-A metric output renders its scalar value directly — no `col=` needed beyond what the product's tabular form requires.
+A metric output — a JSON scalar, a `[value, uncertainty]` pair, or a `{value, uncertainty, unit}` object — interpolates its value directly, no `col=` needed. Add `±` (or `pm`) to append the metric's uncertainty when it carries one:
+
+```markdown
+The combined fit gives $\chi^2_\nu =$ {astra:value}`outputs.chi2_reduced`,
+with $\alpha =$ {astra:value}`outputs.alpha_best ±`.
+```
 
 ## Decisions
 

@@ -1,6 +1,6 @@
 # Paths — addressing any element
 
-A **path** is a dot-separated route through the analysis tree — the same structure as `astra.yaml`, and the same dotted spelling the spec itself uses for element references (`when: decision.option`, `from: scope.id`, recipe placeholders `{inputs.id}`). Dots address elements; slashes are reserved for files. The first meaningful segment is a top-level `astra.yaml` collection. One grammar drives every surface: the `{astra}` role, the `{astra}` directive, and the `{astra:*}` variants.
+A **path** is a dot-separated route through the analysis tree — the same structure as `astra.yaml`, and the same dotted spelling the spec itself uses for element references (`when: decision.option`, `from: scope.id`, recipe placeholders `{inputs.id}`). Dots address elements; slashes are reserved for files. A path is read left-to-right: leading segments step into sub-analyses, and the first collection keyword fixes the target. One grammar drives every surface: the `{astra}` role, the `{astra}` directive, and the `{astra:*}` variants.
 
 ```
 outputs.hubble_diagram                  an output (figure / table / metric / …)

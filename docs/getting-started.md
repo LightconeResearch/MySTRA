@@ -8,7 +8,7 @@ If you'd rather see the authoring vocabulary first, jump to the [authoring guide
 
 MySTRA renders reports *on top of* an ASTRA analysis, so you need:
 
-1. **An ASTRA project** — a directory with an `astra.yaml`, at least one universe in `universes/`, and (for figures/tables/values) materialised results in `results/`. New to ASTRA? Start with the [ASTRA getting-started guide](https://astra-spec.org/latest/getting-started/) first.
+1. **An ASTRA project** — a directory with an `astra.yaml`, a universe in `universes/` (its decision selections drive the report), and (for figures/tables/values) materialised results in `results/`. New to ASTRA? Start with the [ASTRA getting-started guide](https://astra-spec.org/latest/getting-started/) first.
 2. **The MyST CLI** (`mystmd`), which needs Node ≥ 18:
 
     === "npm"

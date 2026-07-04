@@ -26,7 +26,6 @@ nav = [
       { "Configuration" = "reference/configuration.md" },
       { "Theming" = "reference/theming.md" },
   ] },
-  { "Community" = "community.md" },
 ]
 
 [project.theme]
