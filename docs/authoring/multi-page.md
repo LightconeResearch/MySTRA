@@ -43,7 +43,9 @@ astra_scope:
 ---
 ```
 
-A page that maps to no valid scope (e.g. an appendix about something else entirely) simply gets no ASTRA scope: roles and directives still work — they resolve from the root — but the per-page store is skipped.
+Use `astra_scope: ""` to map a page onto the **root** analysis.
+
+A page that maps to no valid scope (e.g. an appendix about something else entirely) simply gets no ASTRA scope: roles and directives still work — they resolve from the root — but the per-page store is skipped. If such a page contains astra elements, the build warns that rich themes will render them as neutral fallbacks; an explicit `astra_scope` that names an unknown scope is reported as an error.
 
 ## What the scope changes — and what it doesn't
 
