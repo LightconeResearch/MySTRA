@@ -31,18 +31,18 @@ time and emits standard MyST AST. It runs on the **stock `myst` CLI and themes**
 with the analysis.
 
 ```markdown
-The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`
-at $z_\mathrm{eff} =$ {astra:value col=z_eff where="tracer=lrg3_elg1"}`outputs.bao_distance_table`,
-consistent with the {astra}`findings.bao_detected_post_recon` detection.
+We adopt the {astra}`decisions.algorithm.multigrid` and measure
+$\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
+consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
 :::{astra} outputs.bao_fit_plot
 :::
 ```
 
-→ the values are interpolated live from the result product, the finding renders
-with its full record, and the figure is pulled in with its provenance. Edit
-`astra.yaml` and rerun the analysis; the report updates itself.
+→ the decision links to its full record, the value is interpolated live from
+the result table (uncertainty included), the prior insight renders as a
+citation, and the figure is pulled in with its provenance. Edit `astra.yaml`
+and rerun the analysis; the report updates itself.
 
 **[Full documentation →](https://lightconeresearch.github.io/MySTRA/)**
 
@@ -231,24 +231,6 @@ contents, multi-page structure — is ordinary MyST. The
 each surface in depth, including
 [multi-page reports](https://lightconeresearch.github.io/MySTRA/authoring/multi-page/)
 that mirror your sub-analyses.
-
-## ASTRA project layout
-
-```
-my-analysis/
-├── astra.yaml          Analysis specification (decisions, findings, outputs, …)
-├── universes/
-│   └── baseline.yaml   Decision selections for the baseline universe
-├── results/
-│   └── baseline/<output-id>/<output-id>.png   Materialised result artifacts
-├── myst.yml            Registers the plugin; lists pages
-└── index.md            Your report (+ optional sub-analysis pages)
-```
-
-MySTRA never scans the results tree: it computes each output's directory
-deterministically from the convention above (the analysis's `path:` + universe +
-output id) and resolves the artifact file lazily, as it renders. A sub-analysis
-that declares `path: ./analyses/<sub>` roots its own `results/<universe>/` there.
 
 ## Themes
 

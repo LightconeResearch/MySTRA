@@ -5,16 +5,15 @@
 It runs on the **stock `myst` CLI and themes** — no custom server, no copy-pasted numbers, no figures that drift out of sync with the analysis.
 
 ```markdown
-The combined LRG3+ELG1 bin reaches
-$D_V/r_d =$ {astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`
-at $z_\mathrm{eff} =$ {astra:value col=z_eff where="tracer=lrg3_elg1"}`outputs.bao_distance_table`,
-consistent with the {astra}`findings.bao_detected_post_recon` detection.
+We adopt the {astra}`decisions.algorithm.multigrid` and measure
+$\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
+consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
 :::{astra} outputs.bao_fit_plot
 :::
 ```
 
-→ the values are interpolated live from the result product, the finding renders as a card with its full record, and the figure is pulled in with its provenance. Edit `astra.yaml` and rerun the analysis; the report updates itself.
+→ the decision links to its full record, the value is interpolated live from the result table (uncertainty included), the prior insight renders as a citation, and the figure is pulled in with its provenance. Edit `astra.yaml` and rerun the analysis; the report updates itself.
 
 [:lucide-rocket: **Get started**](getting-started.md){ .md-button .md-button--primary }
 [:lucide-book-open: Authoring guide](authoring/index.md){ .md-button }
@@ -45,7 +44,7 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     ```markdown
     # BAO from the ELG sample
 
-    We adopt the {astra}`decisions.algorithm` and measure
+    We adopt the {astra}`decisions.algorithm.multigrid` and measure
     $\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
     consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
