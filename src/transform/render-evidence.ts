@@ -35,7 +35,9 @@ import {
   table,
   tableRow,
   tableCell,
+  carrierDiv,
 } from './ast-helpers.js';
+import { readMetric } from './resolved-store.js';
 import type { ArtifactResolver } from '../loader.js';
 import type { ProseParser } from './prose.js';
 import { fileExt, parseTableData, type TableData } from './parse-table-data.js';
@@ -184,11 +186,14 @@ export function renderOneOutput(
   opts?: EvidenceRenderOptions,
 ): any[] {
   const resultPath = results(artifactId);
-  if (!resultPath) {
-    return [pendingOutput(artifactId)];
-  }
-
   const identifier = `output-${artifactId}`;
+  if (!resultPath) {
+    // Wrap the pending admonition in the identifier-bearing carrier div (the
+    // same contract as decisions/findings since #11): cross-references and
+    // rich-theme joins resolve even before the artifact is produced — the
+    // store entry exists (label, description, provenance) without it.
+    return [carrierDiv([pendingOutput(artifactId)], identifier)];
+  }
 
   switch (output.type) {
     case 'figure':
@@ -215,8 +220,14 @@ export function renderOneOutput(
       fallback.label = identifier;
       return [fallback];
     }
+    case 'metric':
+      // One `div` carrier holds the whole neutral fallback (a readable
+      // "label: value ± uncertainty unit" sentence), so a rich theme that
+      // overrides the carrier renders its big-stat from `store.metric` and
+      // replaces the fallback wholesale — the #11 pattern.
+      return [carrierDiv(metricFallback(output, artifactId, resultPath, opts?.vfile), identifier)];
     default: {
-      // metric / data / report: render inline, then tag the first node with
+      // data / report: render inline, then tag the first node with
       // the `output-<id>` carrier so cross-references resolve to it.
       const nodes = renderInlineArtifact(output, artifactId, resultPath, undefined, opts?.vfile);
       if (nodes.length > 0 && !nodes[0].identifier) {
@@ -226,6 +237,36 @@ export function renderOneOutput(
       return nodes;
     }
   }
+}
+
+/**
+ * The neutral fallback for a produced metric output: a plain sentence
+ * ("**Summary metric:** 1.5 ± 0.3 Mpc") built from the parsed artifact —
+ * readable on a stock theme, entirely replaceable by a rich one. A JSON that
+ * doesn't parse as a metric shape (scalar / [value, uncertainty] / {value,…})
+ * falls back to the tabular rendering the other inline artifact types use.
+ */
+function metricFallback(
+  output: Output,
+  artifactId: string,
+  resultPath: string,
+  vfile?: any,
+): any[] {
+  const metric = readMetric(resultPath);
+  if (metric?.value !== undefined) {
+    const parts: any[] = [
+      strong([text(`${output.label ?? artifactId}: `)]),
+      text(String(metric.value)),
+    ];
+    const uncertainty = metric.uncertainty ?? metric.error;
+    if (uncertainty !== undefined && uncertainty !== '') {
+      parts.push(text(` \u00B1 ${uncertainty}`));
+    }
+    const unit = metric.unit ?? metric.units;
+    if (unit) parts.push(text(` ${unit}`));
+    return [paragraph(parts)];
+  }
+  return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, vfile);
 }
 
 function renderArtifactEvidence(

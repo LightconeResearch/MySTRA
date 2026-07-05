@@ -291,8 +291,26 @@ describe('directive — elements', () => {
     expect(findFirst(nodes, (n) => n.type === 'table')).toBeDefined();
   });
 
-  it('outputs.<id> metric → carrier tagged astra-output--metric', () => {
-    expect(hasClass(byIdentifier(runAstra('outputs.summary_metric'), 'output-summary_metric'), 'astra-output--metric')).toBe(true);
+  it('outputs.<id> metric → div carrier tagged astra-output--metric, sentence fallback nested inside', () => {
+    const nodes = runAstra('outputs.summary_metric');
+    const carrier = byIdentifier(nodes, 'output-summary_metric');
+    expect(carrier?.type).toBe('div');
+    expect(hasClass(carrier, 'astra-output--metric')).toBe(true);
+    // the neutral fallback is a readable sentence built from the artifact,
+    // nested inside the carrier (the #11 contract) — not a details/table
+    expect(textOf(carrier!.children as Node[])).toBe('Summary metric: 1.5 \u00B1 0.3 Mpc');
+    expect(findFirst(carrier!.children as Node[], (n) => n.type === 'details')).toBeUndefined();
+  });
+
+  it('an unproduced output embed → div carrier with identifier, pending admonition nested', () => {
+    const nodes = runAstra('outputs.unproduced_metric');
+    const carrier = byIdentifier(nodes, 'output-unproduced_metric');
+    expect(carrier?.type).toBe('div');
+    expect(hasClass(carrier, 'astra-output--metric')).toBe(true);
+    // the pending state stays visible on neutral themes…
+    expect(findFirst(carrier!.children as Node[], (n) => n.type === 'admonition')).toBeDefined();
+    // …while the identifier keeps cross-references and store joins working
+    expect(textOf(carrier!.children as Node[])).toContain('has not been produced yet');
   });
 
   it('aliased output (from: sub.sub_plot) resolves the source type → figure', () => {
