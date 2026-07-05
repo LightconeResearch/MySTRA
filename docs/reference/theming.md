@@ -31,9 +31,6 @@ The exact shape is defined by [`src/transform/resolved-store.ts`](https://github
 import type { ResolvedStore, SerializedOutput } from '@astra-spec/mystra';
 ```
 
-!!! note "The `astra-store` identifier is load-bearing"
-    The carrier's identifier is `astra-store` on **every page** — a theme provider locates it by that identifier and feeds the inline `.astra-ref` tokens for the hover-card join. MyST logs an advisory *"Duplicate identifier in project"* warning for it; that is benign (each page keeps its own carrier) and must not be "fixed" by dropping the identifier.
-
 ## Hidden carriers
 
 Besides the store, the plugin appends two more hidden carriers per page when relevant:
