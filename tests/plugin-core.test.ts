@@ -256,11 +256,16 @@ function runStore(path: string): Record<string, any> {
 // ── Block directive: elements ───────────────────────────────────────────────
 
 describe('directive — elements', () => {
-  it('decisions.<id> → tabSet carrier tagged astra-decision with identifier', () => {
+  it('decisions.<id> → div carrier tagged astra-decision, fallback nested inside', () => {
     const nodes = runAstra('decisions.method');
     const carrier = byIdentifier(nodes, 'decision-method');
     expect(carrier).toBeDefined();
+    expect(carrier?.type).toBe('div');
     expect(hasClass(carrier, 'astra-decision')).toBe(true);
+    // the whole neutral fallback (heading + details dropdown) is nested inside
+    // the carrier, so a rich theme replacing it can't double-render (issue #9)
+    expect(findFirst(carrier!.children as Node[], (n) => n.type === 'heading')).toBeDefined();
+    expect(findFirst(carrier!.children as Node[], (n) => n.type === 'details')).toBeDefined();
     expect(findFirst(nodes, (n) => n.type === 'tabSet')).toBeDefined();
     // selected option (grid, per universe) reordered to the first tab
     expect(findFirst(nodes, (n) => n.type === 'tabItem')?.title).toContain('Grid search');
@@ -294,9 +299,15 @@ describe('directive — elements', () => {
     expect(byIdentifier(runAstra('outputs.aliased_plot'), 'output-aliased_plot')?.kind).toBe('figure');
   });
 
-  it('findings.<id> → astra-finding carrier; no /static scheme leaks', () => {
+  it('findings.<id> → div carrier tagged astra-finding, fallback nested inside; no /static scheme leaks', () => {
     const nodes = runAstra('findings.signal_detected');
-    expect(hasClass(byIdentifier(nodes, 'finding-signal_detected'), 'astra-finding')).toBe(true);
+    const carrier = byIdentifier(nodes, 'finding-signal_detected');
+    expect(carrier?.type).toBe('div');
+    expect(hasClass(carrier, 'astra-finding')).toBe(true);
+    // claim heading + notes/scope/evidence are the carrier's children, not
+    // siblings — a rich theme replacing the carrier replaces the fallback too
+    expect(findFirst(carrier!.children as Node[], (n) => n.type === 'heading')).toBeDefined();
+    expect(findFirst(carrier!.children as Node[], (n) => n.type === 'paragraph')).toBeDefined();
     expect(JSON.stringify(nodes)).not.toContain('/static/');
   });
 
