@@ -37,7 +37,7 @@
  */
 
 import { basename, join, relative, sep } from 'node:path';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import {
   loadASTRASource,
   resolveArtifact,
@@ -45,6 +45,7 @@ import {
   type ArtifactResolver,
   type ASTRASource,
 } from './loader.js';
+import { parseYamlString } from '@astra-spec/sdk';
 import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
 import { reportError, reportWarn } from './diagnostics.js';
 import { proseParser } from './transform/prose.js';
@@ -961,16 +962,54 @@ const valueRole = {
 // ── Transform: emit the resolved ASTRA store for rich themes ─────────────────
 
 /**
+ * The page's `astra_scope` frontmatter override, read from the SOURCE file on
+ * disk. MyST validates page frontmatter against its own schema and drops
+ * unknown keys before transforms run, so the override never survives into
+ * `vfile.data.frontmatter` (#10) — the raw `---` block is the only reliable
+ * place to read it. Returns `undefined` when the file is unreadable, has no
+ * frontmatter, or carries no usable override. The value contract matches the
+ * docs: a dotted string (`""` selects the root analysis) or a list of
+ * segments.
+ */
+function rawAstraScope(path: string | undefined): string | string[] | undefined {
+  if (!path) return undefined;
+  let src: string;
+  try {
+    src = readFileSync(path, 'utf-8');
+  } catch {
+    return undefined;
+  }
+  const fmBlock = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src);
+  if (!fmBlock) return undefined;
+  try {
+    const fm = parseYamlString(fmBlock[1]) as Record<string, unknown>;
+    const value = fm.astra_scope;
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map((s) => String(s));
+  } catch {
+    // Malformed frontmatter is MyST's problem to report; no override here.
+  }
+  return undefined;
+}
+
+/**
  * The ASTRA scope a page maps to, or `null` for non-ASTRA pages. Scope is
  * derived from the file's basename using the dotted-filename convention: each
  * `.`-segment is one analysis level, so `index.md` → root, `reconstruction.md`
  * → `[reconstruction]`, `reconstruction.features.md` → `[reconstruction,
- * features]`. A page may override via the `astra_scope` frontmatter key.
+ * features]`. A page may override via the `astra_scope` frontmatter key
+ * (dotted string — `""` for the root — or a list); an explicit override that
+ * fails to resolve is an author error and is reported, where the
+ * filename-convention miss stays silent here (the store transform decides
+ * whether the page warrants a warning).
  */
 function scopeForFile(vfile: any): Scope | null {
   const base = basename(vfile?.path ?? '', '.md');
   let analysisPath = base && base !== 'index' ? base.split('.').filter(Boolean) : [];
-  const explicit = vfile?.data?.frontmatter?.astra_scope;
+  // Prefer the validated frontmatter if a future MyST passes the key through;
+  // fall back to the raw file, which is what works today (#10).
+  const explicit =
+    vfile?.data?.frontmatter?.astra_scope ?? rawAstraScope(vfile?.path);
   if (Array.isArray(explicit)) {
     analysisPath = explicit.map((s) => String(s)).filter(Boolean);
   } else if (typeof explicit === 'string') {
@@ -978,7 +1017,14 @@ function scopeForFile(vfile: any): Scope | null {
   }
   try {
     return resolveScope(projectRoot(), analysisPath, vfile);
-  } catch {
+  } catch (err) {
+    if (explicit != null) {
+      const shown = Array.isArray(explicit) ? explicit.join('.') : explicit;
+      reportError(
+        vfile,
+        `astra_scope "${shown}": ${(err as Error).message} — the page gets no resolved store`,
+      );
+    }
     return null;
   }
 }
@@ -1093,13 +1139,39 @@ function mergeCrossScopeRefs(
   }
 }
 
+/**
+ * A page outside the scope map gets no resolved store, so every astra element
+ * on it silently degrades to its neutral fallback in a rich theme (no hover
+ * cards, no rich panels) — surprising, because the directive/role content
+ * itself still resolves (#10). Count the astra carriers/refs and warn once so
+ * the author learns the fix instead of debugging the theme.
+ */
+function warnIfAstraContent(tree: any, vfile: any): void {
+  let count = 0;
+  walkNodes(tree, (n) => {
+    const cls = typeof n?.class === 'string' ? n.class : '';
+    if (/(^|\s)astra-/.test(cls) || n?.data?.astra) count += 1;
+  });
+  if (count === 0) return;
+  reportWarn(
+    vfile,
+    `page has ${count} astra element${count === 1 ? '' : 's'} but maps to no analysis scope — ` +
+      `rich themes will render them as neutral fallbacks (no resolved store). ` +
+      `Name the file after its scope (e.g. "reconstruction.md") or set ` +
+      `"astra_scope" in its frontmatter ("" for the root analysis).`,
+  );
+}
+
 const storeTransform = {
   name: 'astra-resolved-store',
   doc: 'Emit the resolved ASTRA data store (keyed by id) for rich themes.',
   stage: 'document',
   plugin: () => (tree: any, vfile: any) => {
     const scope = scopeForFile(vfile);
-    if (!scope) return;
+    if (!scope) {
+      warnIfAstraContent(tree, vfile);
+      return;
+    }
     const store = buildResolvedStore(
       scope.analysis,
       scope.universe,

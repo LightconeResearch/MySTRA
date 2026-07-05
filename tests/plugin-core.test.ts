@@ -681,6 +681,75 @@ describe('dotted-filename page scope', () => {
   });
 });
 
+// ── astra_scope frontmatter override + store-less page warning (#10) ─────────
+
+/** Run the store transform against `tree` for `path`, returning the vfile. */
+function runTransform(path: string, tree: Node = { type: 'root', children: [] }): VFile {
+  const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
+  const vfile = new VFile({ path });
+  (t as any).plugin()(tree, vfile);
+  return vfile;
+}
+
+describe('astra_scope frontmatter override (#10)', () => {
+  it('reads the override from the RAW source file (MyST strips the key from vfile frontmatter)', () => {
+    // "" selects the root analysis for a basename that maps to no scope.
+    writeFileSync(
+      join(PROJECT_ROOT, 'gallery.md'),
+      '---\ntitle: Element gallery\nastra_scope: ""\n---\n\nBody.\n',
+    );
+    expect(runStore('gallery.md').analysis.slug).toBe('index');
+  });
+
+  it('honors dotted-string and list forms', () => {
+    writeFileSync(join(PROJECT_ROOT, 'methods_dotted.md'), '---\nastra_scope: sub\n---\n');
+    expect(runStore('methods_dotted.md').analysis.slug).toBe('sub');
+    writeFileSync(join(PROJECT_ROOT, 'methods_list.md'), '---\nastra_scope:\n  - sub\n---\n');
+    expect(runStore('methods_list.md').analysis.slug).toBe('sub');
+  });
+
+  it('validated vfile frontmatter still wins when a future MyST passes the key through', () => {
+    const tree: Node = { type: 'root', children: [] };
+    const t = plugin.transforms.find((x: any) => x.name === 'astra-resolved-store');
+    const vfile = new VFile({ path: 'no_such_file_on_disk.md' });
+    (vfile.data as any).frontmatter = { astra_scope: 'sub' };
+    (t as any).plugin()(tree, vfile);
+    const carrier: any = tree.children.find((n: any) => n.class === 'astra-store');
+    expect(carrier?.data?.astra?.analysis?.slug).toBe('sub');
+  });
+
+  it('reports an explicit override that fails to resolve, and emits no store', () => {
+    writeFileSync(join(PROJECT_ROOT, 'broken_scope.md'), '---\nastra_scope: no_such_scope\n---\n');
+    const tree: Node = { type: 'root', children: [] };
+    const vfile = runTransform('broken_scope.md', tree);
+    expect(tree.children.find((n: any) => n.class === 'astra-store')).toBeUndefined();
+    expect(vfile.messages.some((m: any) => /astra_scope "no_such_scope"/.test(m.message))).toBe(true);
+  });
+});
+
+describe('store-less page warning (#10)', () => {
+  it('warns when a page outside the scope map carries astra elements', () => {
+    const tree: Node = {
+      type: 'root',
+      children: [
+        {
+          type: 'paragraph',
+          children: [{ type: 'span', class: 'astra-ref astra-ref--decision', children: [] }],
+        },
+      ],
+    } as any;
+    const vfile = runTransform('not_an_analysis.md', tree);
+    expect(vfile.messages.some((m: any) => /neutral fallbacks/.test(m.message))).toBe(true);
+    // and no store was emitted
+    expect((tree.children as any[]).find((n: any) => n.class === 'astra-store')).toBeUndefined();
+  });
+
+  it('stays silent on a page outside the scope map with no astra content', () => {
+    const vfile = runTransform('not_an_analysis.md');
+    expect(vfile.messages).toHaveLength(0);
+  });
+});
+
 // ── Decision option-tab supporting insights (store-driven refs) ──────────────
 
 describe('decision option-tab supporting insights', () => {
