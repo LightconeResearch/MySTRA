@@ -1,8 +1,12 @@
 /**
- * Renders findings as flat per-finding blocks: an h3 heading
- * carrying `finding-<id>`, the author's notes prose, scope, and
- * evidence blocks. Tags ride along on the heading's mdast `data`
- * slot for consumers that want to compose grouping or relations.
+ * Renders each finding as one `div` carrier bearing `finding-<id>`,
+ * containing the neutral fallback: an h3 claim heading, the author's
+ * notes prose, scope, and evidence blocks. Nesting the fallback
+ * inside the carrier means a rich theme that overrides the carrier
+ * replaces the fallback with it — the same pattern the output /
+ * prior-insight carriers follow. Tags ride along on the carrier's
+ * mdast `data` slot for consumers that want to compose grouping or
+ * relations.
  *
  * No implicit relational inference. Earlier versions emitted
  * crossReferences to "tag-overlapping" decisions — same shape as
@@ -14,6 +18,7 @@
 
 import type { Insight, Output } from '@astra-spec/sdk';
 import {
+  carrierDiv,
   heading,
   paragraph,
   text,
@@ -43,22 +48,12 @@ export function renderFinding(
   const parts = opts?.parts;
   const has = (part: string) => !parts || parts.has(part);
   const nodes: any[] = [];
-  const identifier = `finding-${findingId}`;
 
   // Finding heading: claim parsed as inline Markdown so emphasis and
-  // code spans render. Numeric prefix stays as plain text.
-  // Tags survive on the mdast `data` slot —
-  // consumers that want grouping (paper view, dashboard) read them
-  // there; MySTRA imposes no grouping of its own.
-  const head: any = heading(
-    3,
-    [text(`${index}. `), ...prose.inline(finding.claim)],
-    identifier,
-  );
-  if (finding.tags && finding.tags.length > 0) {
-    head.data = { ...(head.data ?? {}), tags: finding.tags };
-  }
-  nodes.push(head);
+  // code spans render. Numeric prefix stays as plain text. The
+  // `finding-<id>` identifier lives on the carrier div (below), not
+  // here — the heading is part of the neutral fallback.
+  nodes.push(heading(3, [text(`${index}. `), ...prose.inline(finding.claim)]));
 
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
@@ -83,5 +78,12 @@ export function renderFinding(
     }
   }
 
-  return nodes;
+  // One carrier div holds the whole fallback. Tags survive on its mdast
+  // `data` slot — consumers that want grouping (paper view, dashboard)
+  // read them there; MySTRA imposes no grouping of its own.
+  const carrier: any = carrierDiv(nodes, `finding-${findingId}`);
+  if (finding.tags && finding.tags.length > 0) {
+    carrier.data = { ...(carrier.data ?? {}), tags: finding.tags };
+  }
+  return [carrier];
 }

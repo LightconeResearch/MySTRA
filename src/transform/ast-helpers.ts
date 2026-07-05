@@ -173,6 +173,17 @@ export function summary(children: any[]) {
 // ── Generic nodes & tree utilities ──
 
 /**
+ * A visible block `div` grouping a component's neutral fallback under the one
+ * node that bears its `<kind>-<id>` identifier. A rich theme that overrides the
+ * carrier replaces the whole fallback with it (no double render); stock themes
+ * render a plain `<div>` (the same node the `:::{div}` directive emits) with
+ * the children inside, and the identifier still anchors cross-references.
+ */
+export function carrierDiv(children: any[], identifier: string) {
+  return { type: 'div' as const, identifier, label: identifier, children };
+}
+
+/**
  * A hidden carrier `<div style="display:none">` — invisible on every theme, but
  * its subtree and `data` survive into the build for a rich theme to read. Used
  * for the resolved-store and auto-emitted insight-target carriers.

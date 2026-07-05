@@ -1,9 +1,12 @@
 /**
- * Renders each decision as a flat block: an h4 heading carrying the
- * `decision-<id>` identifier, followed by a `details/summary`
- * dropdown with the rationale and option tabs.
+ * Renders each decision as one `div` carrier bearing the
+ * `decision-<id>` identifier, containing the neutral fallback: an h3
+ * heading followed by a `details/summary` dropdown with the rationale
+ * and option tabs. Nesting the fallback inside the carrier means a
+ * rich theme that overrides the carrier replaces the fallback with it
+ * — the same pattern the output / prior-insight carriers follow.
  *
- * No grouping, no section headings: tags survive on the heading's
+ * No grouping, no section headings: tags survive on the carrier's
  * `data.tags` slot and consumers (paper view, dashboard, plugins)
  * compose any grouping or chrome they want on top. MySTRA's job
  * here is to emit addressable per-decision blocks; the renderer
@@ -13,6 +16,7 @@
 import { isConditionMet } from '@astra-spec/sdk';
 import type { Decision, Insight, Universe } from '@astra-spec/sdk';
 import {
+  carrierDiv,
   heading,
   paragraph,
   text,
@@ -117,18 +121,13 @@ export function renderDecision(
   const selectedLabel = selectedOption?.label ?? selectedId ?? '(none)';
   const decisionLabel = decision.label ?? id;
 
-  const nodes: any[] = [];
+  const fallback: any[] = [];
 
-  // h3 heading for the decision (same level as a finding); identifier follows
-  // the structural-element scheme `<kind>-<id>`. h3 sits contiguously under a
-  // typical `## ` section, where h4 skipped a level (MyST "missing heading depth
-  // 3"). Tags ride along on the mdast `data` slot — surface for downstream
-  // consumers that want to group decisions, without imposing any grouping.
-  const head: any = heading(3, [text(decisionLabel)], `decision-${id}`);
-  if (decision.tags && decision.tags.length > 0) {
-    head.data = { ...(head.data ?? {}), tags: decision.tags };
-  }
-  nodes.push(head);
+  // h3 heading for the decision (same level as a finding). h3 sits contiguously
+  // under a typical `## ` section, where h4 skipped a level (MyST "missing
+  // heading depth 3"). The `decision-<id>` identifier lives on the carrier div
+  // (below), not here — the heading is part of the neutral fallback.
+  fallback.push(heading(3, [text(decisionLabel)]));
 
   // Build option tabs in declaration order…
   const tabs = Object.entries(options).map(([optionId, option]) =>
@@ -157,9 +156,17 @@ export function renderDecision(
     detailsChildren.push(tabSet(tabs));
   }
 
-  nodes.push(details(detailsChildren, false));
+  fallback.push(details(detailsChildren, false));
 
-  return nodes;
+  // One carrier div holds the whole fallback; identifier follows the
+  // structural-element scheme `<kind>-<id>`. Tags ride along on the carrier's
+  // mdast `data` slot — surface for downstream consumers that want to group
+  // decisions, without imposing any grouping.
+  const carrier: any = carrierDiv(fallback, `decision-${id}`);
+  if (decision.tags && decision.tags.length > 0) {
+    carrier.data = { ...(carrier.data ?? {}), tags: decision.tags };
+  }
+  return [carrier];
 }
 
 function renderOptionTab(
