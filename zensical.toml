@@ -4,7 +4,7 @@ site_name = "MySTRA"
 site_description = "MySTRA — write publications on top of ASTRA analyses, in plain MyST Markdown."
 site_author = "Lightcone Research"
 site_url = "https://lightconeresearch.github.io/MySTRA/"
-copyright = "&copy; 2026 MySTRA Contributors"
+copyright = "&copy; 2026 Centre National de la Recherche Scientifique (CNRS) and The Regents of the University of California"
 
 repo_url = "https://github.com/LightconeResearch/MySTRA"
 repo_name = "LightconeResearch/MySTRA"
