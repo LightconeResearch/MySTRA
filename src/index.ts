@@ -86,6 +86,7 @@ import { buildResolvedStore, readMetric } from './transform/resolved-store.js';
 import { pageFrames, narrow, type ProvFrame } from './transform/provenance.js';
 import {
   buildInventorySnapshot,
+  inventoryEvidenceDois,
   inventoryImageRecords,
 } from './inventory.js';
 import {
@@ -1200,11 +1201,13 @@ const storeTransform = {
 
     // Root-scoped project pages carry the inventory. This includes a custom
     // project index that opts into the root with `astra_scope: ""`.
+    let projectInventoryDois: string[] = [];
     if (scope.slugParts.length === 0) {
       const inventory = buildInventorySnapshot(
         getSource(scope.root, vfile),
         scope.root,
       );
+      projectInventoryDois = inventoryEvidenceDois(inventory);
       const inventoryCarrier: any = hiddenDiv('astra-inventory');
       inventoryCarrier.identifier = 'astra-inventory';
       inventoryCarrier.data = { astraInventory: inventory };
@@ -1242,7 +1245,10 @@ const storeTransform = {
     // both the theme's hover cards and the `{astra:cite[:t]}` roles render real
     // citations. BOTH kinds are registered — narrative for card rows, parenthetical
     // for the auto-append after inline references.
-    const insightDois = Object.values(store.prior_insights).map((i) => i.doi);
+    const insightDois = [
+      ...Object.values(store.prior_insights).map((i) => i.doi),
+      ...projectInventoryDois,
+    ];
     const findingDois = Object.values(store.findings).flatMap((f) =>
       (f.evidence ?? []).map((e: any) => e.doi),
     );

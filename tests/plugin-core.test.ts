@@ -29,7 +29,10 @@ import { VFile } from 'vfile';
 import { mystParse } from 'myst-parser';
 
 import plugin from '../src/index.js';
-import { buildInventorySnapshot } from '../src/inventory.js';
+import {
+  buildInventorySnapshot,
+  inventoryEvidenceDois,
+} from '../src/inventory.js';
 import { loadASTRASource } from '../src/loader.js';
 import { buildResolvedStore } from '../src/transform/resolved-store.js';
 import { traceProvenance, pageFrames } from '../src/transform/provenance.js';
@@ -763,6 +766,21 @@ describe('project inventory transform', () => {
     });
   });
 
+  it('collects DOI evidence across every declaring scope', () => {
+    const source = loadASTRASource(PROJECT_ROOT);
+    source.analysis.analyses!.sub.prior_insights = {
+      child_source: {
+        claim: 'A child-scoped source.',
+        evidence: [{ doi: '10.5678/child' }],
+      },
+    };
+    const snapshot = buildInventorySnapshot(source, PROJECT_ROOT);
+    expect(inventoryEvidenceDois(snapshot)).toEqual([
+      '10.1234/example.doi',
+      '10.5678/child',
+    ]);
+  });
+
   it('includes aliased decisions even when the narrative store has no carrier', () => {
     const sub = runInventory().scopes.find((scope: any) => scope.id === 'sub');
     const decision = sub.records.find(
@@ -849,6 +867,34 @@ lrg,21.5,0.4
         (record: any) => record.path === 'outputs.measurements',
       );
       expect(output.table_data.rows).toEqual([['lrg', '21.5', '0.4']]);
+    } finally {
+      writeFileSync(result, MEASUREMENTS_CSV);
+    }
+  });
+
+  it('limits inventory table previews to 30 rows and 30 columns', () => {
+    const result = join(
+      PROJECT_ROOT,
+      'results',
+      'baseline',
+      'measurements',
+      'measurements.csv',
+    );
+    const headers = Array.from({ length: 31 }, (_, index) => `column_${index + 1}`);
+    const rows = Array.from(
+      { length: 31 },
+      (_, rowIndex) => headers.map((_, columnIndex) => `${rowIndex + 1}:${columnIndex + 1}`),
+    );
+    writeFileSync(result, [headers, ...rows].map((row) => row.join(',')).join('\n'));
+    try {
+      const output = runInventory().scopes[0].records.find(
+        (record: any) => record.path === 'outputs.measurements',
+      );
+      expect(output.table_data.headers).toHaveLength(30);
+      expect(output.table_data.rows).toHaveLength(30);
+      expect(output.table_data.rows.every((row: string[]) => row.length === 30)).toBe(true);
+      expect(output.table_rows_total).toBe(31);
+      expect(output.table_columns_total).toBe(31);
     } finally {
       writeFileSync(result, MEASUREMENTS_CSV);
     }

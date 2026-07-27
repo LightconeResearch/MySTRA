@@ -30,6 +30,7 @@ import {
 import { narrow, pageFrames } from './transform/provenance.js';
 
 export const INVENTORY_SNAPSHOT_VERSION = 1 as const;
+export const INVENTORY_TABLE_PREVIEW_LIMIT = 30 as const;
 
 export type InventoryKind =
   | 'input'
@@ -63,6 +64,8 @@ export type InventoryInputRecord = InventoryRecordBase &
 export type InventoryOutputRecord = InventoryRecordBase &
   SerializedOutput & {
     kind: 'output';
+    table_rows_total?: number;
+    table_columns_total?: number;
   };
 
 export type InventoryDecisionRecord = InventoryRecordBase &
@@ -217,8 +220,19 @@ function outputRecord(
   source: Output,
   stored: SerializedOutput,
 ): InventoryOutputRecord {
+  const tableData = stored.table_data;
   return {
     ...stored,
+    table_data: tableData
+      ? {
+          headers: tableData.headers.slice(0, INVENTORY_TABLE_PREVIEW_LIMIT),
+          rows: tableData.rows
+            .slice(0, INVENTORY_TABLE_PREVIEW_LIMIT)
+            .map((row) => row.slice(0, INVENTORY_TABLE_PREVIEW_LIMIT)),
+        }
+      : undefined,
+    table_rows_total: tableData?.rows.length,
+    table_columns_total: tableData?.headers.length,
     kind: 'output',
     path: recordPath(scopePath, 'outputs', source.id),
   };
@@ -410,4 +424,19 @@ export function inventoryImageRecords(
         && /\.(png|jpe?g|gif|webp|svg)$/i.test(record.resolved_path),
     ),
   );
+}
+
+/** Every distinct DOI referenced by inventory evidence, across all scopes. */
+export function inventoryEvidenceDois(snapshot: InventorySnapshotV1): string[] {
+  const dois = new Map<string, string>();
+  for (const scope of snapshot.scopes) {
+    for (const record of scope.records) {
+      if (!('evidence' in record)) continue;
+      for (const evidence of record.evidence ?? []) {
+        const doi = evidence.doi?.trim();
+        if (doi) dois.set(doi.toLowerCase(), doi);
+      }
+    }
+  }
+  return [...dois.values()];
 }
