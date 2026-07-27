@@ -35,6 +35,7 @@ import {
 } from '../src/inventory.js';
 import { loadASTRASource } from '../src/loader.js';
 import { buildResolvedStore } from '../src/transform/resolved-store.js';
+import { TABLE_PREVIEW_BUDGET_BYTES } from '../src/transform/table-preview.js';
 import { traceProvenance, pageFrames } from '../src/transform/provenance.js';
 
 // ── Fixture project ──────────────────────────────────────────────────────
@@ -652,7 +653,7 @@ describe('resolved-store transform', () => {
 
     expect(store.outputs['scatter_plot'].type).toBe('figure');
     expect(store.outputs['scatter_plot'].resolved_path).toBe('results/baseline/scatter_plot/scatter_plot.png');
-    expect(store.outputs['measurements'].table_data?.headers).toContain('value');
+    expect(store.outputs['measurements'].table_preview?.headers).toContain('value');
     expect(store.outputs['summary_metric'].metric).toMatchObject({ value: 1.5, uncertainty: 0.3, unit: 'Mpc' });
 
     // universe selection wins over the declared default (mcmc → grid)
@@ -704,7 +705,10 @@ describe('resolved-store transform', () => {
     expect(store.analysis.slug).toBe('sub');
     expect(store.outputs['sub_table']).toBeDefined();
     expect(store.decisions['sub_decision'].selected).toBe('beta'); // narrowed in sub
-    expect(store.decisions['inherited_method']).toBeUndefined(); // bare-from, no carrier
+    expect(store.decisions['inherited_method']).toMatchObject({
+      active: false,
+      from: '../method',
+    });
   });
 });
 
@@ -764,6 +768,30 @@ describe('project inventory transform', () => {
       command: 'python plot.py {output}',
       container: 'astro:1',
     });
+  });
+
+  it('uses the same resolved records as the normal page store', () => {
+    const store = runStore('index.md');
+    const root = runInventory().scopes[0];
+
+    for (const path of [
+      'outputs.scatter_plot',
+      'decisions.method',
+      'findings.signal_detected',
+      'prior_insights.prior_literature_result',
+      'inputs.raw_catalog',
+    ]) {
+      const record = root.records.find((candidate: any) => candidate.path === path);
+      const [collection, id] = path.split('.');
+      const table = {
+        outputs: store.outputs,
+        decisions: store.decisions,
+        findings: store.findings,
+        prior_insights: store.prior_insights,
+        inputs: store.inputs,
+      }[collection];
+      expect(record).toEqual(table[id]);
+    }
   });
 
   it('collects DOI evidence across every declaring scope', () => {
@@ -866,13 +894,13 @@ lrg,21.5,0.4
       const output = runInventory().scopes[0].records.find(
         (record: any) => record.path === 'outputs.measurements',
       );
-      expect(output.table_data.rows).toEqual([['lrg', '21.5', '0.4']]);
+      expect(output.table_preview.rows).toEqual([['lrg', '21.5', '0.4']]);
     } finally {
       writeFileSync(result, MEASUREMENTS_CSV);
     }
   });
 
-  it('limits inventory table previews to 30 rows and 30 columns', () => {
+  it('uses a byte-bounded table preview without imposing the theme display cap', () => {
     const result = join(
       PROJECT_ROOT,
       'results',
@@ -890,11 +918,51 @@ lrg,21.5,0.4
       const output = runInventory().scopes[0].records.find(
         (record: any) => record.path === 'outputs.measurements',
       );
-      expect(output.table_data.headers).toHaveLength(30);
-      expect(output.table_data.rows).toHaveLength(30);
-      expect(output.table_data.rows.every((row: string[]) => row.length === 30)).toBe(true);
-      expect(output.table_rows_total).toBe(31);
-      expect(output.table_columns_total).toBe(31);
+      expect(output.table_preview.headers).toHaveLength(31);
+      expect(output.table_preview.rows).toHaveLength(31);
+      expect(
+        output.table_preview.rows.every((row: string[]) => row.length === 31),
+      ).toBe(true);
+      expect(output.table_preview.total_rows).toBe(31);
+      expect(output.table_preview.total_columns).toBe(31);
+      expect(output.table_preview.truncated).toBe(false);
+      expect(output.table_preview.serialized_bytes)
+        .toBeLessThanOrEqual(TABLE_PREVIEW_BUDGET_BYTES);
+    } finally {
+      writeFileSync(result, MEASUREMENTS_CSV);
+    }
+  });
+
+  it('truncates large table previews by serialized byte size', () => {
+    const result = join(
+      PROJECT_ROOT,
+      'results',
+      'baseline',
+      'measurements',
+      'measurements.csv',
+    );
+    const headers = Array.from({ length: 20 }, (_, index) => `column_${index + 1}`);
+    const rows = Array.from(
+      { length: 100 },
+      (_, rowIndex) => headers.map(
+        (_, columnIndex) =>
+          `${rowIndex + 1}:${columnIndex + 1}:${'x'.repeat(1_000)}`,
+      ),
+    );
+    writeFileSync(result, [headers, ...rows].map((row) => row.join(',')).join('\n'));
+    try {
+      const output = runInventory().scopes[0].records.find(
+        (record: any) => record.path === 'outputs.measurements',
+      );
+      const preview = output.table_preview;
+      expect(preview.total_rows).toBe(100);
+      expect(preview.total_columns).toBe(20);
+      expect(preview.rows.length).toBeLessThan(100);
+      expect(preview.truncated).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(preview), 'utf8'))
+        .toBe(preview.serialized_bytes);
+      expect(preview.serialized_bytes)
+        .toBeLessThanOrEqual(TABLE_PREVIEW_BUDGET_BYTES);
     } finally {
       writeFileSync(result, MEASUREMENTS_CSV);
     }
@@ -924,7 +992,7 @@ lrg,21.5,0.4
 
       expect(output).toMatchObject({ kind: 'output', id: 'secret' });
       expect((output as any).resolved_path).toBeUndefined();
-      expect((output as any).table_data).toBeUndefined();
+      expect((output as any).table_preview).toBeUndefined();
     } finally {
       rmSync(linkPath, { force: true });
       rmSync(outsideRoot, { recursive: true, force: true });
@@ -948,7 +1016,7 @@ lrg,21.5,0.4
 
       expect(output).toMatchObject({ kind: 'output', id: '../../secrets' });
       expect((output as any).resolved_path).toBeUndefined();
-      expect((output as any).table_data).toBeUndefined();
+      expect((output as any).table_preview).toBeUndefined();
     } finally {
       rmSync(privateDir, { recursive: true, force: true });
     }
@@ -1122,5 +1190,66 @@ describe('source cache freshness', () => {
     const future = statSync(uni).mtimeMs / 1000 + 100;
     utimesSync(uni, future, future);
     expect(slug()).toBe('index');
+  });
+
+  it('invalidates page and inventory data when a nested ASTRA file changes', () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'mystra-nested-reload-'));
+    mkdirSync(join(tmpRoot, 'child'));
+    writeFileSync(
+      join(tmpRoot, 'astra.yaml'),
+      `version: "1.0"
+name: Root
+analyses:
+  child:
+    path: child
+`,
+    );
+    const childPath = join(tmpRoot, 'child', 'astra.yaml');
+    writeFileSync(childPath, `version: "1.0"\nname: Child before\n`);
+    process.chdir(tmpRoot);
+
+    expect(runStore('child.md').analysis.name).toBe('Child before');
+    expect(
+      runInventory().scopes.find((scope: any) => scope.id === 'child').name,
+    ).toBe('Child before');
+
+    writeFileSync(childPath, `version: "1.0"\nname: Child after\n`);
+
+    expect(runStore('child.md').analysis.name).toBe('Child after');
+    expect(
+      runInventory().scopes.find((scope: any) => scope.id === 'child').name,
+    ).toBe('Child after');
+  });
+
+  it('replaces the synthetic universe when a universe file is added', () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), 'mystra-universe-added-'));
+    writeFileSync(
+      join(tmpRoot, 'astra.yaml'),
+      `version: "1.0"
+name: Root
+decisions:
+  method:
+    default: first
+    options:
+      first:
+        label: First
+      second:
+        label: Second
+`,
+    );
+    process.chdir(tmpRoot);
+
+    expect(runStore('index.md').decisions.method.selected).toBe('first');
+
+    mkdirSync(join(tmpRoot, 'universes'));
+    writeFileSync(
+      join(tmpRoot, 'universes', 'baseline.yaml'),
+      `id: baseline
+decisions:
+  method: second
+`,
+    );
+
+    expect(runStore('index.md').decisions.method.selected).toBe('second');
   });
 });

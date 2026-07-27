@@ -1,36 +1,35 @@
 /**
- * Versioned, browser-safe inventory data for the ASTRA project.
+ * Versioned, browser-safe project inventory data.
  *
- * Records stay in the scope that declares them. The theme presents this data;
- * it does not parse ASTRA or infer ownership itself.
+ * The inventory does not resolve ASTRA independently. It selects each scope's
+ * declared records from the same resolved stores emitted on normal pages, then
+ * applies only project-payload concerns such as the aggregate preview budget.
  */
 
-import { realpathSync } from 'node:fs';
-import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
+import type { ASTRASource } from './loader.js';
+import {
+  buildResolvedProject,
+  buildScopeStore,
+  type ResolvedProject,
+  type ResolvedProjectScope,
+} from './project.js';
 import type {
-  Analysis,
-  Decision,
-  Evidence,
-  Input,
-  Insight,
-  Output,
-  Universe,
-} from '@astra-spec/sdk';
-import {
-  resolveArtifact,
-  type ASTRASource,
-  type ArtifactResolver,
-} from './loader.js';
-import {
-  buildResolvedStore,
-  type SerializedDecision,
-  type SerializedInput,
-  type SerializedOutput,
+  ResolvedStore,
+  SerializedDecision,
+  SerializedFinding,
+  SerializedInput,
+  SerializedInsight,
+  SerializedOutput,
 } from './transform/resolved-store.js';
-import { narrow, pageFrames } from './transform/provenance.js';
+import {
+  buildTablePreview,
+  type SerializedTablePreview,
+} from './transform/table-preview.js';
 
 export const INVENTORY_SNAPSHOT_VERSION = 1 as const;
-export const INVENTORY_TABLE_PREVIEW_LIMIT = 30 as const;
+
+/** Aggregate budget for table previews in the project-wide payload. */
+export const INVENTORY_TABLE_PREVIEW_BUDGET_BYTES = 2 * 1024 * 1024;
 
 export type InventoryKind =
   | 'input'
@@ -39,63 +38,19 @@ export type InventoryKind =
   | 'finding'
   | 'prior_insight';
 
-export interface InventoryEvidence {
-  artifact?: string;
-  doi?: string;
-  quote?: string;
-  page?: number;
-}
-
-export interface InventoryRecordBase {
-  id: string;
-  /** Canonical root-relative ASTRA path, including the collection segment. */
-  path: string;
-  kind: InventoryKind;
-  label?: string;
-  description?: string;
-}
-
-export type InventoryInputRecord = InventoryRecordBase &
-  SerializedInput & {
-    kind: 'input';
-    ref?: string;
-  };
-
-export type InventoryOutputRecord = InventoryRecordBase &
-  SerializedOutput & {
-    kind: 'output';
-    table_rows_total?: number;
-    table_columns_total?: number;
-  };
-
-export type InventoryDecisionRecord = InventoryRecordBase &
-  SerializedDecision & {
-    kind: 'decision';
-    tags?: string[];
-    from?: string;
-    when?: string[];
-  };
-
-export type InventoryFindingRecord = InventoryRecordBase & {
-  kind: 'finding';
-  claim?: string;
-  notes?: string;
-  scope?: string;
-  evidence?: InventoryEvidence[];
-};
-
-export type InventoryPriorInsightRecord = InventoryRecordBase & {
-  kind: 'prior_insight';
-  claim?: string;
-  notes?: string;
-  scope?: string;
-  evidence?: InventoryEvidence[];
+export type InventoryInputRecord = SerializedInput;
+export type InventoryDecisionRecord = SerializedDecision;
+export type InventoryFindingRecord = SerializedFinding;
+export type InventoryPriorInsightRecord = SerializedInsight;
+export type InventoryOutputRecord = SerializedOutput & {
+  /** Present when the aggregate inventory budget could not include a preview. */
+  table_preview_omitted?: 'project_size_budget';
 };
 
 export type InventoryRecord =
   | InventoryInputRecord
-  | InventoryOutputRecord
   | InventoryDecisionRecord
+  | InventoryOutputRecord
   | InventoryFindingRecord
   | InventoryPriorInsightRecord;
 
@@ -118,296 +73,126 @@ export interface InventorySnapshotV1 {
   scopes: InventoryScope[];
 }
 
-interface ScopeBuildContext {
-  analysis: Analysis;
-  universe: Universe;
-  path: string[];
-  directory: string;
-  ancestors: Analysis[];
+function declaredRecords(
+  scope: ResolvedProjectScope,
+  store: ResolvedStore,
+): InventoryRecord[] {
+  return [
+    ...(scope.analysis.inputs ?? []).flatMap((input) => {
+      const record = store.inputs[input.id];
+      return record ? [record] : [];
+    }),
+    ...(scope.analysis.outputs ?? []).flatMap((output) => {
+      const record = store.outputs[output.id];
+      return record ? [record] : [];
+    }),
+    ...Object.keys(scope.analysis.decisions ?? {}).flatMap((id) => {
+      const record = store.decisions[id];
+      return record ? [record] : [];
+    }),
+    ...Object.keys(scope.analysis.findings ?? {}).flatMap((id) => {
+      const record = store.findings[id];
+      return record ? [record] : [];
+    }),
+    ...Object.keys(scope.analysis.prior_insights ?? {}).flatMap((id) => {
+      const record = store.prior_insights[id];
+      return record ? [record] : [];
+    }),
+  ];
 }
 
-function scopeId(path: string[]): string {
-  return path.join('.');
-}
-
-function recordPath(path: string[], collection: string, id: string): string {
-  return [...path, collection, id].join('.');
-}
-
-function childDirectory(parentDir: string, child: Analysis): string {
-  if (!child.path) return parentDir;
-  const location = resolve(parentDir, child.path.replace(/^\.\//, ''));
-  return /\.ya?ml$/i.test(extname(location)) ? dirname(location) : location;
-}
-
-/** Resolve symlinks before asserting that a publishable artifact is in-project. */
-function safeProjectRelative(
-  projectRoot: string,
-  absolutePath: string,
-): string | undefined {
-  try {
-    const path = relative(realpathSync(projectRoot), realpathSync(absolutePath));
-    if (!path || path === '..' || path.startsWith(`..${sep}`)) return undefined;
-    return path.split(sep).join('/');
-  } catch {
-    return undefined;
-  }
-}
-
-function isOutputId(value: string): boolean {
-  return Boolean(value)
-    && value !== '.'
-    && value !== '..'
-    && basename(value) === value;
-}
-
-function activeChildUniverse(parent: Universe, childId: string): Universe {
-  const child = narrow(parent, childId);
-  return {
-    id: parent.id,
-    description: parent.description,
-    decisions: child.decisions,
-    analyses: child.analyses as Universe['analyses'],
-  };
-}
-
-function parentInputMaps(ancestors: Analysis[]): Map<string, Input>[] {
-  return ancestors.map(
-    (analysis) => new Map((analysis.inputs ?? []).map((input) => [input.id, input])),
+function fitPreview(
+  preview: SerializedTablePreview,
+  remainingBytes: number,
+): SerializedTablePreview | undefined {
+  if (preview.serialized_bytes <= remainingBytes) return preview;
+  return buildTablePreview(
+    {
+      headers: preview.headers,
+      rows: preview.rows,
+      totalRows: preview.total_rows,
+      totalColumns: preview.total_columns,
+      truncated: preview.truncated,
+    },
+    remainingBytes,
   );
 }
 
-function inheritedInsights(
-  ancestors: Analysis[],
-  analysis: Analysis,
-): Record<string, Insight> {
-  return Object.assign(
-    {},
-    ...ancestors.map((ancestor) => ancestor.prior_insights ?? {}),
-    analysis.prior_insights ?? {},
-  );
+function applyProjectPreviewBudget(
+  records: InventoryRecord[],
+  usedBytes: { value: number },
+): InventoryRecord[] {
+  return records.map((record) => {
+    if (record.kind !== 'output' || !record.table_preview) return record;
+    const remaining = Math.max(
+      0,
+      INVENTORY_TABLE_PREVIEW_BUDGET_BYTES - usedBytes.value,
+    );
+    const preview = fitPreview(record.table_preview, remaining);
+    if (!preview) {
+      return {
+        ...record,
+        table_preview: undefined,
+        table_preview_omitted: 'project_size_budget',
+      };
+    }
+    usedBytes.value += preview.serialized_bytes;
+    return preview === record.table_preview
+      ? record
+      : { ...record, table_preview: preview };
+  });
 }
 
-function serializeEvidence(
-  evidence: Evidence[] | undefined,
-): InventoryEvidence[] | undefined {
-  const serialized = (evidence ?? [])
-    .map((item) => ({
-      artifact: item.artifact,
-      doi: item.doi,
-      quote: item.quote?.exact,
-      page: item.location?.page,
-    }))
-    .filter((item) => item.artifact || item.doi || item.quote || item.page != null);
-  return serialized.length ? serialized : undefined;
+function isResolvedProject(
+  value: ASTRASource | ResolvedProject,
+): value is ResolvedProject {
+  return 'scopes' in value && 'scopeById' in value;
 }
 
-function inputRecord(
-  scopePath: string[],
-  source: Input,
-  stored: SerializedInput,
-): InventoryInputRecord {
-  return {
-    ...stored,
-    kind: 'input',
-    path: recordPath(scopePath, 'inputs', source.id),
-    ref: source.ref,
-  };
-}
-
-function outputRecord(
-  scopePath: string[],
-  source: Output,
-  stored: SerializedOutput,
-): InventoryOutputRecord {
-  const tableData = stored.table_data;
-  return {
-    ...stored,
-    table_data: tableData
-      ? {
-          headers: tableData.headers.slice(0, INVENTORY_TABLE_PREVIEW_LIMIT),
-          rows: tableData.rows
-            .slice(0, INVENTORY_TABLE_PREVIEW_LIMIT)
-            .map((row) => row.slice(0, INVENTORY_TABLE_PREVIEW_LIMIT)),
-        }
-      : undefined,
-    table_rows_total: tableData?.rows.length,
-    table_columns_total: tableData?.headers.length,
-    kind: 'output',
-    path: recordPath(scopePath, 'outputs', source.id),
-  };
-}
-
-function serializeDeclaredDecision(
-  id: string,
-  decision: Decision,
-): SerializedDecision {
-  const options = Object.fromEntries(
-    Object.entries(decision.options ?? {}).map(([optionId, option]) => [
-      optionId,
-      option.label,
-    ]),
-  );
-  const optionInsights = Object.fromEntries(
-    Object.entries(decision.options ?? {})
-      .filter(([, option]) => option.insights?.length)
-      .map(([optionId, option]) => [optionId, [...(option.insights ?? [])]]),
-  );
-  return {
-    id,
-    label: decision.label,
-    rationale: decision.rationale,
-    options,
-    option_insights: Object.keys(optionInsights).length ? optionInsights : undefined,
-  };
-}
-
-function decisionRecord(
-  scopePath: string[],
-  id: string,
-  source: Decision,
-  stored?: SerializedDecision,
-): InventoryDecisionRecord {
-  return {
-    ...(stored ?? serializeDeclaredDecision(id, source)),
-    kind: 'decision',
-    path: recordPath(scopePath, 'decisions', id),
-    tags: source.tags?.length ? [...source.tags] : undefined,
-    from: source.from,
-    when: source.when?.length ? [...source.when] : undefined,
-  };
-}
-
-function findingRecord(
-  scopePath: string[],
-  id: string,
-  source: Insight,
-): InventoryFindingRecord {
-  return {
-    id,
-    path: recordPath(scopePath, 'findings', id),
-    kind: 'finding',
-    label: source.label,
-    claim: source.claim,
-    notes: source.notes,
-    scope: source.scope,
-    evidence: serializeEvidence(source.evidence),
-  };
-}
-
-function insightRecord(
-  scopePath: string[],
-  id: string,
-  source: Insight,
-): InventoryPriorInsightRecord {
-  return {
-    id,
-    path: recordPath(scopePath, 'prior_insights', id),
-    kind: 'prior_insight',
-    label: source.label,
-    claim: source.claim,
-    notes: source.notes,
-    scope: source.scope,
-    evidence: serializeEvidence(source.evidence),
-  };
-}
-
-/**
- * Build the project payload consumed by the inventory view.
- *
- * Every declared record appears exactly once in its owning scope. Inherited
- * insights remain relationships instead of becoming duplicate records.
- */
+export function buildInventorySnapshot(
+  project: ResolvedProject,
+  rootStore?: ResolvedStore,
+): InventorySnapshotV1;
 export function buildInventorySnapshot(
   source: ASTRASource,
   projectRoot: string,
+): InventorySnapshotV1;
+export function buildInventorySnapshot(
+  sourceOrProject: ASTRASource | ResolvedProject,
+  rootOrStore?: string | ResolvedStore,
 ): InventorySnapshotV1 {
-  const scopes: InventoryScope[] = [];
+  const project = isResolvedProject(sourceOrProject)
+    ? sourceOrProject
+    : buildResolvedProject(sourceOrProject, rootOrStore as string);
+  const rootStore =
+    isResolvedProject(sourceOrProject) && typeof rootOrStore === 'object'
+      ? rootOrStore
+      : undefined;
+  const usedPreviewBytes = { value: 0 };
 
-  const visit = ({
-    analysis,
-    universe,
-    path,
-    directory,
-    ancestors,
-  }: ScopeBuildContext): void => {
-    const results: ArtifactResolver = (id) => {
-      if (!isOutputId(id)) return undefined;
-      const artifact = resolveArtifact(directory, source.universe.id, id);
-      if (artifact && !safeProjectRelative(projectRoot, artifact)) return undefined;
-      return artifact;
+  const scopes = project.scopes.map((scope): InventoryScope => {
+    const store =
+      scope.id === '' && rootStore ? rootStore : buildScopeStore(scope);
+    return {
+      id: scope.id,
+      name: scope.name,
+      parent: scope.parent,
+      children: scope.children,
+      records: applyProjectPreviewBudget(
+        declaredRecords(scope, store),
+        usedPreviewBytes,
+      ),
     };
-
-    const store = buildResolvedStore(
-      analysis,
-      universe,
-      results,
-      path.length ? path.join('/') : 'index',
-      (artifact) => safeProjectRelative(projectRoot, artifact)!,
-      parentInputMaps(ancestors),
-      inheritedInsights(ancestors, analysis),
-      pageFrames([...ancestors, analysis], source.universe, path),
-    );
-
-    const records: InventoryRecord[] = [];
-    for (const input of analysis.inputs ?? []) {
-      records.push(inputRecord(path, input, store.inputs[input.id] ?? { id: input.id }));
-    }
-
-    for (const output of analysis.outputs ?? []) {
-      const stored = store.outputs[output.id] ?? {
-        id: output.id,
-        label: output.label,
-        type: output.type,
-        description: output.description,
-        from: output.from,
-      };
-      records.push(outputRecord(path, output, stored));
-    }
-
-    for (const [id, decision] of Object.entries(analysis.decisions ?? {})) {
-      records.push(decisionRecord(path, id, decision, store.decisions[id]));
-    }
-    for (const [id, finding] of Object.entries(analysis.findings ?? {})) {
-      records.push(findingRecord(path, id, finding));
-    }
-    for (const [id, insight] of Object.entries(analysis.prior_insights ?? {})) {
-      records.push(insightRecord(path, id, insight));
-    }
-
-    const childEntries = Object.entries(analysis.analyses ?? {});
-    scopes.push({
-      id: scopeId(path),
-      name: analysis.name ?? analysis.id ?? path.at(-1) ?? 'Analysis',
-      parent: path.length ? scopeId(path.slice(0, -1)) : undefined,
-      children: childEntries.map(([id]) => scopeId([...path, id])),
-      records,
-    });
-
-    for (const [id, child] of childEntries) {
-      visit({
-        analysis: child,
-        universe: activeChildUniverse(universe, id),
-        path: [...path, id],
-        directory: childDirectory(directory, child),
-        ancestors: [...ancestors, analysis],
-      });
-    }
-  };
-
-  visit({
-    analysis: source.analysis,
-    universe: source.universe,
-    path: [],
-    directory: projectRoot,
-    ancestors: [],
   });
 
   return {
     version: INVENTORY_SNAPSHOT_VERSION,
     analysis: {
-      id: source.analysis.id ?? 'root',
-      name: source.analysis.name ?? source.analysis.id ?? 'ASTRA analysis',
+      id: project.source.analysis.id ?? 'root',
+      name:
+        project.source.analysis.name
+        ?? project.source.analysis.id
+        ?? 'ASTRA analysis',
     },
     scopes,
   };

@@ -245,17 +245,22 @@ in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
 
 For project-wide inventory views, MySTRA also emits a versioned
 `data.astraInventory` snapshot on each root-scoped project page. Snapshot v1
-keeps each record in its declaring scope and routes previewable result images
-through MyST's asset pipeline. Themes consume that resolved payload; they do not
+aggregates the same resolved records used by normal pages, keeping each record
+in its declaring scope rather than running a parallel inventory resolver.
+Previewable images still pass through MyST's asset pipeline, while embedded
+table previews are bounded by serialized byte size and retain the complete
+artifact URL and dimensions. Themes consume this resolved payload; they do not
 parse `astra.yaml`.
 
 ## What MyST handles for you
 
 MySTRA writes only the ASTRA→AST bridge and leans on the stock `myst` engine for
 everything else: building, serving, asset hashing/copying, live reload of
-Markdown, numbering, cross-references, and search. **Citations** are delegated to
-MyST too — DOI evidence renders as a `doi.org` link, and a linked reference list
-comes for free once a project bibliography is wired.
+in-project sources and result artifacts, numbering, cross-references, and
+search. MySTRA fingerprints the root, universe, and nested analysis YAML files
+so a MyST rebuild never reuses a stale resolved project. **Citations** are
+delegated to MyST too — DOI evidence renders as a `doi.org` link, and a linked
+reference list comes for free once a project bibliography is wired.
 
 ## Developing
 

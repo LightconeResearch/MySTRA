@@ -7,7 +7,13 @@
  * and result files on disk.
  */
 
-import { dirname, join, parse as parsePath } from 'node:path';
+import {
+  dirname,
+  extname,
+  join,
+  parse as parsePath,
+  resolve,
+} from 'node:path';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { loadYaml, resolveAnalysisTree, validateAnalysis } from '@astra-spec/sdk';
 import type { Analysis, Universe } from '@astra-spec/sdk';
@@ -20,6 +26,8 @@ type RawSpec = Record<string, unknown>;
 export interface ASTRASource {
   analysis: Analysis;
   universe: Universe;
+  /** Every YAML file that contributed to the resolved project. */
+  dependencyPaths: string[];
 }
 
 /** Resolve an output id to its artifact's absolute path, or `undefined`. */
@@ -37,7 +45,15 @@ export function loadASTRASource(projectDir: string, vfile?: any): ASTRASource {
   const raw = loadYaml(astraPath);
   reportValidation(projectDir, raw, vfile);
   const analysis = resolveAnalysisTree(raw, projectDir) as unknown as Analysis;
-  return { analysis, universe: loadUniverse(projectDir) };
+  const universePath = universeFilePath(projectDir);
+  return {
+    analysis,
+    universe: loadUniverse(projectDir),
+    dependencyPaths: [
+      ...analysisDependencyPaths(projectDir, analysis),
+      ...(universePath ? [universePath] : []),
+    ],
+  };
 }
 
 /**
@@ -69,15 +85,64 @@ function reportValidation(projectDir: string, raw: RawSpec, vfile?: any): void {
 }
 
 /**
- * The files a parse depends on — `astra.yaml` and the active universe file —
- * for the plugin's mtime-based cache freshness check. Owned by the loader so
- * the dependency set and the load itself cannot drift apart.
+ * The files a parse depends on. Once a source has been loaded this includes
+ * every nested `analyses.*.path` ASTRA file, not just the root and universe.
  */
-export function sourceDependencyPaths(projectDir: string): string[] {
+export function sourceDependencyPaths(
+  projectDir: string,
+  source?: ASTRASource,
+): string[] {
+  if (source) {
+    // Re-scan the universe directory so adding a first universe file (or a
+    // lexicographically earlier replacement) invalidates a source that
+    // previously depended only on the synthetic default universe.
+    const universe = universeFilePath(projectDir);
+    return [
+      ...new Set([
+        ...source.dependencyPaths,
+        ...(universe ? [universe] : []),
+      ]),
+    ];
+  }
   const paths = [join(projectDir, 'astra.yaml')];
   const universe = universeFilePath(projectDir);
   if (universe) paths.push(universe);
   return paths;
+}
+
+/** Directory that owns a child analysis and its result artifacts. */
+export function childAnalysisDirectory(
+  parentDir: string,
+  child: Analysis,
+): string {
+  if (!child.path) return parentDir;
+  const location = resolve(parentDir, child.path.replace(/^\.\//, ''));
+  return /\.ya?ml$/i.test(extname(location)) ? dirname(location) : location;
+}
+
+/**
+ * Collect the ASTRA YAML files followed by `resolveAnalysisTree`.
+ *
+ * The resolved SDK tree preserves each external child's authored `path`, so
+ * walking that tree lets the cache watch the exact same nested files without
+ * maintaining a second YAML parser.
+ */
+function analysisDependencyPaths(
+  projectDir: string,
+  analysis: Analysis,
+): string[] {
+  const paths = [join(projectDir, 'astra.yaml')];
+
+  const visit = (node: Analysis, directory: string): void => {
+    for (const child of Object.values(node.analyses ?? {})) {
+      const childDirectory = childAnalysisDirectory(directory, child);
+      if (child.path) paths.push(join(childDirectory, 'astra.yaml'));
+      visit(child, childDirectory);
+    }
+  };
+
+  visit(analysis, projectDir);
+  return [...new Set(paths)];
 }
 
 /**

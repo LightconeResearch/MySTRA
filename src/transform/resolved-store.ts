@@ -11,7 +11,7 @@
  * same key→table join MyST uses for citations. See STRATEGY-A-REFACTOR.md §5.
  *
  * This is the salvaged core of the old `/astra/<slug>.json` server route
- * (`resolveOutputs`, `table_data`, `readMetric`, input aliasing) — but emitted
+ * (`resolveOutputs`, table previews, `readMetric`, input aliasing) — but emitted
  * as a build artifact, not served live, and with project-relative result URLs
  * (MyST's asset pipeline copies them) rather than the old `/static` mount.
  *
@@ -40,6 +40,10 @@ import type {
 export type { SerializedProvenanceDecision, SerializedRootInput };
 import { isDecisionRendered, selectedOptionId } from './render-methods.js';
 import { parseTableData, type TableData } from './parse-table-data.js';
+import {
+  buildTablePreview,
+  type SerializedTablePreview,
+} from './table-preview.js';
 
 // ── Serialized shapes ───────────────────────────────────────────────────────
 
@@ -60,6 +64,8 @@ export interface SerializedMetric {
 
 export interface SerializedOutput {
   id: string;
+  path: string;
+  kind: 'output';
   label?: string;
   type?: string;
   description?: string;
@@ -72,8 +78,8 @@ export interface SerializedOutput {
   decisions?: string[];
   /** Alias pointer for re-exported outputs (`from: child.out_id`). */
   from?: string;
-  /** Parsed rows for table outputs (same parser as the evidence renderer). */
-  table_data?: TableData;
+  /** Size-bounded browser preview; the result artifact remains authoritative. */
+  table_preview?: SerializedTablePreview;
   /** Inlined value for metric outputs whose result file parses as JSON. */
   metric?: SerializedMetric;
   /** Analysis-level source inputs at the roots of the provenance chain. */
@@ -84,17 +90,27 @@ export interface SerializedOutput {
 
 export interface SerializedInput {
   id: string;
+  path: string;
+  kind: 'input';
   label?: string;
   type?: string;
   description?: string;
   source?: string;
   from?: string;
+  ref?: string;
 }
 
 export interface SerializedDecision {
   id: string;
+  path: string;
+  kind: 'decision';
   label?: string;
   rationale?: string;
+  tags?: string[];
+  from?: string;
+  when?: string[];
+  /** Whether this decision has an active page carrier in this universe. */
+  active: boolean;
   /** The option id selected under the active universe (or the default). */
   selected?: string;
   /** All option ids → their labels. */
@@ -114,10 +130,13 @@ export interface SerializedEvidence {
   doi?: string;
   /** The exact-quote selector text, when present. */
   quote?: string;
+  page?: number;
 }
 
 export interface SerializedFinding {
   id: string;
+  path: string;
+  kind: 'finding';
   label?: string;
   claim?: string;
   notes?: string;
@@ -128,17 +147,25 @@ export interface SerializedFinding {
 
 export interface SerializedInsight {
   id: string;
+  path: string;
+  kind: 'prior_insight';
   label?: string;
   scope?: string;
   claim?: string;
+  notes?: string;
+  evidence?: SerializedEvidence[];
   /** First evidence DOI, when present (the theme can resolve the citation). */
   doi?: string;
   /** First exact-quote evidence, when present. */
   quote?: string;
+  /** Page of the first evidence item carrying a source location. */
+  page?: number;
 }
 
 export interface SerializedSubAnalysis {
   id: string;
+  path: string;
+  kind: 'analysis';
   name?: string;
   summary?: string;
   /** Page URL for the sub-analysis (e.g. `/reconstruction`). */
@@ -184,30 +211,39 @@ export function buildResolvedStore(
   universe: Universe,
   results: ArtifactResolver,
   slug: string,
-  resultUrl: (absPath: string) => string,
+  resultUrl: (absPath: string) => string | undefined,
   parentInputs: Map<string, Input>[] = [],
   priorInsights: Record<string, Insight> = analysis.prior_insights ?? {},
   pageFrame: ProvFrame = { analysis, universe, where: [] },
+  priorInsightPaths: ReadonlyMap<string, string> = new Map(),
 ): ResolvedStore {
   const outputs: Record<string, SerializedOutput> = {};
   for (const { declared, resolved } of resolveOutputs(analysis)) {
     const absPath = results(declared.id);
+    const resolvedPath = absPath ? resultUrl(absPath) : undefined;
     const traced = traceProvenance(declared, pageFrame);
     outputs[declared.id] = {
       id: declared.id,
+      path: recordPath(pageFrame.where, 'outputs', declared.id),
+      kind: 'output',
       label: resolved.label,
       type: resolved.type,
       description: resolved.description,
-      resolved_path: absPath ? resultUrl(absPath) : undefined,
+      resolved_path: resolvedPath,
       recipe: resolved.recipe
         ? { command: resolved.recipe.command, container: resolved.recipe.container }
         : undefined,
       inputs: resolved.inputs,
       decisions: resolved.decisions,
       from: declared.from,
-      table_data:
-        resolved.type === 'table' && absPath ? (parseTableData(absPath) ?? undefined) : undefined,
-      metric: resolved.type === 'metric' && absPath ? readMetric(absPath) : undefined,
+      table_preview:
+        resolved.type === 'table' && absPath && resolvedPath
+          ? buildPreview(absPath)
+          : undefined,
+      metric:
+        resolved.type === 'metric' && absPath && resolvedPath
+          ? readMetric(absPath)
+          : undefined,
       inputs_root: traced.inputs_root,
       decisions_transitive: traced.decisions_transitive,
     };
@@ -215,21 +251,22 @@ export function buildResolvedStore(
 
   const inputs: Record<string, SerializedInput> = {};
   for (const inp of analysis.inputs ?? []) {
-    inputs[inp.id] = serializeInput(inp, parentInputs);
+    inputs[inp.id] = serializeInput(inp, parentInputs, pageFrame.where);
   }
 
-  // Only decisions with a real carrier on the page (same predicate the
-  // directive uses): bare `from`-references and `when`-unmet decisions have
-  // no node to join to and don't apply under this universe.
+  // Keep every declaration in the common record store. `active` tells page
+  // themes whether a carrier exists under the current universe.
   const decisions: Record<string, SerializedDecision> = {};
   for (const [id, dec] of Object.entries(analysis.decisions ?? {})) {
-    if (isDecisionRendered(dec, universe)) decisions[id] = serializeDecision(id, dec, universe);
+    decisions[id] = serializeDecision(id, dec, universe, pageFrame.where);
   }
 
   const findings: Record<string, SerializedFinding> = {};
   for (const [id, f] of Object.entries(analysis.findings ?? {})) {
     findings[id] = {
       id,
+      path: recordPath(pageFrame.where, 'findings', id),
+      kind: 'finding',
       label: f.label,
       claim: f.claim,
       notes: f.notes,
@@ -240,7 +277,13 @@ export function buildResolvedStore(
 
   const prior_insights: Record<string, SerializedInsight> = {};
   for (const [id, ins] of Object.entries(priorInsights)) {
-    prior_insights[id] = serializeInsight(id, ins, universe);
+    prior_insights[id] = serializeInsight(
+      id,
+      ins,
+      universe,
+      pageFrame.where,
+      priorInsightPaths.get(id),
+    );
   }
 
   const subanalyses: Record<string, SerializedSubAnalysis> = {};
@@ -248,6 +291,8 @@ export function buildResolvedStore(
   for (const [id, sub] of Object.entries(analysis.analyses ?? {})) {
     subanalyses[id] = {
       id,
+      path: recordPath(pageFrame.where, 'analyses', id),
+      kind: 'analysis',
       name: sub.name,
       // ASTRA no longer carries a `narrative` section, so there is no authored
       // summary to surface on the card; the theme renders name + counts.
@@ -274,6 +319,7 @@ function serializeDecision(
   id: string,
   dec: Decision,
   universe: Universe,
+  scopePath: string[],
 ): SerializedDecision {
   const options: Record<string, string | undefined> = {};
   const option_insights: Record<string, string[]> = {};
@@ -281,33 +327,56 @@ function serializeDecision(
     options[optId] = opt.label;
     if (opt.insights?.length) option_insights[optId] = [...opt.insights];
   }
+  const active = isDecisionRendered(dec, universe);
   return {
     id,
+    path: recordPath(scopePath, 'decisions', id),
+    kind: 'decision',
     label: dec.label,
     rationale: dec.rationale,
-    selected: selectedOptionId(id, dec, universe),
+    tags: dec.tags?.length ? [...dec.tags] : undefined,
+    from: dec.from,
+    when: dec.when?.length ? [...dec.when] : undefined,
+    active,
+    ...(active ? { selected: selectedOptionId(id, dec, universe) } : {}),
     options,
     option_insights: Object.keys(option_insights).length ? option_insights : undefined,
   };
 }
 
-function serializeInsight(id: string, ins: Insight, universe: Universe): SerializedInsight {
+function serializeInsight(
+  id: string,
+  ins: Insight,
+  universe: Universe,
+  scopePath: string[],
+  path = recordPath(scopePath, 'prior_insights', id),
+): SerializedInsight {
   const evidence = ins.evidence ?? [];
   return {
     id,
+    path,
+    kind: 'prior_insight',
     label: ins.label,
     scope: stripUniverseClause(ins.scope, universe.id),
     claim: ins.claim,
+    notes: ins.notes,
+    evidence: serializeEvidence(evidence),
     doi: evidence.find((e) => e.doi)?.doi,
     quote: evidence.find((e) => e.quote?.exact)?.quote?.exact,
+    page: evidence.find((e) => e.location?.page != null)?.location?.page,
   };
 }
 
 /** Project an evidence list down to its serializable essentials. */
 function serializeEvidence(evidence: Evidence[] | undefined): SerializedEvidence[] | undefined {
   const out = (evidence ?? [])
-    .map((e) => ({ artifact: e.artifact, doi: e.doi, quote: e.quote?.exact }))
-    .filter((e) => e.artifact || e.doi || e.quote);
+    .map((e) => ({
+      artifact: e.artifact,
+      doi: e.doi,
+      quote: e.quote?.exact,
+      page: e.location?.page,
+    }))
+    .filter((e) => e.artifact || e.doi || e.quote || e.page != null);
   return out.length ? out : undefined;
 }
 
@@ -353,14 +422,21 @@ function stripUniverseClause(
  * inherit content fields from the matching ancestor declaration (innermost
  * wins). Output-input cross-links (`from: scope.out_id`) are left as-is.
  */
-function serializeInput(inp: Input, parentInputs: Map<string, Input>[]): SerializedInput {
+function serializeInput(
+  inp: Input,
+  parentInputs: Map<string, Input>[],
+  scopePath: string[],
+): SerializedInput {
   const out: SerializedInput = {
     id: inp.id,
+    path: recordPath(scopePath, 'inputs', inp.id),
+    kind: 'input',
     label: inp.label,
     type: inp.type,
     description: inp.description,
     source: inp.source,
     from: inp.from,
+    ref: inp.ref,
   };
   if (!inp.from) return out;
   if (inp.from.includes('.')) return out;
@@ -377,6 +453,19 @@ function serializeInput(inp: Input, parentInputs: Map<string, Input>[]): Seriali
     };
   }
   return out;
+}
+
+function recordPath(
+  scopePath: string[],
+  collection: string,
+  id: string,
+): string {
+  return [...scopePath, collection, id].join('.');
+}
+
+function buildPreview(absPath: string): SerializedTablePreview | undefined {
+  const data: TableData | null = parseTableData(absPath);
+  return data ? buildTablePreview(data) : undefined;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

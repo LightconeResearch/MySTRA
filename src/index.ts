@@ -36,17 +36,16 @@
  * in `universes/`).
  */
 
-import { basename, join, relative, sep } from 'node:path';
-import { readFileSync, statSync } from 'node:fs';
+import { basename, relative, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import {
   loadASTRASource,
-  resolveArtifact,
   sourceDependencyPaths,
-  type ArtifactResolver,
   type ASTRASource,
 } from './loader.js';
 import { parseYamlString } from '@astra-spec/sdk';
-import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
+import type { Decision, Insight } from '@astra-spec/sdk';
 import { reportError, reportWarn } from './diagnostics.js';
 import { proseParser } from './transform/prose.js';
 import type { ProseParser } from './transform/prose.js';
@@ -81,14 +80,18 @@ import { renderFinding } from './transform/render-findings.js';
 import { renderOneOutput, renderInsightEvidence } from './transform/render-evidence.js';
 import { renderInputsTable, renderOutputsTable } from './transform/render-data-sources.js';
 import { parseTableData } from './transform/parse-table-data.js';
-import { resolveOutputs } from './transform/resolve-output.js';
 import { buildResolvedStore, readMetric } from './transform/resolved-store.js';
-import { pageFrames, narrow, type ProvFrame } from './transform/provenance.js';
 import {
   buildInventorySnapshot,
   inventoryEvidenceDois,
   inventoryImageRecords,
 } from './inventory.js';
+import {
+  buildResolvedProject,
+  buildScopeStore,
+  type ResolvedProject,
+  type ResolvedProjectScope,
+} from './project.js';
 import {
   parseAstraPath,
   pathIdentifier,
@@ -105,159 +108,101 @@ function projectRoot(): string {
   return process.cwd();
 }
 
-/** Cached project source + the `astra.yaml` mtime it was parsed from. */
+/** Cached project source + a content fingerprint of every contributing YAML. */
 interface CachedSource {
   source: ASTRASource;
-  mtimeMs: number;
+  fingerprint: string;
 }
 
 const projectCache = new Map<string, CachedSource>();
+const resolvedProjectCache = new Map<
+  string,
+  { source: ASTRASource; project: ResolvedProject }
+>();
 
 /**
- * Newest mtime across the files a parse depends on (the loader owns the list:
- * `astra.yaml` and the active universe file). `myst start` watches `.md` files,
- * not the spec, so without this a manual rebuild would keep serving a stale
- * parse after either is edited — and editing a `universes/*.yaml` file changes
- * decision selections just as much as editing `astra.yaml` does. A failed stat
- * (file missing / transient race) contributes nothing, so a vanished file falls
- * through to a reload rather than pinning the cache. (Result artifacts are not
- * watched: they are many small files and a rebuild that regenerates them is the
- * expected re-entry point.)
+ * Fingerprint every YAML dependency by path and contents. Current MyST watches
+ * in-project files and triggers the rebuild; this cache check ensures that a
+ * rebuilt page never reuses a stale root, universe, or nested analysis tree.
  */
-function sourceMtimeMs(root: string): number {
-  let newest = -Infinity;
-  for (const p of sourceDependencyPaths(root)) {
+function sourceFingerprint(paths: string[]): string {
+  const hash = createHash('sha256');
+  for (const path of paths) {
+    hash.update(path);
+    hash.update('\0');
     try {
-      newest = Math.max(newest, statSync(p).mtimeMs);
+      hash.update(readFileSync(path));
     } catch {
-      // ignore — a missing dependency leaves `newest` as-is
+      hash.update('<missing>');
     }
+    hash.update('\0');
   }
-  return newest;
+  return hash.digest('hex');
 }
 
 function getSource(root: string, vfile?: any): ASTRASource {
   const cached = projectCache.get(root);
-  const mtimeMs = sourceMtimeMs(root);
-  if (cached && Number.isFinite(mtimeMs) && mtimeMs <= cached.mtimeMs) {
+  const dependencyPaths = sourceDependencyPaths(root, cached?.source);
+  const fingerprint = sourceFingerprint(dependencyPaths);
+  if (cached && fingerprint === cached.fingerprint) {
     return cached.source;
   }
   const source = loadASTRASource(root, vfile);
-  projectCache.set(root, { source, mtimeMs });
+  projectCache.set(root, {
+    source,
+    fingerprint: sourceFingerprint(source.dependencyPaths),
+  });
   return source;
+}
+
+function getProject(root: string, vfile?: any): ResolvedProject {
+  const source = getSource(root, vfile);
+  const cached = resolvedProjectCache.get(root);
+  if (cached?.source === source) return cached.project;
+  const project = buildResolvedProject(source, root);
+  resolvedProjectCache.set(root, { source, project });
+  return project;
 }
 
 // ── Scope resolution ────────────────────────────────────────────────────
 
-interface Scope {
-  root: string;
-  analysis: Analysis;
-  universe: Universe;
-  /** Lazily resolves an output id → artifact path within this scope. */
-  results: ArtifactResolver;
+interface Scope extends ResolvedProjectScope {
+  project: ResolvedProject;
   prose: ProseParser;
-  /** Local prior_insights merged with all ancestor scopes (option-tab refs). */
-  priorInsights: Record<string, Insight>;
-  outputsById: Map<string, Output>;
-  slug: string;
   /** The scope's sub-analysis ids (`[]` at root) — the slug, pre-split. */
   slugParts: string[];
   tabItem: ReturnType<typeof makeTabItem>;
-  /** Ancestor analyses walked through, outermost first (root … parent). */
-  ancestors: Analysis[];
   /** The invoking surface's vfile — renderers route diagnostics through it. */
   vfile?: any;
 }
 
-/** A memoizable scope: everything but the per-pass tabItem and per-call vfile. */
-type ScopeCore = Omit<Scope, 'tabItem' | 'vfile'>;
-
 /**
- * Memoized scope cores — a {@link Scope} minus its per-pass `tabItem` factory
- * and per-call `vfile` — keyed by `root::path` and invalidated by source
- * identity (`getSource` returns a new object when `astra.yaml` or the
- * universe file change). Roles and directives resolve the same handful of
- * scopes once per `{astra…}` occurrence, so this turns O(refs × outputs)
- * alias resolution into O(outputs) per build.
- */
-const scopeCache = new Map<string, { source: ASTRASource; core: ScopeCore }>();
-
-/**
- * Walk from the root analysis into `analysisPath`: descend the analyses
- * tree, narrow the universe to each sub-analysis's selections, merge the
- * prior insights inherited from ancestor scopes, and keep the ancestor
- * stack for aliased-input resolution and provenance tracing.
+ * Resolve a page or inline path against the canonical project scope graph.
+ * Per-call renderer state stays outside that graph.
  */
 function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope {
-  const source = getSource(root, vfile);
-  const cacheKey = `${root}::${analysisPath.join('.')}`;
-  const cached = scopeCache.get(cacheKey);
-  if (cached && cached.source === source) {
-    return { ...cached.core, tabItem: makeTabItem(), vfile };
+  const project = getProject(root, vfile);
+  const id = analysisPath.join('.');
+  const scope = project.scopeById.get(id);
+  if (!scope) {
+    throw new Error(
+      `unknown sub-analysis "${analysisPath.at(-1) ?? id}" ` +
+      `(path: ${id || '<root>'})`,
+    );
   }
-
-  let analysis = source.analysis;
-  let activeUniverse = source.universe;
-  const ancestors: Analysis[] = [];
-  const inheritedPriorInsights: Record<string, Insight>[] = [];
-  const slugParts: string[] = [];
-  let resultsBase = root;
-
-  for (const seg of analysisPath) {
-    const child = analysis.analyses?.[seg];
-    if (!child) {
-      throw new Error(
-        `unknown sub-analysis "${seg}" (path: ${analysisPath.join('.') || '<root>'})`,
-      );
-    }
-    if (analysis.prior_insights) inheritedPriorInsights.push(analysis.prior_insights);
-    ancestors.push(analysis);
-
-    activeUniverse = {
-      id: activeUniverse.id,
-      description: activeUniverse.description,
-      ...narrow(activeUniverse, seg),
-    };
-    if (child.path) resultsBase = join(resultsBase, child.path.replace(/^\.\//, ''));
-    analysis = child;
-    slugParts.push(seg);
-  }
-
-  const slug = slugParts.length ? slugParts.join('/') : 'index';
-  const universeId = source.universe.id;
-  const results: ArtifactResolver = (id) => resolveArtifact(resultsBase, universeId, id);
-  const priorInsights = Object.assign(
-    {},
-    ...inheritedPriorInsights,
-    analysis.prior_insights ?? {},
-  );
-  const outputsById = new Map(
-    resolveOutputs(analysis).map(({ resolved }) => [resolved.id, resolved] as const),
-  );
-
-  const core: ScopeCore = {
-    root,
-    analysis,
-    universe: activeUniverse,
-    results,
+  return {
+    ...scope,
+    project,
     prose: proseParser,
-    priorInsights,
-    outputsById,
-    slug,
-    slugParts,
-    ancestors,
+    slugParts: scope.path,
+    tabItem: makeTabItem(),
+    vfile,
   };
-  scopeCache.set(cacheKey, { source, core });
-  return { ...core, tabItem: makeTabItem(), vfile };
 }
 
-/** Absolute result path → posix project-relative URL for MyST's asset copy. */
-function projectRelative(root: string, absPath: string): string {
-  return relative(root, absPath).split(sep).join('/');
-}
-
+/** Absolute result path → posix project-relative URL for rendered AST nodes. */
 function resultUrl(root: string): (absPath: string) => string {
-  return (absPath) => projectRelative(root, absPath);
+  return (absPath) => relative(root, absPath).split(sep).join('/');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -1034,22 +979,6 @@ function scopeForFile(vfile: any): Scope | null {
   }
 }
 
-/** Ancestor input maps (innermost-last) for resolving aliased `from:` inputs. */
-function parentInputMaps(scope: Scope): Map<string, Input>[] {
-  return scope.ancestors.map(
-    (a) => new Map((a.inputs ?? []).map((i) => [i.id, i] as const)),
-  );
-}
-
-/**
- * The page scope's provenance frame, parent-linked up to the root analysis.
- */
-function pageProvFrame(scope: Scope): ProvFrame {
-  const rootUniverse = getSource(scope.root, scope.vfile).universe;
-  const analyses = [...scope.ancestors, scope.analysis];
-  return pageFrames(analyses, rootUniverse, scope.slugParts);
-}
-
 /** Inline `astra-ref` kind → resolved-store table (for cross-scope merging). */
 const REF_KIND_TO_TABLE: Record<string, keyof ReturnType<typeof buildResolvedStore>> = {
   decision: 'decisions',
@@ -1093,16 +1022,7 @@ function mergeCrossScopeRefs(
         const refScope = resolveScope(projectRoot(), prefix.split('.'), vfile);
         subStores.set(
           prefix,
-          buildResolvedStore(
-            refScope.analysis,
-            refScope.universe,
-            refScope.results,
-            refScope.slug,
-            resultUrl(refScope.root),
-            parentInputMaps(refScope),
-            refScope.priorInsights,
-            pageProvFrame(refScope),
-          ),
+          buildScopeStore(refScope),
         );
       } catch (err) {
         reportWarn(vfile, `astra: cannot resolve cross-scope reference prefix "${prefix}": ${(err as Error).message}`);
@@ -1177,16 +1097,7 @@ const storeTransform = {
       warnIfAstraContent(tree, vfile);
       return;
     }
-    const store = buildResolvedStore(
-      scope.analysis,
-      scope.universe,
-      scope.results,
-      scope.slug,
-      resultUrl(scope.root),
-      parentInputMaps(scope),
-      scope.priorInsights,
-      pageProvFrame(scope),
-    );
+    const store = buildScopeStore(scope);
     mergeCrossScopeRefs(tree, store, vfile);
     // The rich theme locates this carrier by its `astra-store` identifier (a
     // provider reads its `data.astra` and feeds every inline `.astra-ref` token
@@ -1203,10 +1114,7 @@ const storeTransform = {
     // project index that opts into the root with `astra_scope: ""`.
     let projectInventoryDois: string[] = [];
     if (scope.slugParts.length === 0) {
-      const inventory = buildInventorySnapshot(
-        getSource(scope.root, vfile),
-        scope.root,
-      );
+      const inventory = buildInventorySnapshot(scope.project, store);
       projectInventoryDois = inventoryEvidenceDois(inventory);
       const inventoryCarrier: any = hiddenDiv('astra-inventory');
       inventoryCarrier.identifier = 'astra-inventory';
@@ -1285,6 +1193,11 @@ export { loadASTRASource } from './loader.js';
 export type { ASTRASource } from './loader.js';
 export { parseAstraPath } from './path.js';
 export type { AstraPath, Collection } from './path.js';
+export { buildResolvedProject, buildScopeStore } from './project.js';
+export type {
+  ResolvedProject,
+  ResolvedProjectScope,
+} from './project.js';
 export { buildResolvedStore } from './transform/resolved-store.js';
 export type {
   ResolvedStore,
@@ -1292,8 +1205,10 @@ export type {
   SerializedInput,
   SerializedDecision,
   SerializedFinding,
+  SerializedEvidence,
   SerializedInsight,
   SerializedSubAnalysis,
   SerializedMetric,
   SerializedRecipe,
 } from './transform/resolved-store.js';
+export type { SerializedTablePreview } from './transform/table-preview.js';

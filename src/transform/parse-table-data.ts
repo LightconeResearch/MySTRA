@@ -4,8 +4,7 @@
  * Used by two consumers:
  *   - `render-evidence.ts`: builds MDAST table nodes for narrative
  *     evidence rendering (citations, artifact cross-references).
- *   - `resolved-store.ts`: populates `SerializedOutput.table_data` so a rich
- *     theme can display inline table data without constructing MDAST.
+ *   - `resolved-store.ts`: derives a byte-bounded browser preview.
  *
  * Keeping the parser here rather than in each consumer prevents a second
  * CSV/JSON reader from appearing in the system (constitution constraint).
@@ -22,14 +21,17 @@ export interface TableData {
   headers: string[];
   /** Data rows; each is an array parallel to `headers`. */
   rows: string[][];
+  /** Full source dimensions, retained when the parser applies its safety cap. */
+  totalRows?: number;
+  totalColumns?: number;
   /** True when the source has more rows than the configured cap. */
   truncated?: boolean;
 }
 
 // ── Row cap ───────────────────────────────────────────────────────────────────
 
-/** Maximum rows to inline.  Reproductions with larger CSVs set `truncated`. */
-const MAX_INLINE_ROWS = 200;
+/** Build-time safety ceiling; browser payloads are bounded separately by size. */
+const MAX_INLINE_ROWS = 1_000;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -40,7 +42,14 @@ export function fileExt(filePath: string): string {
 
 /** Parsed tables keyed by path, revalidated by mtime — the same file is
  *  referenced many times per page ({astra:value} cells, evidence, the store). */
-const tableCache = new Map<string, { mtimeMs: number; data: TableData | null }>();
+interface CachedTable {
+  mtimeMs: number;
+  ctimeMs: number;
+  size: number;
+  data: TableData | null;
+}
+
+const tableCache = new Map<string, CachedTable>();
 
 /**
  * Parse a result file at `filePath` and return `TableData`, or `null` when
@@ -50,17 +59,27 @@ const tableCache = new Map<string, { mtimeMs: number; data: TableData | null }>(
  * Supported extensions: `.csv`, `.json`.
  */
 export function parseTableData(filePath: string): TableData | null {
-  let mtimeMs: number;
+  let stat: ReturnType<typeof statSync>;
   try {
-    mtimeMs = statSync(filePath).mtimeMs;
+    stat = statSync(filePath);
   } catch {
     return null;
   }
   const cached = tableCache.get(filePath);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.data;
+  if (
+    cached
+    && cached.mtimeMs === stat.mtimeMs
+    && cached.ctimeMs === stat.ctimeMs
+    && cached.size === stat.size
+  ) return cached.data;
   const ext = fileExt(filePath);
   const data = ext === 'csv' ? parseCSV(filePath) : ext === 'json' ? parseJSON(filePath) : null;
-  tableCache.set(filePath, { mtimeMs, data });
+  tableCache.set(filePath, {
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs,
+    size: stat.size,
+    data,
+  });
   return data;
 }
 
@@ -68,10 +87,21 @@ export function parseTableData(filePath: string): TableData | null {
 
 /** Apply the row cap, marking `truncated` when the source exceeds it. */
 function capRows(headers: string[], rows: string[][]): TableData {
+  const totalRows = rows.length;
+  const totalColumns = Math.max(
+    headers.length,
+    rows.reduce((largest, row) => Math.max(largest, row.length), 0),
+  );
   if (rows.length > MAX_INLINE_ROWS) {
-    return { headers, rows: rows.slice(0, MAX_INLINE_ROWS), truncated: true };
+    return {
+      headers,
+      rows: rows.slice(0, MAX_INLINE_ROWS),
+      totalRows,
+      totalColumns,
+      truncated: true,
+    };
   }
-  return { headers, rows };
+  return { headers, rows, totalRows, totalColumns };
 }
 
 function formatValue(val: unknown): string {
@@ -97,7 +127,7 @@ function parseCSV(filePath: string): TableData | null {
 
   const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
   if (!result.data || result.data.length === 0) {
-    return { headers: result.meta.fields ?? [], rows: [] };
+    return capRows(result.meta.fields ?? [], []);
   }
 
   const headers = result.meta.fields as string[];
@@ -129,7 +159,7 @@ function parseJSON(filePath: string): TableData | null {
   // Nested object: { key: { col1: val, col2: val }, ... }
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     const entries = Object.entries(data as Record<string, unknown>);
-    if (entries.length === 0) return { headers: [], rows: [] };
+    if (entries.length === 0) return capRows([], []);
 
     const colSet = new Set<string>();
     for (const [, value] of entries) {
@@ -143,7 +173,7 @@ function parseJSON(filePath: string): TableData | null {
       // Flat object: { key: value, ... } → two-column table
       const headers = ['Key', 'Value'];
       const rows = entries.map(([k, v]) => [k, formatValue(v)]);
-      return { headers, rows };
+      return capRows(headers, rows);
     }
 
     // Nested: first column is the outer key, rest are inner object columns
@@ -155,7 +185,7 @@ function parseJSON(filePath: string): TableData | null {
           : {};
       return [key, ...columns.map((col) => formatValue(record[col]))];
     });
-    return { headers, rows };
+    return capRows(headers, rows);
   }
 
   // Unrecognised shape
