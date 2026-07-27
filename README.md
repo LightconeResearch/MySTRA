@@ -243,6 +243,12 @@ preview cards — driven by the stable `astra-*` classes and the resolved data
 store the plugin bakes into every page. Building one? The contract is documented
 in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
 
+For project-wide inventory views, MySTRA also emits a versioned
+`data.astraInventory` snapshot on each root-scoped project page. Snapshot v1
+keeps each record in its declaring scope and routes previewable result images
+through MyST's asset pipeline. Themes consume that resolved payload; they do not
+parse `astra.yaml`.
+
 ## What MyST handles for you
 
 MySTRA writes only the ASTRA→AST bridge and leans on the stock `myst` engine for

@@ -85,6 +85,10 @@ import { resolveOutputs } from './transform/resolve-output.js';
 import { buildResolvedStore, readMetric } from './transform/resolved-store.js';
 import { pageFrames, narrow, type ProvFrame } from './transform/provenance.js';
 import {
+  buildInventorySnapshot,
+  inventoryImageRecords,
+} from './inventory.js';
+import {
   parseAstraPath,
   pathIdentifier,
   splitDisplay,
@@ -1193,6 +1197,34 @@ const storeTransform = {
     carrier.identifier = 'astra-store';
     carrier.data = { astra: store };
     (tree.children ??= []).push(carrier);
+
+    // Root-scoped project pages carry the inventory. This includes a custom
+    // project index that opts into the root with `astra_scope: ""`.
+    if (scope.slugParts.length === 0) {
+      const inventory = buildInventorySnapshot(
+        getSource(scope.root, vfile),
+        scope.root,
+      );
+      const inventoryCarrier: any = hiddenDiv('astra-inventory');
+      inventoryCarrier.identifier = 'astra-inventory';
+      inventoryCarrier.data = { astraInventory: inventory };
+      (tree.children ??= []).push(inventoryCarrier);
+
+      // Route every previewable project output through MyST's asset pipeline.
+      // The rewritten browser URL is joined to the canonical record path by
+      // the theme, just as the page store rejoins its local output assets.
+      const inventoryAssets = inventoryImageRecords(inventory).map((output) => ({
+        type: 'image',
+        url: output.resolved_path,
+        alt: output.label ?? output.id,
+        data: { astraInventoryAsset: output.path },
+      }));
+      if (inventoryAssets.length > 0) {
+        (tree.children ??= []).push(
+          hiddenDiv('astra-inventory-assets', inventoryAssets),
+        );
+      }
+    }
 
     // Route output artifacts through MyST's asset pipeline (a JSON path is
     // opaque to it). One hidden image node per image-typed result, tagged with

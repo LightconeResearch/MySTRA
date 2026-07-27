@@ -12,14 +12,25 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, statSync, utimesSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { VFile } from 'vfile';
 import { mystParse } from 'myst-parser';
 
 import plugin from '../src/index.js';
+import { buildInventorySnapshot } from '../src/inventory.js';
+import { loadASTRASource } from '../src/loader.js';
 import { buildResolvedStore } from '../src/transform/resolved-store.js';
 import { traceProvenance, pageFrames } from '../src/transform/provenance.js';
 
@@ -251,6 +262,13 @@ function runStore(path: string): Record<string, any> {
   const carrier = runStoreTree(path).children.find((n: any) => n.class === 'astra-store');
   if (!carrier) throw new Error('no astra-store carrier emitted');
   return carrier.data.astra;
+}
+function runInventory(path = 'index.md'): Record<string, any> {
+  const carrier = runStoreTree(path).children.find(
+    (n: any) => n.class === 'astra-inventory',
+  );
+  if (!carrier) throw new Error('no astra-inventory carrier emitted');
+  return carrier.data.astraInventory;
 }
 
 // ── Block directive: elements ───────────────────────────────────────────────
@@ -684,6 +702,210 @@ describe('resolved-store transform', () => {
     expect(store.outputs['sub_table']).toBeDefined();
     expect(store.decisions['sub_decision'].selected).toBe('beta'); // narrowed in sub
     expect(store.decisions['inherited_method']).toBeUndefined(); // bare-from, no carrier
+  });
+});
+
+describe('project inventory transform', () => {
+  it('emits one versioned project snapshot on index.md', () => {
+    const snapshot = runInventory();
+    expect(snapshot.version).toBe(1);
+    expect(snapshot.analysis.name).toBe('Test Analysis');
+    expect(snapshot.scopes.map((scope: any) => scope.id)).toEqual(['', 'sub']);
+    expect(snapshot.scopes[0].children).toEqual(['sub']);
+    expect(snapshot.scopes[1].parent).toBe('');
+  });
+
+  it('keeps records in their declaring scope instead of copying inherited insights', () => {
+    const snapshot = runInventory();
+    const root = snapshot.scopes.find((scope: any) => scope.id === '');
+    const sub = snapshot.scopes.find((scope: any) => scope.id === 'sub');
+
+    expect(
+      root.records.find((record: any) => record.path === 'outputs.scatter_plot'),
+    ).toMatchObject({
+      kind: 'output',
+      type: 'figure',
+      resolved_path: 'results/baseline/scatter_plot/scatter_plot.png',
+    });
+    expect(
+      sub.records.find((record: any) => record.path === 'sub.outputs.sub_table'),
+    ).toMatchObject({ kind: 'output', type: 'table' });
+    expect(
+      root.records.filter((record: any) => record.kind === 'prior_insight'),
+    ).toHaveLength(1);
+    expect(
+      sub.records.filter((record: any) => record.kind === 'prior_insight'),
+    ).toHaveLength(0);
+  });
+
+  it('retains fields used to inspect decisions, evidence, and recipes', () => {
+    const snapshot = runInventory();
+    const records = snapshot.scopes[0].records;
+    const decision = records.find((record: any) => record.path === 'decisions.method');
+    const finding = records.find((record: any) => record.path === 'findings.signal_detected');
+    const output = records.find((record: any) => record.path === 'outputs.scatter_plot');
+
+    expect(decision).toMatchObject({
+      selected: 'grid',
+      options: {
+        mcmc: 'MCMC sampling',
+        grid: 'Grid search',
+      },
+      option_insights: { mcmc: ['prior_literature_result'] },
+    });
+    expect(finding.evidence[0]).toMatchObject({
+      artifact: 'scatter_plot',
+      quote: 'A clear peak appears.',
+    });
+    expect(output.recipe).toEqual({
+      command: 'python plot.py {output}',
+      container: 'astro:1',
+    });
+  });
+
+  it('includes aliased decisions even when the narrative store has no carrier', () => {
+    const sub = runInventory().scopes.find((scope: any) => scope.id === 'sub');
+    const decision = sub.records.find(
+      (record: any) => record.path === 'sub.decisions.inherited_method',
+    );
+    expect(decision).toMatchObject({
+      kind: 'decision',
+      from: '../method',
+      options: {},
+    });
+  });
+
+  it('omits selections for unmet conditional and from-only decisions', () => {
+    const source = loadASTRASource(PROJECT_ROOT);
+    source.analysis.decisions = {
+      ...source.analysis.decisions,
+      inactive_choice: {
+        label: 'Inactive choice',
+        default: 'a',
+        options: { a: { label: 'A' } },
+        when: ['method.mcmc'],
+      },
+      from_only_choice: { from: 'method' },
+    };
+    source.universe.decisions = {
+      ...source.universe.decisions,
+      from_only_choice: 'grid',
+    };
+    const records = buildInventorySnapshot(source, PROJECT_ROOT).scopes[0].records;
+    const inactive = records.find((record) => record.id === 'inactive_choice');
+    const fromOnly = records.find((record) => record.id === 'from_only_choice');
+
+    expect(inactive).toMatchObject({ when: ['method.mcmc'] });
+    expect(fromOnly).toMatchObject({ from: 'method' });
+    expect(inactive).not.toHaveProperty('selected');
+    expect(fromOnly).not.toHaveProperty('selected');
+  });
+
+  it('emits canonical inventory asset join keys for root and sub-analysis images', () => {
+    const tree = runStoreTree('index.md');
+    const assets = tree.children.find(
+      (node: any) => node.class === 'astra-inventory-assets',
+    );
+    expect(
+      assets.children.find(
+        (node: any) => node.data?.astraInventoryAsset === 'outputs.scatter_plot',
+      ),
+    ).toMatchObject({
+      type: 'image',
+      url: 'results/baseline/scatter_plot/scatter_plot.png',
+    });
+    expect(
+      assets.children.find(
+        (node: any) => node.data?.astraInventoryAsset === 'sub.outputs.sub_plot',
+      ),
+    ).toMatchObject({
+      type: 'image',
+      url: 'results/baseline/sub_plot/sub_plot.png',
+    });
+  });
+
+  it('does not duplicate the project snapshot on sub-analysis pages', () => {
+    expect(
+      runStoreTree('sub.md').children.find(
+        (node: any) => node.class === 'astra-inventory',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('re-reads result contents on the next MyST rebuild without a source reload', () => {
+    const result = join(
+      PROJECT_ROOT,
+      'results',
+      'baseline',
+      'measurements',
+      'measurements.csv',
+    );
+    const updated = `tracer,value,value_std
+lrg,21.5,0.4
+`;
+    writeFileSync(result, updated);
+    try {
+      const output = runInventory().scopes[0].records.find(
+        (record: any) => record.path === 'outputs.measurements',
+      );
+      expect(output.table_data.rows).toEqual([['lrg', '21.5', '0.4']]);
+    } finally {
+      writeFileSync(result, MEASUREMENTS_CSV);
+    }
+  });
+
+  it('does not read or publish result artifacts outside the project root through symlinks', () => {
+    const outsideName = `${basename(PROJECT_ROOT)}-outside`;
+    const outsideRoot = join(PROJECT_ROOT, '..', outsideName);
+    const linkPath = join(PROJECT_ROOT, 'escaped-link');
+    writeResult(outsideRoot, 'secret', 'secret.csv', 'name,value\nprivate,42\n');
+    symlinkSync(outsideRoot, linkPath, 'dir');
+    try {
+      const source = loadASTRASource(PROJECT_ROOT);
+      source.analysis.analyses = {
+        ...source.analysis.analyses,
+        escape: {
+          id: 'escape',
+          name: 'Escaped analysis',
+          path: 'escaped-link',
+          outputs: [{ id: 'secret', type: 'table' }],
+        },
+      };
+      const snapshot = buildInventorySnapshot(source, PROJECT_ROOT);
+      const output = snapshot.scopes
+        .find((scope) => scope.id === 'escape')
+        ?.records.find((record) => record.path === 'escape.outputs.secret');
+
+      expect(output).toMatchObject({ kind: 'output', id: 'secret' });
+      expect((output as any).resolved_path).toBeUndefined();
+      expect((output as any).table_data).toBeUndefined();
+    } finally {
+      rmSync(linkPath, { force: true });
+      rmSync(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat an output id as a path to another in-project directory', () => {
+    const privateDir = join(PROJECT_ROOT, 'secrets');
+    mkdirSync(privateDir);
+    writeFileSync(join(privateDir, 'secret.csv'), 'name,value\nprivate,42\n');
+    try {
+      const source = loadASTRASource(PROJECT_ROOT);
+      source.analysis.outputs = [
+        ...(source.analysis.outputs ?? []),
+        { id: '../../secrets', type: 'table' },
+      ];
+      const snapshot = buildInventorySnapshot(source, PROJECT_ROOT);
+      const output = snapshot.scopes[0].records.find(
+        (record) => record.id === '../../secrets',
+      );
+
+      expect(output).toMatchObject({ kind: 'output', id: '../../secrets' });
+      expect((output as any).resolved_path).toBeUndefined();
+      expect((output as any).table_data).toBeUndefined();
+    } finally {
+      rmSync(privateDir, { recursive: true, force: true });
+    }
   });
 });
 
