@@ -212,7 +212,7 @@ export function renderOneOutput(
         const tableLabel = output.label ?? artifactId;
         const captionChildren = output.description ? prose.inline(output.description) : [text(tableLabel)];
         return [
-          container('table', [tableNodeFromData(data), caption([paragraph(captionChildren)])], identifier),
+          container('table', [tableNodeFromData(data, prose), caption([paragraph(captionChildren)])], identifier),
         ];
       }
       const fallback: any = paragraph([text('Table: '), inlineCode(artifactId)]);
@@ -225,11 +225,11 @@ export function renderOneOutput(
       // "label: value ± uncertainty unit" sentence), so a rich theme that
       // overrides the carrier renders its big-stat from `store.metric` and
       // replaces the fallback wholesale — the #11 pattern.
-      return [carrierDiv(metricFallback(output, artifactId, resultPath, opts?.vfile), identifier)];
+      return [carrierDiv(metricFallback(output, artifactId, resultPath, prose, opts?.vfile), identifier)];
     default: {
       // data / report: render inline, then tag the first node with
       // the `output-<id>` carrier so cross-references resolve to it.
-      const nodes = renderInlineArtifact(output, artifactId, resultPath, undefined, opts?.vfile);
+      const nodes = renderInlineArtifact(output, artifactId, resultPath, prose, undefined, opts?.vfile);
       if (nodes.length > 0 && !nodes[0].identifier) {
         nodes[0].identifier = identifier;
         nodes[0].label = identifier;
@@ -250,6 +250,7 @@ function metricFallback(
   output: Output,
   artifactId: string,
   resultPath: string,
+  prose: ProseParser,
   vfile?: any,
 ): any[] {
   const metric = readMetric(resultPath);
@@ -266,7 +267,7 @@ function metricFallback(
     if (unit) parts.push(text(` ${unit}`));
     return [paragraph(parts)];
   }
-  return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, vfile);
+  return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, prose, vfile);
 }
 
 function renderArtifactEvidence(
@@ -311,12 +312,12 @@ function renderArtifactEvidence(
       );
       break;
     case 'table':
-      nodes.push(...renderTableArtifact(output, artifactId, resultPath, opts?.vfile));
+      nodes.push(...renderTableArtifact(output, artifactId, resultPath, prose, opts?.vfile));
       break;
     case 'metric':
     case 'data':
     case 'report':
-      nodes.push(...renderInlineArtifact(output, artifactId, resultPath, evidence, opts?.vfile));
+      nodes.push(...renderInlineArtifact(output, artifactId, resultPath, prose, evidence, opts?.vfile));
       break;
   }
 
@@ -327,11 +328,12 @@ function renderTableArtifact(
   output: Output,
   artifactId: string,
   resultPath: string,
+  prose: ProseParser,
   vfile?: any,
 ): any[] {
   const tableLabel = output.label ?? artifactId;
   const ext = fileExt(resultPath);
-  if (ext === 'json' || ext === 'csv') return renderTabularFile(resultPath, artifactId, tableLabel, vfile);
+  if (ext === 'json' || ext === 'csv') return renderTabularFile(resultPath, artifactId, tableLabel, prose, vfile);
   // Output declared as a table but the produced artifact isn't
   // a known tabular extension — fall back to a labelled reference.
   return [paragraph([text('Table: '), inlineCode(artifactId)])];
@@ -341,6 +343,7 @@ function renderInlineArtifact(
   output: Output,
   artifactId: string,
   resultPath: string,
+  prose: ProseParser,
   evidence?: Evidence,
   vfile?: any,
 ): any[] {
@@ -349,7 +352,7 @@ function renderInlineArtifact(
   // (when present) the author's quote as a blockquote.
   const ext = fileExt(resultPath);
   if (ext === 'json' || ext === 'csv') {
-    return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, vfile);
+    return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, prose, vfile);
   }
 
   const nodes: any[] = [];
@@ -378,6 +381,7 @@ function renderTabularFile(
   filePath: string,
   artifactId: string,
   tableLabel: string,
+  prose: ProseParser,
   vfile?: any,
 ): any[] {
   const data = parseTableData(filePath);
@@ -394,7 +398,7 @@ function renderTabularFile(
   if (data.headers.length === 0 || data.rows.length === 0) {
     return [paragraph([text(`Empty table: ${artifactId}`)])];
   }
-  return [details([summary([text(tableLabel)]), tableNodeFromData(data)], false)];
+  return [details([summary([text(tableLabel)]), tableNodeFromData(data, prose)], false)];
 }
 
 /**
@@ -402,18 +406,30 @@ function renderTabularFile(
  * tables (parseTableData sets `headers[0] === ''`) render the outer key in
  * the first column as bold. No wrapper — callers decide whether to place it
  * in a `details`, a `container[table]`, etc.
+ *
+ * Each cell is parsed as inline MyST (`prose.inline`), the same engine every
+ * other authored field in MySTRA goes through (captions, descriptions) — so
+ * `$\chi^2$`-style LaTeX, emphasis, links, etc. in a CSV/JSON artifact render
+ * the same way they would in MyST's own `csv-table` / `list-table`, instead
+ * of printing as literal text.
  */
-export function tableNodeFromData(data: TableData): any {
+export function tableNodeFromData(data: TableData, prose: ProseParser): any {
   const isNestedObject = data.headers[0] === '';
   const displayHeaders = isNestedObject ? ['', ...data.headers.slice(1)] : data.headers;
+  const cellChildren = (raw: string): any[] => {
+    const parsed = prose.inline(raw);
+    return parsed.length > 0 ? parsed : [text('')];
+  };
   const headerRow = tableRow(
-    displayHeaders.map((c) => tableCell([text(c)], true)),
+    displayHeaders.map((c) => tableCell(cellChildren(c), true)),
     true,
   );
   const rows = data.rows.map((row) =>
     tableRow(
       row.map((cell, i) =>
-        isNestedObject && i === 0 ? tableCell([strong([text(cell)])]) : tableCell([text(cell)]),
+        isNestedObject && i === 0
+          ? tableCell([strong(cellChildren(cell))])
+          : tableCell(cellChildren(cell)),
       ),
     ),
   );
