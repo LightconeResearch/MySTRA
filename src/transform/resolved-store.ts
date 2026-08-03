@@ -5,7 +5,7 @@
  * read it (it only sees the build output). So the plugin bakes a *resolved*
  * projection of the analysis into the build — keyed by id — and a rich theme
  * (e.g. `lightcone-astra`) joins `node identifier → store entry` to render
- * cards, dependency graphs, or alternative layouts without re-implementing any
+ * cards or alternative publication layouts without re-implementing any
  * ASTRA semantics. Placed blocks join by `identifier` (`output-<id>`, …); inline
  * references join by `data.astra` (`{kind,id}` → the matching table below) — the
  * same key→table join MyST uses for citations. See STRATEGY-A-REFACTOR.md §5.

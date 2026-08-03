@@ -665,7 +665,17 @@ describe('resolved-store transform', () => {
 
   it('the store carrier is invisible on book-theme', () => {
     const tree = runStoreTree('index.md');
-    expect(tree.children.find((n: any) => n.class === 'astra-store')?.style).toEqual({ display: 'none' });
+    const carrier = tree.children.find((n: any) => n.class === 'astra-store');
+    expect(carrier?.style).toEqual({ display: 'none' });
+    expect(carrier?.identifier).toBe('astra-store-index');
+  });
+
+  it('gives each page store a project-unique identifier', () => {
+    const root = runStoreTree('index.md').children.find((n: any) => n.class === 'astra-store');
+    const sub = runStoreTree('sub.md').children.find((n: any) => n.class === 'astra-store');
+    expect(root?.identifier).toBe('astra-store-index');
+    expect(sub?.identifier).toBe('astra-store-sub');
+    expect(root?.identifier).not.toBe(sub?.identifier);
   });
 
   it('emits a hidden astra-cites carrier with narrative + parenthetical cites per DOI', () => {

@@ -30,6 +30,11 @@ time and emits standard MyST AST. It runs on the **stock `myst` CLI and themes**
 — no custom server, no copy-pasted numbers, no figures that drift out of sync
 with the analysis.
 
+MySTRA is intentionally a **publication adapter**, not a project viewer. It
+does not emit a whole-project inventory, graph application, or host-specific UI.
+Interactive exploration belongs to `astra-viewer`; MySTRA keeps the narrower
+ASTRA→MyST boundary so reports remain normal, portable MyST documents.
+
 ```markdown
 We adopt the {astra}`decisions.algorithm.multigrid` and measure
 $\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
@@ -59,10 +64,11 @@ and rerun the analysis; the report updates itself.
 
 ## Why
 
-ASTRA already holds the *truth* of an analysis — every decision, the inputs and
-outputs of each step, the findings, and the materialised result products. A
-write-up usually re-types all of that into prose, where it immediately starts to
-rot: a number gets stale, a figure is from an old run, a stated assumption no
+An `astra.yaml` captures a structured *record* of an analysis — its decisions,
+step inputs and outputs, findings, and references to materialised result
+products. A write-up usually re-types all of that into prose, where it
+immediately starts to rot: a number gets stale, a figure is from an old run, a
+stated assumption no
 longer matches the spec.
 
 MySTRA removes the duplication. The report references the analysis instead of
