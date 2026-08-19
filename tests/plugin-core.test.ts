@@ -31,7 +31,6 @@ import { traceProvenance, pageFrames } from '../src/transform/provenance.js';
 // the root via `from: ../method`. ASTRA no longer carries a `narrative` section.
 const ASTRA_YAML = `version: "1.0"
 name: Test Analysis
-authors: [Tester]
 decisions:
   method:
     label: "Fit method"
@@ -253,6 +252,13 @@ function runStore(path: string): Record<string, any> {
   return carrier.data.astra;
 }
 
+async function runPublicationTree(path: string): Promise<Node> {
+  const t = plugin.transforms.find((x: any) => x.name === 'astra-publication-bundle');
+  const tree: Node = { type: 'root', children: [] };
+  await (t as any).plugin()(tree, new VFile({ path }));
+  return tree;
+}
+
 // ── Block directive: elements ───────────────────────────────────────────────
 
 describe('directive — elements', () => {
@@ -460,7 +466,12 @@ describe('role {astra}', () => {
     const [token] = runRole('astra', 'decisions.method');
     expect(hasClass(token, 'astra-ref')).toBe(true);
     expect(hasClass(token, 'astra-ref--decision')).toBe(true);
-    expect(token.data?.astra).toEqual({ kind: 'decision', id: 'method', path: 'method' });
+    expect(token.data?.astra).toEqual({
+      kind: 'decision',
+      id: 'method',
+      path: 'method',
+      canonicalPath: 'decisions.method',
+    });
   });
 
   it('an output ref carries the output subtype modifier class', () => {
@@ -694,6 +705,59 @@ describe('resolved-store transform', () => {
     expect(store.outputs['sub_table']).toBeDefined();
     expect(store.decisions['sub_decision'].selected).toBe('beta'); // narrowed in sub
     expect(store.decisions['inherited_method']).toBeUndefined(); // bare-from, no carrier
+  });
+});
+
+describe('project-view-model publication transform', () => {
+  it('emits the canonical model and active scope on every ASTRA page', async () => {
+    const root = await runPublicationTree('index.md');
+    const rootCarrier = root.children.find((n: any) => n.class === 'astra-publication-bundle');
+    expect(rootCarrier?.data?.astraPublication).toMatchObject({
+      schemaVersion: 'astra-publication-bundle.v1',
+      activeScopeId: 'root',
+      model: { schemaVersion: 'project-view-model.v1' },
+    });
+    expect(rootCarrier.data.astraPublication.model.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ canonicalPath: 'outputs.scatter_plot' }),
+        expect.objectContaining({ canonicalPath: 'sub.outputs.sub_plot' }),
+      ]),
+    );
+
+    const sub = await runPublicationTree('sub.md');
+    expect(
+      sub.children.find((n: any) => n.class === 'astra-publication-bundle')
+        ?.data?.astraPublication?.activeScopeId,
+    ).toBe('sub');
+  });
+
+  it('routes every materialized artifact through MyST static links', async () => {
+    const tree = await runPublicationTree('index.md');
+    const resources = tree.children.find((n: any) => n.class === 'astra-publication-resources');
+    expect(resources?.style).toEqual({ display: 'none' });
+    expect(resources.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'link',
+          url: 'results/baseline/measurements/measurements.csv',
+          static: true,
+          data: {
+            astraResource: expect.objectContaining({
+              recordPath: 'outputs.measurements',
+              mediaType: 'text/csv',
+            }),
+          },
+        }),
+        expect.objectContaining({
+          type: 'link',
+          url: 'results/baseline/scatter_plot/scatter_plot.png',
+          static: true,
+          data: {
+            astraResource: expect.objectContaining({ mediaType: 'image/png' }),
+          },
+        }),
+      ]),
+    );
   });
 });
 

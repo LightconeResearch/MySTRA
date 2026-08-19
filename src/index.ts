@@ -86,12 +86,17 @@ import { buildResolvedStore, readMetric } from './transform/resolved-store.js';
 import { pageFrames, narrow, type ProvFrame } from './transform/provenance.js';
 import {
   parseAstraPath,
+  canonicalRecordPath,
   pathIdentifier,
   splitDisplay,
   dottedKey,
   type AstraPath,
   type Collection,
 } from './path.js';
+import {
+  buildPublicationCarriers,
+  ASTRA_PUBLICATION_SCHEMA_VERSION,
+} from './transform/publication-bundle.js';
 
 // ── Project loading + cache ─────────────────────────────────────────────
 
@@ -720,7 +725,7 @@ const astraRole = {
     try {
       const scope = resolveScope(projectRoot(), p.scope, vfile);
       const r = resolveInlineRef(p, scope, display);
-      return [refNode(r.kind, r.id, r.path, r.label, r.subtype)];
+      return [refNode(r.kind, r.id, r.path, r.label, r.subtype, canonicalRecordPath(p))];
     } catch (err) {
       reportWarn(vfile, `astra "${path}": ${(err as Error).message} — rendering a plain label`, data?.node);
       const id = p.id ?? path;
@@ -728,7 +733,7 @@ const astraRole = {
       // `unresolved` tells the store transform not to attempt a cross-scope
       // merge for a reference that already failed to resolve.
       const key = p.id ? dottedKey(p.scope, p.id) : path;
-      const node = refNode('output', id, key, display ?? humanize(id));
+      const node = refNode('output', id, key, display ?? humanize(id), undefined, canonicalRecordPath(p));
       node.data.astra.unresolved = true;
       return [node];
     }
@@ -788,7 +793,7 @@ function citeRole(name: string, kind: 'parenthetical' | 'narrative') {
         if (dois.length === 0) {
           // No DOI to cite — fall back to a plain reference token.
           const r = resolveInlineRef(p, scope, display);
-          return [refNode(r.kind, r.id, r.path, r.label)];
+          return [refNode(r.kind, r.id, r.path, r.label, undefined, canonicalRecordPath(p))];
         }
         const cites = dois.map((d) => cite(d, [], kind));
         return cites.length === 1 ? cites : [citeGroup(cites, kind)];
@@ -891,7 +896,7 @@ const valueRole = {
         if (!dec) return fail(`no decision "${id}"`);
         const optId = selectedOptionId(id, dec, scope.universe);
         const label = (optId && dec.options?.[optId]?.label) || optId || '(none)';
-        const node = refNode('value', id, dottedKey(p.scope, id), label, 'decision');
+        const node = refNode('value', id, dottedKey(p.scope, id), label, 'decision', canonicalRecordPath(p));
         Object.assign(node.data.astra, { selection: optId });
         return [node];
       }
@@ -916,7 +921,7 @@ const valueRole = {
           let out = fmtNum(String(metric.value), sig);
           const unc = metric.uncertainty ?? metric.error;
           if (options.pm && unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
-          const node = refNode('value', id, dottedKey(p.scope, id), out, 'metric');
+          const node = refNode('value', id, dottedKey(p.scope, id), out, 'metric', canonicalRecordPath(p));
           Object.assign(node.data.astra, { type: 'metric', product: output.label });
           return [node];
         }
@@ -950,7 +955,7 @@ const valueRole = {
       }
       const subtype = output?.type ?? 'table';
       const filterDesc = filters.map(([k, v]) => `${k}=${v}`).join(', ');
-      const node = refNode('value', id, dottedKey(p.scope, id), out, subtype);
+      const node = refNode('value', id, dottedKey(p.scope, id), out, subtype, canonicalRecordPath(p));
       Object.assign(node.data.astra, { col, filter: filterDesc, type: subtype, product: output?.label });
       return [node];
     } catch (err) {
@@ -1224,6 +1229,30 @@ const storeTransform = {
   },
 };
 
+const publicationTransform = {
+  name: 'astra-publication-bundle',
+  doc: 'Emit project-view-model.v1 plus static resource bindings for portable viewers.',
+  stage: 'document',
+  plugin: () => async (tree: any, vfile: any) => {
+    const scope = scopeForFile(vfile);
+    if (!scope) return;
+    try {
+      const activeScopeId = scope.slugParts.length ? scope.slugParts.join('.') : 'root';
+      const carriers = await buildPublicationCarriers(
+        projectRoot(),
+        activeScopeId,
+        scope.slug,
+      );
+      (tree.children ??= []).push(...carriers);
+    } catch (err) {
+      reportError(
+        vfile,
+        `cannot build ${ASTRA_PUBLICATION_SCHEMA_VERSION}: ${(err as Error).message}`,
+      );
+    }
+  },
+};
+
 // ── Plugin export ─────────────────────────────────────────────────────────
 
 const plugin = {
@@ -1236,7 +1265,7 @@ const plugin = {
     citeRole('astra:cite:t', 'narrative'),
     valueRole,
   ],
-  transforms: [storeTransform],
+  transforms: [storeTransform, publicationTransform],
 };
 
 export default plugin;
@@ -1244,8 +1273,16 @@ export default plugin;
 // ── Library exports (for programmatic use) ──────────────────────────────────
 export { loadASTRASource } from './loader.js';
 export type { ASTRASource } from './loader.js';
-export { parseAstraPath } from './path.js';
+export { parseAstraPath, canonicalRecordPath } from './path.js';
 export type { AstraPath, Collection } from './path.js';
+export {
+  ASTRA_PUBLICATION_SCHEMA_VERSION,
+  buildPublicationCarriers,
+} from './transform/publication-bundle.js';
+export type {
+  AstraPublicationBundleV1,
+  AstraPublicationResourceV1,
+} from './transform/publication-bundle.js';
 export { buildResolvedStore } from './transform/resolved-store.js';
 export type {
   ResolvedStore,
