@@ -88,6 +88,27 @@ export interface AstraPath {
 }
 
 /**
+ * Canonical record path used by `project-view-model.v1`.
+ *
+ * Root records begin at their collection (`outputs.figure`); records in a
+ * child analysis include the analysis path (`reconstruction.outputs.xi`).
+ * Analysis and universe paths are navigation/configuration targets rather
+ * than records in the canonical model, so they intentionally return null.
+ * Child option/evidence references resolve to their owning record.
+ */
+export function canonicalRecordPath(path: AstraPath): string | null {
+  if (
+    !path.collection ||
+    !path.id ||
+    path.collection === 'analyses' ||
+    path.collection === 'universes'
+  ) {
+    return null;
+  }
+  return [...path.scope, path.collection, path.id].join('.');
+}
+
+/**
  * Split a role/directive body into its display-text override and the path,
  * following MyST's `text <target>` convention (as used by `{ref}`):
  *

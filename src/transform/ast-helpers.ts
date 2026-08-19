@@ -222,10 +222,24 @@ function span(cls: string, children: any[]) {
  * maps to a store table: decision→decisions, output→outputs, finding→findings,
  * prior_insight→prior_insights, analysis→subanalyses (`value` is self-describing).
  */
-export function refNode(kind: string, id: string, path: string, label: string, subtype?: string) {
+export function refNode(
+  kind: string,
+  id: string,
+  path: string,
+  label: string,
+  subtype?: string,
+  canonicalPath?: string | null,
+) {
   const mods = subtype ? [kind, subtype] : [kind];
   const cls = ['astra-ref', ...mods.map((k) => `astra-ref--${k}`)].join(' ');
   const node: any = span(cls, [text(label)]);
-  node.data = { astra: { kind, id, path } };
+  node.data = {
+    astra: {
+      kind,
+      id,
+      path,
+      ...(canonicalPath ? { canonicalPath } : {}),
+    },
+  };
   return node;
 }
