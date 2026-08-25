@@ -83,7 +83,13 @@ import { renderInputsTable, renderOutputsTable } from './transform/render-data-s
 import { parseTableData } from './transform/parse-table-data.js';
 import { resolveOutputs } from './transform/resolve-output.js';
 import { buildResolvedStore, readMetric } from './transform/resolved-store.js';
-import { pageFrames, narrow, type ProvFrame } from './transform/provenance.js';
+import {
+  pageFrames,
+  narrow,
+  resolveDecisionRef,
+  type ProvFrame,
+  type UniverseLike,
+} from './transform/provenance.js';
 import {
   parseAstraPath,
   pathIdentifier,
@@ -674,28 +680,19 @@ type RefKind =
   | 'universe';
 
 /**
- * Follow a decision's `from: ../…` chain up the ancestor stack to the scope
- * that actually declares its options — a decision alias is a pure pointer with
- * no local `options`, so a reference to one of them resolves nowhere without
- * this. Each leading `../` is exactly one level up (matching `traceProvenance`,
- * which does the same climb over its parent-linked frames). Returns the
- * innermost decision the walk reached, whether or not it carries options.
+ * A decision as the page should read it: the `from: ../…` chain followed to
+ * the scope that declares it, so label, options, and the universe's selection
+ * all come from where they actually live. `local` is the pointer as declared
+ * here — the fallback when the chain leads nowhere we can see.
  */
-function resolveDecisionAlias(id: string, scope: Scope): Decision | undefined {
-  let decision = scope.analysis.decisions?.[id];
-  // `ancestors` is outermost-first, so each climb pops the innermost parent.
-  const stack = [...scope.ancestors];
-  while (decision?.from?.startsWith('../') && stack.length) {
-    let rel = decision.from;
-    let at: Analysis | undefined;
-    while (rel.startsWith('../') && stack.length) {
-      rel = rel.slice(3);
-      at = stack.pop();
-    }
-    if (!at) break;
-    decision = at.decisions?.[rel];
-  }
-  return decision;
+function lookupDecision(
+  id: string,
+  scope: Scope,
+): { local?: Decision; resolved?: Decision; universe: UniverseLike; declaredId: string } {
+  const local = scope.analysis.decisions?.[id];
+  if (!local?.from) return { local, resolved: local, universe: scope.universe, declaredId: id };
+  const ref = resolveDecisionRef(id, pageProvFrame(scope));
+  return { local, resolved: ref.decision, universe: ref.frame.universe, declaredId: ref.id };
 }
 
 /**
@@ -719,13 +716,13 @@ function resolveInlineRef(
     const ownerId = p.id!;
     const childPath = dottedKey(p.scope, `${ownerId}.${p.child.id}`);
     if (p.child.collection === 'options') {
-      const decision = resolveDecisionAlias(ownerId, scope);
-      if (!decision) throw new Error(`no decision "${ownerId}" in this scope`);
-      const opt = decision.options?.[p.child.id];
+      const { local, resolved } = lookupDecision(ownerId, scope);
+      if (!local) throw new Error(`no decision "${ownerId}" in this scope`);
+      const opt = resolved?.options?.[p.child.id];
       // A decision the alias walk could not land on declares no options of its
       // own, so absence proves nothing — stay lenient rather than report an
       // option that may well exist in a scope we cannot see from here.
-      if (!opt && decision.options) {
+      if (!opt && resolved?.options) {
         throw new Error(`no option "${p.child.id}" on decision "${ownerId}"`);
       }
       return {
@@ -752,9 +749,16 @@ function resolveInlineRef(
   const path = dottedKey(p.scope, id);
   switch (p.collection) {
     case 'decisions': {
-      const decision = scope.analysis.decisions?.[id];
-      if (!decision) throw new Error(`no decision "${id}" in this scope`);
-      return { kind: 'decision', id, path, label: display ?? decision.label ?? humanize(id) };
+      // A re-export carries no label of its own, so read the one from the scope
+      // it points at rather than humanizing the local alias id.
+      const { local, resolved } = lookupDecision(id, scope);
+      if (!local) throw new Error(`no decision "${id}" in this scope`);
+      return {
+        kind: 'decision',
+        id,
+        path,
+        label: display ?? resolved?.label ?? local.label ?? humanize(id),
+      };
     }
     case 'findings': {
       const finding = scope.analysis.findings?.[id];
@@ -976,10 +980,14 @@ const valueRole = {
 
       // A decision's value is the option selected under the active universe.
       if (p.collection === 'decisions') {
-        const dec = scope.analysis.decisions?.[id];
-        if (!dec) return fail(`no decision "${id}"`);
-        const optId = selectedOptionId(id, dec, scope.universe);
-        const label = (optId && dec.options?.[optId]?.label) || optId || '(none)';
+        // Follow a re-export to its source: a pointer has neither `options` nor
+        // a `default`, and the universe records the selection under the id of
+        // the scope that declares it — so reading the alias locally renders
+        // "(none)" for a decision the universe has in fact made.
+        const { local, resolved, universe, declaredId } = lookupDecision(id, scope);
+        if (!local) return fail(`no decision "${id}"`);
+        const optId = selectedOptionId(declaredId, resolved, universe);
+        const label = (optId && resolved?.options?.[optId]?.label) || optId || '(none)';
         const node = refNode('value', id, dottedKey(p.scope, id), label, 'decision');
         Object.assign(node.data.astra, { selection: optId });
         return [node];

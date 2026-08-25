@@ -550,6 +550,16 @@ describe('role {astra}', () => {
     expect(vf.messages.some((m) => String(m.message).includes('no_such_option'))).toBe(true);
   });
 
+  it('reads a re-exported decision label from the scope that declares it', () => {
+    // `sub.inherited_method` is `from: ../method` — a pure pointer with no label
+    // of its own, which used to humanize to "inherited method".
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra', 'sub.decisions.inherited_method', undefined, vf);
+    expect(textOf([token])).toBe('Fit method');
+    expect(token.data?.astra).toMatchObject({ kind: 'decision', id: 'inherited_method' });
+    expect(vf.messages).toEqual([]);
+  });
+
   it('keeps humanize() for an element that exists but declares no label', () => {
     const vf = new VFile({ path: 'index.md' });
     // `sub_raw` is a real input of the sub-analysis, aliased and unlabelled.
@@ -685,6 +695,16 @@ describe('role {astra:value}', () => {
     const vf = new VFile({ path: 'index.md' });
     runRole('astra:value', 'outputs.measurements', { col: 'nope' }, vf);
     expect(vf.messages.some((m) => String(m.message).includes('measurements.csv'))).toBe(true);
+  });
+
+  it('follows a re-exported decision to the selection its source scope records', () => {
+    // A pointer has no `options` and no `default`, and the universe records the
+    // selection under the *declaring* id — so reading the alias locally used to
+    // render "(none)" for a decision the universe has in fact made.
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra:value', 'sub.decisions.inherited_method', undefined, vf);
+    expect(textOf([token])).toBe('Grid search');
+    expect(vf.messages).toEqual([]);
   });
 
   // The ambiguity depends on the results tree, which the spec-mtime cache does

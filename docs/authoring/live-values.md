@@ -56,6 +56,8 @@ All results use the {astra:value}`decisions.algorithm` reconstruction.
 
 This is subtly different from `` {astra}`decisions.algorithm` ``: the plain role names the *decision* ("Reconstruction algorithm"), while the value role names the *selection* ("MultiGrid"). Use the value form whenever the prose depends on which option is active — it changes automatically when the universe does.
 
+A decision a sub-analysis re-exports (`from: ../algorithm`) resolves to the scope that declares it, so both roles read the same label and the same selection whether the page names the alias or the original.
+
 ## Errors
 
 A value that cannot be resolved — missing result file, unknown column, no matching row, a non-tabular product — renders as a small inline code token describing the problem (e.g. ``⟨value: no column "alpha2" in "bao_table"⟩``). The page still builds; the broken value is impossible to miss.

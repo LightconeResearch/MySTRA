@@ -91,6 +91,47 @@ export function narrow(universe: UniverseLike, seg: string): UniverseLike {
   return { decisions: sub?.decisions ?? {}, analyses: sub?.analyses };
 }
 
+/** Where a decision reference landed: its declaring id, decision, and scope. */
+export interface ResolvedDecisionRef {
+  /** The id in the declaring scope — a re-export's `from:` target, if it had one. */
+  id: string;
+  /** Undefined when the id is absent, or an alias chain led nowhere. */
+  decision?: Decision;
+  /** The frame that declares it, whose universe supplies the selection. */
+  frame: ProvFrame;
+}
+
+/**
+ * Follow a decision's `from: ../…` chain up to the scope that declares it.
+ *
+ * A re-exported decision is a pure pointer with no local `options` (see
+ * `isDecisionRendered`), so every surface that wants its label, its options, or
+ * the universe's selection has to climb first. Each leading `../` is exactly
+ * one level up, so they are stripped one at a time and climbed per `../` — a
+ * single greedy strip would collapse `../../x` to one climb and resolve it in
+ * the wrong scope. A chained alias on the resolved decision is followed by the
+ * outer loop.
+ *
+ * When the walk cannot land — a dangling `from:`, or a climb past the root —
+ * `decision` is undefined and `frame` is wherever it stopped. Callers treat
+ * that as "unknown", never as "absent": `validateAnalysis` owns reporting a
+ * broken `from:`, and the target may simply be out of view from here.
+ */
+export function resolveDecisionRef(id: string, frame: ProvFrame): ResolvedDecisionRef {
+  let decision: Decision | undefined = frame.analysis.decisions?.[id];
+  let at = frame;
+  while (decision?.from?.startsWith('../') && at.parent) {
+    let rel = decision.from;
+    while (rel.startsWith('../') && at.parent) {
+      rel = rel.slice(3);
+      at = at.parent;
+    }
+    id = rel;
+    decision = at.analysis.decisions?.[id];
+  }
+  return { id, decision, frame: at };
+}
+
 /** Trace one output (declared in `page`'s scope) to its roots. */
 export function traceProvenance(output: Output, page: ProvFrame): TracedProvenance {
   const decisions = new Map<string, SerializedProvenanceDecision>();
@@ -98,23 +139,8 @@ export function traceProvenance(output: Output, page: ProvFrame): TracedProvenan
   const seen = new Set<string>();
   const pageWhere = page.where.join('.');
 
-  const addDecision = (id: string, frame: ProvFrame) => {
-    // `from: ../x` decision aliases live in an ancestor scope — climb. Each
-    // leading `../` is exactly one level up, so strip them one at a time and
-    // climb per `../` (a single greedy strip would collapse `../../x` to one
-    // climb and resolve it in the wrong scope). A chained alias on the resolved
-    // decision is followed by the outer loop.
-    let dec: Decision | undefined = frame.analysis.decisions?.[id];
-    let at = frame;
-    while (dec?.from?.startsWith('../') && at.parent) {
-      let rel = dec.from;
-      while (rel.startsWith('../') && at.parent) {
-        rel = rel.slice(3);
-        at = at.parent;
-      }
-      id = rel;
-      dec = at.analysis.decisions?.[id];
-    }
+  const addDecision = (localId: string, frame: ProvFrame) => {
+    const { id, decision: dec, frame: at } = resolveDecisionRef(localId, frame);
     const selectedId = selectedOptionId(id, dec, at.universe);
     const selection =
       (selectedId != null ? dec?.options?.[selectedId]?.label : undefined) ?? selectedId;

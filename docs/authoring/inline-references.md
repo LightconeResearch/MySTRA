@@ -71,3 +71,5 @@ Every unresolved path is **reported** on the build's diagnostics channel, with t
 This matters because the fallback label is derived from the id (`does_not_exist` → "does not exist"), which can read as ordinary English. Renaming an element in `astra.yaml` breaks every reference to it; the diagnostic is what stops the broken references from reaching a reader as fluent prose.
 
 An element that *exists* but declares no `label:` is not an error — its humanized id is the intended label. Universe ids are also not checked: the active universe is one file among however many the project ships.
+
+A decision re-exported into a sub-analysis (`from: ../algorithm`) is a pure pointer that declares neither a label nor options. Both `` {astra}`sub.decisions.alias` `` and `` {astra}`sub.decisions.alias.option` `` follow the pointer to the scope that declares it, so they read the source's labels rather than the alias id.
