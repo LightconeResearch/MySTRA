@@ -40,7 +40,9 @@ The output is a *directory*, so a recipe is free to write a log, a preview, or a
 1. `<output-id>.<format>`, where `format` is the output's declared [`format:`](https://astra-spec.org/latest/specification/) (`csv`, `png`, `parquet`, …)
 2. any file carrying the declared extension — for a recipe that names its own artifact, and for dotted formats like `tar.gz`
 3. `<output-id>.<anything>` — the convention above
-4. the first file alphabetically, **with a warning**, because at that point nothing in the project says which file is the artifact
+4. the first file alphabetically
+
+Whenever the winning file was picked by **sort order rather than by its name**, MySTRA warns and names the file it read. That covers all four ways to get here: no `format:` and no `<output-id>.*` file; a `format:` that matches nothing in the directory; several files carrying the declared extension; and a declared format that points at one file while `<output-id>.*` names another.
 
 Declaring `format:` on every output is therefore the way to make the choice explicit. It is recommended in ASTRA 0.0.x — MySTRA reports the outputs missing one as a build warning — and required from ASTRA 0.1.0. A re-export (`from:`) inherits its source's format and must not declare one.
 

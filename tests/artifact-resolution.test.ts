@@ -44,11 +44,40 @@ describe('resolveArtifact', () => {
     expect(basename(chosen!)).toBe('constraints.csv');
   });
 
-  it('falls back to any file carrying the declared extension', () => {
-    // The recipe named the artifact itself; the format still identifies it.
+  it('falls back to the one file carrying the declared extension, silently', () => {
+    // The recipe named the artifact itself; the lone `.csv` still identifies it,
+    // so there is nothing to nudge the author about.
     const root = makeResults('constraints', ['run.log', 'values.csv']);
-    const chosen = resolveArtifact(root, 'baseline', 'constraints', { format: 'csv' });
+    const vf = new VFile({ path: 'index.md' });
+    const chosen = resolveArtifact(root, 'baseline', 'constraints', { format: 'csv', vfile: vf });
     expect(basename(chosen!)).toBe('values.csv');
+    expect(vf.messages).toEqual([]);
+  });
+
+  it('warns when several files carry the declared extension', () => {
+    // The format narrowed the field but did not identify the artifact — sort
+    // order decided, which is the thing `format:` was meant to stop.
+    const root = makeResults('sky_map', ['map_north.png', 'map_south.png']);
+    const vf = new VFile({ path: 'index.md' });
+    const chosen = resolveArtifact(root, 'baseline', 'sky_map', { format: 'png', vfile: vf });
+
+    expect(basename(chosen!)).toBe('map_north.png');
+    const message = String(vf.messages[0]?.message ?? '');
+    expect(message).toContain('2 of its 2 result files');
+    expect(message).toContain('sky_map.png');
+  });
+
+  it('warns when the declared format and the output-id file disagree', () => {
+    // A stale `format:` silently redirects every value on the page from the
+    // file named for the output to a side table sitting beside it.
+    const root = makeResults('constraints', ['constraints.json', 'values.csv']);
+    const vf = new VFile({ path: 'index.md' });
+    const chosen = resolveArtifact(root, 'baseline', 'constraints', { format: 'csv', vfile: vf });
+
+    expect(basename(chosen!)).toBe('values.csv');
+    const message = String(vf.messages[0]?.message ?? '');
+    expect(message).toContain('values.csv');
+    expect(message).toContain('constraints.json');
   });
 
   it('matches a dotted format the single-extension strip cannot see', () => {

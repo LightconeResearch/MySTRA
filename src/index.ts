@@ -234,15 +234,21 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
   const outputsById = new Map(
     resolveOutputs(analysis).map(({ resolved }) => [resolved.id, resolved] as const),
   );
-  // Lives with the memoized core, so a directory whose artifact had to be
-  // guessed is reported once per build rather than once per reference.
-  const warned = new Set<string>();
-  const makeResults = (vf?: any): ArtifactResolver => (id) =>
-    resolveArtifact(resultsBase, universeId, id, {
+  // Ambiguity depends on the *results* tree, which is outside this cache's
+  // invalidation (mtimes of astra.yaml and the universe file). Deduping per
+  // vfile — a fresh object per page per render — keeps a page from repeating
+  // the nudge for every reference, while still re-reporting on each rebuild,
+  // so a stray file dropped into a results directory is not missed forever.
+  const warnedByFile = new WeakMap<object, Set<string>>();
+  const makeResults = (vf?: any): ArtifactResolver => (id) => {
+    let warned = vf ? warnedByFile.get(vf) : undefined;
+    if (vf && !warned) warnedByFile.set(vf, (warned = new Set<string>()));
+    return resolveArtifact(resultsBase, universeId, id, {
       format: outputsById.get(id)?.format,
       vfile: vf,
       warned,
     });
+  };
 
   const core: ScopeCore = {
     root,
@@ -668,6 +674,31 @@ type RefKind =
   | 'universe';
 
 /**
+ * Follow a decision's `from: ../…` chain up the ancestor stack to the scope
+ * that actually declares its options — a decision alias is a pure pointer with
+ * no local `options`, so a reference to one of them resolves nowhere without
+ * this. Each leading `../` is exactly one level up (matching `traceProvenance`,
+ * which does the same climb over its parent-linked frames). Returns the
+ * innermost decision the walk reached, whether or not it carries options.
+ */
+function resolveDecisionAlias(id: string, scope: Scope): Decision | undefined {
+  let decision = scope.analysis.decisions?.[id];
+  // `ancestors` is outermost-first, so each climb pops the innermost parent.
+  const stack = [...scope.ancestors];
+  while (decision?.from?.startsWith('../') && stack.length) {
+    let rel = decision.from;
+    let at: Analysis | undefined;
+    while (rel.startsWith('../') && stack.length) {
+      rel = rel.slice(3);
+      at = stack.pop();
+    }
+    if (!at) break;
+    decision = at.decisions?.[rel];
+  }
+  return decision;
+}
+
+/**
  * Resolve a parsed path to its inline reference kind, label, and store key.
  *
  * Every branch checks that the element *exists* before falling back to
@@ -688,15 +719,20 @@ function resolveInlineRef(
     const ownerId = p.id!;
     const childPath = dottedKey(p.scope, `${ownerId}.${p.child.id}`);
     if (p.child.collection === 'options') {
-      const decision = scope.analysis.decisions?.[ownerId];
+      const decision = resolveDecisionAlias(ownerId, scope);
       if (!decision) throw new Error(`no decision "${ownerId}" in this scope`);
       const opt = decision.options?.[p.child.id];
-      if (!opt) throw new Error(`no option "${p.child.id}" on decision "${ownerId}"`);
+      // A decision the alias walk could not land on declares no options of its
+      // own, so absence proves nothing — stay lenient rather than report an
+      // option that may well exist in a scope we cannot see from here.
+      if (!opt && decision.options) {
+        throw new Error(`no option "${p.child.id}" on decision "${ownerId}"`);
+      }
       return {
         kind: 'option',
         id: p.child.id,
         path: childPath,
-        label: display ?? opt.label ?? humanize(p.child.id),
+        label: display ?? opt?.label ?? humanize(p.child.id),
       };
     }
     // Same lookup the `:::{astra}` block form does for a single evidence record.

@@ -40,8 +40,8 @@ export interface ArtifactHints {
   /** Routes the ambiguity warning to the page that triggered the resolve. */
   vfile?: any;
   /**
-   * Output ids already warned about. Owned by the caller (one set per cached
-   * scope) so the nudge is emitted once per build, not once per reference.
+   * Output ids already warned about. Owned by the caller (one set per vfile)
+   * so the nudge is emitted once per page, not once per reference.
    */
   warned?: Set<string>;
 }
@@ -151,7 +151,12 @@ function loadUniverse(projectDir: string): Universe {
  *   2. any file carrying the declared extension (covers a name the recipe
  *      chose for itself, and dotted formats like `tar.gz`)
  *   3. `<id>.<anything>`, the convention this code has always preferred
- *   4. the first file, alphabetically — a last resort, and warned about
+ *   4. the first file, alphabetically — a last resort
+ *
+ * Whenever the file that won was picked by sort order rather than by its name,
+ * the author hears about it: `format:` exists precisely so this directory never
+ * needs a guess, and a guess that goes unmentioned is a page of numbers read
+ * from the wrong artifact.
  *
  * Dotfiles (incl. `.lightcone-manifest.json`) are skipped throughout; an
  * absent directory means "not produced".
@@ -175,31 +180,60 @@ export function resolveArtifact(
   if (files.length === 0) return undefined;
 
   const suffix = hints.format ? `.${hints.format.toLowerCase()}` : undefined;
-  const declared = suffix
+  const canonical = suffix
     ? files.find((f) => f.toLowerCase() === `${outputId.toLowerCase()}${suffix}`)
-      ?? files.find((f) => f.toLowerCase().endsWith(suffix))
     : undefined;
+  const suffixed = suffix ? files.filter((f) => f.toLowerCase().endsWith(suffix)) : [];
   const exact = files.find((f) => parsePath(f).name === outputId);
-  const chosen = declared ?? exact ?? files[0];
+  const chosen = canonical ?? suffixed[0] ?? exact ?? files[0];
 
-  // Only worth saying when the directory holds a choice to get wrong.
-  if (files.length > 1 && !hints.warned?.has(outputId)) {
-    const message = suffix && !declared
-      ? `"${outputId}" declares \`format: ${hints.format}\`, but none of its ` +
-        `${files.length} result files carries that extension — reading "${chosen}". ` +
-        `Fix the declared format, or write the artifact as "${outputId}${suffix}".`
-      : !suffix && !exact
-        ? `"${outputId}" has ${files.length} result files and none is named ` +
-          `"${outputId}.*" — reading "${chosen}" by alphabetical order. Declare the ` +
-          `output's \`format:\` (or name the primary artifact "${outputId}.<ext>") ` +
-          `to make the choice explicit.`
-        : undefined;
-    if (message) {
-      hints.warned?.add(outputId);
-      reportWarn(hints.vfile, message);
-    }
+  // The selection is *identified* — by a name, not by sort order — when the
+  // canonical `<id>.<format>` is present, or (with no format declared) the
+  // `<id>.*` convention picked the file. A lone file carrying the declared
+  // extension identifies it too, unless a *different* file matches the output
+  // id, which means the declared format and the on-disk names disagree.
+  const identified = suffix
+    ? canonical !== undefined || (suffixed.length === 1 && (exact === undefined || exact === chosen))
+    : exact !== undefined;
+  if (files.length > 1 && !identified && !hints.warned?.has(outputId)) {
+    hints.warned?.add(outputId);
+    reportWarn(hints.vfile, ambiguityMessage(outputId, files, suffixed, exact, chosen, hints.format));
   }
   return join(dir, chosen);
+}
+
+/**
+ * Say which file was read and why it was a guess. Four ways to end up here,
+ * each pointing at a different edit, so each gets its own sentence.
+ */
+function ambiguityMessage(
+  outputId: string,
+  files: string[],
+  suffixed: string[],
+  exact: string | undefined,
+  chosen: string,
+  format?: string,
+): string {
+  const nudge = `Name the primary artifact "${outputId}.${format ?? '<ext>'}" to make the choice explicit.`;
+  if (!format) {
+    return `"${outputId}" has ${files.length} result files and none is named ` +
+      `"${outputId}.*" — reading "${chosen}" by alphabetical order. Declare the ` +
+      `output's \`format:\`, or name the primary artifact "${outputId}.<ext>".`;
+  }
+  if (suffixed.length === 0) {
+    return `"${outputId}" declares \`format: ${format}\`, but none of its ` +
+      `${files.length} result files carries that extension — reading "${chosen}". ` +
+      `Fix the declared format, or write the artifact as "${outputId}.${format}".`;
+  }
+  if (suffixed.length > 1) {
+    return `"${outputId}" declares \`format: ${format}\` and ${suffixed.length} of its ` +
+      `${files.length} result files carry that extension — reading "${chosen}" by ` +
+      `alphabetical order. ${nudge}`;
+  }
+  // One file has the declared extension, but another one owns the output's name.
+  return `"${outputId}" declares \`format: ${format}\`, so it reads "${chosen}" — ` +
+    `not "${exact}", which matches the output id. Fix whichever is wrong: the ` +
+    `declared format, or the file names.`;
 }
 
 function safeIsFile(path: string): boolean {

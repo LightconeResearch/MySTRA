@@ -87,6 +87,12 @@ outputs:
   - id: aliased_plot
     type: figure
     from: sub.sub_plot
+  - id: ambiguous_table
+    type: table
+    label: "Ambiguous table"
+    description: "Two result files, neither named for the output."
+    recipe:
+      command: "python amb.py {output}"
   - id: unproduced_metric
     type: metric
     label: "Unproduced metric"
@@ -173,6 +179,8 @@ function buildFixture(): string {
   writeResult(root, 'aliased_plot', 'aliased_plot.png', 'PNG');
   writeResult(root, 'sub_table', 'sub_table.csv', MEASUREMENTS_CSV);
   writeResult(root, 'sub_plot', 'sub_plot.png', 'PNG');
+  writeResult(root, 'ambiguous_table', 'alpha.csv', MEASUREMENTS_CSV);
+  writeResult(root, 'ambiguous_table', 'zeta.csv', MEASUREMENTS_CSV);
   return root;
 }
 
@@ -526,6 +534,22 @@ describe('role {astra}', () => {
     warn.mockRestore();
   });
 
+  // A decision declared with `from:` is a pure pointer — its options live one
+  // scope up — so absence of local options must not read as a missing option.
+  it('follows a re-exported decision to the scope that owns its options', () => {
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra', 'sub.decisions.inherited_method.mcmc', undefined, vf);
+    expect(token.data?.astra).toMatchObject({ kind: 'option', id: 'mcmc' });
+    expect(textOf([token])).toBe('MCMC sampling');
+    expect(vf.messages).toEqual([]);
+  });
+
+  it('still reports an unknown option on a re-exported decision', () => {
+    const vf = new VFile({ path: 'index.md' });
+    runRole('astra', 'sub.decisions.inherited_method.no_such_option', undefined, vf);
+    expect(vf.messages.some((m) => String(m.message).includes('no_such_option'))).toBe(true);
+  });
+
   it('keeps humanize() for an element that exists but declares no label', () => {
     const vf = new VFile({ path: 'index.md' });
     // `sub_raw` is a real input of the sub-analysis, aliased and unlabelled.
@@ -661,6 +685,28 @@ describe('role {astra:value}', () => {
     const vf = new VFile({ path: 'index.md' });
     runRole('astra:value', 'outputs.measurements', { col: 'nope' }, vf);
     expect(vf.messages.some((m) => String(m.message).includes('measurements.csv'))).toBe(true);
+  });
+
+  // The ambiguity depends on the results tree, which the spec-mtime cache does
+  // not watch — so the nudge is deduped per vfile (once per page per render),
+  // never once per process.
+  it('warns once per page about a guessed artifact, and again on the next page', () => {
+    const readAmbiguous = (vf: VFile) =>
+      runRole('astra:value', 'outputs.ambiguous_table', { col: 'value', where: 'tracer=lrg' }, vf);
+    const ambiguity = (vf: VFile) =>
+      vf.messages.filter((m) => String(m.message).includes('ambiguous_table'));
+
+    const first = new VFile({ path: 'index.md' });
+    expect(textOf(readAmbiguous(first))).toBe('19.88');
+    readAmbiguous(first);
+    readAmbiguous(first);
+    expect(ambiguity(first)).toHaveLength(1);
+
+    // A second page (and, in watch mode, the next render of the same page) gets
+    // its own vfile, so the nudge is not swallowed for the rest of the process.
+    const second = new VFile({ path: 'other.md' });
+    readAmbiguous(second);
+    expect(ambiguity(second)).toHaveLength(1);
   });
 
   it('treats an unproduced result as a warning, not an error (pending state)', () => {
