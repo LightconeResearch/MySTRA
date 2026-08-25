@@ -164,6 +164,28 @@ describe('format inheritance through a `from:` alias', () => {
     expect(resolved.format).toBe('svg');
   });
 
+  it('keeps the local id and format across a chained alias', () => {
+    // Two hops: the resolved view must still be the output declared *here*.
+    // Returning the recursion's view verbatim names the intermediate, so every
+    // consumer keying on `resolved.id` looks it up under a name no page writes.
+    const chained: any = {
+      outputs: [{ id: 'headline', from: 'stage.mid', when: ['method.grid'] }],
+      analyses: {
+        stage: {
+          outputs: [{ id: 'mid', from: 'deep.plot' }],
+          analyses: { deep: { outputs: [{ id: 'plot', type: 'figure', format: 'svg' }] } },
+        },
+      },
+    };
+    const { resolved, unresolved } = resolveOutput(chained.outputs[0], chained);
+    expect(unresolved).toBe(false);
+    expect(resolved.id).toBe('headline');
+    expect(resolved.from).toBe('stage.mid');
+    expect(resolved.when).toEqual(['method.grid']);
+    expect(resolved.type).toBe('figure');
+    expect(resolved.format).toBe('svg');
+  });
+
   it('leaves a broken alias without a format to guess from', () => {
     const broken: any = { id: 'headline', from: 'stage.missing' };
     const { resolved, unresolved } = resolveOutput(broken, scope);

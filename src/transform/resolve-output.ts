@@ -83,7 +83,24 @@ export function resolveOutput(
   const { output: sourceOutput, parent } = source;
   if (sourceOutput.from) {
     const recursed = resolveOutput(sourceOutput, parent);
-    return { declared: output, resolved: recursed.resolved, unresolved: recursed.unresolved };
+    // The chain supplies the inherited fields, but this output is still the
+    // one declared *here*: re-stamp the local identity, exactly as the
+    // single-hop merge below does. Returning the recursion's view verbatim
+    // would leave `resolved.id` naming the intermediate alias, so every
+    // consumer keying on it (`outputsById`, and through it the artifact
+    // resolver's format hint) would look the output up under a name no page
+    // ever writes.
+    return {
+      declared: output,
+      resolved: {
+        ...recursed.resolved,
+        id: output.id,
+        from: output.from,
+        when: output.when,
+        label: output.label ?? recursed.resolved.label,
+      },
+      unresolved: recursed.unresolved,
+    };
   }
 
   // Merge: declared keeps its id/from/when (and label, if explicit);

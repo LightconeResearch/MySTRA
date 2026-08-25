@@ -87,6 +87,8 @@ outputs:
   - id: aliased_plot
     type: figure
     from: sub.sub_plot
+  - id: chained_plot
+    from: sub.mid_plot
   - id: ambiguous_table
     type: table
     label: "Ambiguous table"
@@ -142,6 +144,18 @@ analyses:
         decisions: [sub_decision]
         recipe:
           command: "python subplot.py {output}"
+      - id: mid_plot
+        from: nested.leaf_plot
+    analyses:
+      nested:
+        name: "Nested Analysis"
+        outputs:
+          - id: leaf_plot
+            type: figure
+            format: png
+            label: "Leaf plot"
+            recipe:
+              command: "python leaf.py {output}"
 `;
 
 const BASELINE_YAML = `id: baseline
@@ -179,6 +193,8 @@ function buildFixture(): string {
   writeResult(root, 'aliased_plot', 'aliased_plot.png', 'PNG');
   writeResult(root, 'sub_table', 'sub_table.csv', MEASUREMENTS_CSV);
   writeResult(root, 'sub_plot', 'sub_plot.png', 'PNG');
+  writeResult(root, 'chained_plot', 'notes.txt', 'notes');
+  writeResult(root, 'chained_plot', 'render.png', 'PNG');
   writeResult(root, 'ambiguous_table', 'alpha.csv', MEASUREMENTS_CSV);
   writeResult(root, 'ambiguous_table', 'zeta.csv', MEASUREMENTS_CSV);
   return root;
@@ -576,6 +592,19 @@ describe('role {astra}', () => {
     expect(vf.messages).toEqual([]);
   });
 
+  // A chained re-export (`chained_plot` → `sub.mid_plot` → `sub.nested.leaf_plot`)
+  // is a valid reference. It resolves through two hops, so it also proves the
+  // resolved view keeps the *locally declared* id rather than the intermediate's.
+  it('resolves a chained re-export without reporting it as unknown', () => {
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra', 'outputs.chained_plot', undefined, vf);
+    expect(token.data?.astra).toMatchObject({ kind: 'output', id: 'chained_plot' });
+    // The type came down the chain too (subtype rides on the class).
+    expect(hasClass(token, 'astra-ref--figure')).toBe(true);
+    expect(textOf([token])).toBe('Leaf plot');
+    expect(vf.messages).toEqual([]);
+  });
+
   it('an unresolvable ref falls back with a collection-elided key, marked unresolved', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const vf = new VFile({ path: 'index.md' });
@@ -769,6 +798,14 @@ describe('resolved-store transform', () => {
   it('serializes option insights on decisions that cite them', () => {
     expect(runStore('sub.md').decisions['sub_decision'].option_insights).toEqual({ alpha: ['prior_literature_result'] });
     expect(runStore('index.md').decisions['method'].option_insights).toEqual({ mcmc: ['prior_literature_result'] });
+  });
+
+  it('binds a chained re-export by the format inherited down the whole chain', () => {
+    // `chained_plot` declares no format (the schema forbids it on a re-export);
+    // `png` comes from `sub.nested.leaf_plot`, two hops away. Without it,
+    // "notes.txt" sorts first and wins.
+    expect(runStore('index.md').outputs['chained_plot'].resolved_path)
+      .toBe('results/baseline/chained_plot/render.png');
   });
 
   it('routes result images through a hidden astra-assets carrier', () => {

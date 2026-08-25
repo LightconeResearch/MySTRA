@@ -237,8 +237,11 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
     ...inheritedPriorInsights,
     analysis.prior_insights ?? {},
   );
+  // Keyed by the id the *page* writes — the locally declared one — which is
+  // what every `{astra…}` path resolves to, however many `from:` hops the
+  // resolution took to fill the view in.
   const outputsById = new Map(
-    resolveOutputs(analysis).map(({ resolved }) => [resolved.id, resolved] as const),
+    resolveOutputs(analysis).map(({ declared, resolved }) => [declared.id, resolved] as const),
   );
   // Ambiguity depends on the *results* tree, which is outside this cache's
   // invalidation (mtimes of astra.yaml and the universe file). Deduping per
