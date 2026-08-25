@@ -38,6 +38,16 @@ export interface ResolvedOutput {
    * output. Renderers can surface this as a broken-reference warning.
    */
   unresolved: boolean;
+  /**
+   * Where the bytes actually live: the sub-analysis ids walked to reach the
+   * output that *produces* the artifact, and its own local id.
+   *
+   * A re-export is never materialized — `lc` skips outputs with no command,
+   * since making the same bytes twice under two ids is not a thing to do — so
+   * an alias's artifact is the source's file, under the source's scope. For a
+   * locally declared output this is `{ scope: [], id }`.
+   */
+  source: { scope: string[]; id: string };
 }
 
 /**
@@ -55,10 +65,16 @@ export function resolveOutput(
   scope: Analysis,
 ): ResolvedOutput {
   if (!output.from) {
-    return { declared: output, resolved: output, unresolved: false };
+    return {
+      declared: output,
+      resolved: output,
+      unresolved: false,
+      source: { scope: [], id: output.id },
+    };
   }
 
-  const source = walkOutputPath(output.from.split('.'), scope);
+  const parts = output.from.split('.');
+  const source = walkOutputPath(parts, scope);
 
   if (!source) {
     // `from:` was set but the path didn't land on an output. The
@@ -73,13 +89,21 @@ export function resolveOutput(
       when: output.when,
       label: output.label,
     };
-    return { declared: output, resolved: empty, unresolved: true };
+    return {
+      declared: output,
+      resolved: empty,
+      unresolved: true,
+      source: { scope: [], id: output.id },
+    };
   }
 
   // Source might itself be aliased — recurse, scoped to the source's
   // surrounding analysis. The walker returns both the matched output
   // and its containing analysis, so the recursion has the right
   // scope to interpret the source's `from:` (if any).
+  // All but the last segment are sub-analysis steps — the scope the producing
+  // output is declared in, relative to this one.
+  const hops = parts.slice(0, -1);
   const { output: sourceOutput, parent } = source;
   if (sourceOutput.from) {
     const recursed = resolveOutput(sourceOutput, parent);
@@ -100,6 +124,11 @@ export function resolveOutput(
         label: output.label ?? recursed.resolved.label,
       },
       unresolved: recursed.unresolved,
+      // Hops compose: this alias's own segments, then whatever the rest of
+      // the chain walked from there.
+      source: recursed.unresolved
+        ? { scope: [], id: output.id }
+        : { scope: [...hops, ...recursed.source.scope], id: recursed.source.id },
     };
   }
 
@@ -122,7 +151,12 @@ export function resolveOutput(
     recipe: sourceOutput.recipe,
   };
 
-  return { declared: output, resolved: merged, unresolved: false };
+  return {
+    declared: output,
+    resolved: merged,
+    unresolved: false,
+    source: { scope: hops, id: sourceOutput.id },
+  };
 }
 
 /**

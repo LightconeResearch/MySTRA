@@ -1,13 +1,15 @@
 /**
- * Load an ASTRA project and resolve output artifacts.
+ * Load an ASTRA project and locate output artifacts.
  *
  * Most of the work is the SDK's: `loadYaml` parses, `resolveAnalysisTree`
  * inlines `path:` sub-analyses into one tree (preserving each sub's `path:`).
- * What stays here is MySTRA-specific: locating the project's universe file
- * and result files on disk.
+ * What stays here is MySTRA-specific: finding the project's universe file, and
+ * deriving where each output's single artifact file lives —
+ * `<home>/results/<universe>/<inline scope…>/<id>.<format>`, the layout
+ * lightcone-cli writes.
  */
 
-import { dirname, join, parse as parsePath } from 'node:path';
+import { join } from 'node:path';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import {
   collectRecommendations,
@@ -15,7 +17,7 @@ import {
   resolveAnalysisTree,
   validateAnalysis,
 } from '@astra-spec/sdk';
-import type { Analysis, Universe } from '@astra-spec/sdk';
+import type { Analysis, Universe, UniverseNode } from '@astra-spec/sdk';
 import { reportWarn } from './diagnostics.js';
 
 /** The raw, unresolved astra.yaml dict as parsed by `loadYaml`. */
@@ -30,14 +32,29 @@ export interface ASTRASource {
 /** Resolve an output id to its artifact's absolute path, or `undefined`. */
 export type ArtifactResolver = (outputId: string) => string | undefined;
 
+/**
+ * Where one analysis node's outputs land — the three things that, with an
+ * output's id and `format:`, *derive* its path. Mirrors lightcone-cli's
+ * `_Placement` (`engine/plan.py`), which is what actually writes the tree.
+ */
+export interface Placement {
+  /** The directory holding that node's own `astra.yaml`. */
+  home: string;
+  /** The universe its results are filed under. */
+  universeId: string;
+  /** The inline sub-analyses descended through since `home`. */
+  scope: string[];
+}
+
 /** What {@link resolveArtifact} needs beyond the path, to choose well and say so. */
 export interface ArtifactHints {
   /**
    * The output's declared `format` — an extension token without the dot
    * (`csv`, `png`, `tar.gz`), inherited from the source for a `from:` alias.
+   * Without it the path cannot be derived and the directory must be searched.
    */
   format?: string;
-  /** Routes the ambiguity warning to the page that triggered the resolve. */
+  /** Routes the format-less-search warning to the page that triggered it. */
   vfile?: any;
   /**
    * Output ids already warned about. Owned by the caller (one set per vfile)
@@ -138,102 +155,108 @@ function loadUniverse(projectDir: string): Universe {
 }
 
 /**
- * Locate an output's artifact file — deterministically, on demand.
+ * Descend one sub-analysis, giving the placement its outputs land under.
  *
- * astra-spec leaves the on-disk path to the runner; lightcone-cli fixes the
- * output *directory* as `[<analysis path>/]results/<universe>/<id>/`, so it is
- * computed (never scanned). The recipe chooses the file *name*, and may write
- * several files into that one directory, so the choice runs in order of
- * decreasing explicitness — mirroring the SDK's `discoverArtifact`, so a MySTRA
- * page and a viewer bind the same file:
+ * An external sub-analysis (`path:`) is a self-similar analysis with its own
+ * home and, where the universe names one, its own universe — so both reset. An
+ * inline one shares its parent's home and disambiguates with a scope
+ * directory. Only the path nests; addressing stays the qualified id.
+ */
+export function descendPlacement(
+  place: Placement,
+  segId: string,
+  child: Analysis,
+  universeNode: UniverseNode | undefined,
+): Placement {
+  if (!child.path) return { ...place, scope: [...place.scope, segId] };
+  return {
+    home: join(place.home, child.path.replace(/^\.\//, '')),
+    universeId: universeNode?.universe ?? place.universeId,
+    scope: [],
+  };
+}
+
+/**
+ * Walk a chain of sub-analysis ids from `place`, returning where the node at
+ * the end files its results — or `undefined` if a segment names no
+ * sub-analysis. Used to follow a re-export's `from:` hops to the scope that
+ * actually produces the bytes.
+ */
+export function descendTo(
+  place: Placement,
+  analysis: Analysis,
+  universeNode: UniverseNode | undefined,
+  segs: string[],
+): Placement | undefined {
+  let at = place;
+  let node = analysis;
+  let universe = universeNode;
+  for (const seg of segs) {
+    const child = node.analyses?.[seg];
+    if (!child) return undefined;
+    const childUniverse = universe?.analyses?.[seg];
+    at = descendPlacement(at, seg, child, childUniverse);
+    node = child;
+    universe = childUniverse;
+  }
+  return at;
+}
+
+/** The directory an analysis node's results are filed in. */
+function resultsDir(place: Placement): string {
+  return join(place.home, 'results', place.universeId, ...place.scope);
+}
+
+/**
+ * Locate an output's artifact — by *deriving* its path, not by searching.
  *
- *   1. `<id>.<format>`, when the output declares a `format:`
- *   2. any file carrying the declared extension (covers a name the recipe
- *      chose for itself, and dotted formats like `tar.gz`)
- *   3. `<id>.<anything>`, the convention this code has always preferred
- *   4. the first file, alphabetically — a last resort
+ * An output is one file. lightcone-cli names it from the spec —
+ * `<home>/results/<universe>/<inline scope…>/<id>.<format>` (`engine/assets.py`:
+ * "the format comes from the spec, so the path is derived rather than chosen by
+ * the recipe, and one output can only ever be one file") — with the run
+ * manifest as a `.<id>.manifest.json` sidecar beside it. So MySTRA computes the
+ * same path and asks whether it is there. An absent file means "not produced".
  *
- * Whenever the file that won was picked by sort order rather than by its name,
- * the author hears about it: `format:` exists precisely so this directory never
- * needs a guess, and a guess that goes unmentioned is a page of numbers read
- * from the wrong artifact.
- *
- * Dotfiles (incl. `.lightcone-manifest.json`) are skipped throughout; an
- * absent directory means "not produced".
+ * The one search left is transitional. `format:` is only *recommended* until
+ * ASTRA 0.1.0, and without it there is no extension to derive, so an output
+ * that declares none falls back to matching `<id>.<ext>` in its results
+ * directory — and says so when that leaves a choice to make.
  */
 export function resolveArtifact(
-  base: string,
-  universeId: string,
+  place: Placement,
   outputId: string,
   hints: ArtifactHints = {},
 ): string | undefined {
-  const dir = join(base, 'results', universeId, outputId);
+  const dir = resultsDir(place);
+  if (hints.format) {
+    const path = join(dir, `${outputId}.${hints.format}`);
+    return safeIsFile(path) ? path : undefined;
+  }
+
   let entries: string[];
   try {
     entries = readdirSync(dir);
   } catch {
     return undefined;
   }
-  const files = entries
-    .filter((f) => !f.startsWith('.') && safeIsFile(join(dir, f)))
+  // `<id>.` and not just the stem: for `fit`, this takes `fit.csv` and leaves
+  // `fit_extra.csv`. Dotfiles are skipped, so the manifest sidecar — which is
+  // literally `.<id>.manifest.json` — can never be mistaken for the artifact.
+  const prefix = `${outputId}.`;
+  const matches = entries
+    .filter((f) => !f.startsWith('.') && f.startsWith(prefix) && safeIsFile(join(dir, f)))
     .sort();
-  if (files.length === 0) return undefined;
-
-  const suffix = hints.format ? `.${hints.format.toLowerCase()}` : undefined;
-  const canonical = suffix
-    ? files.find((f) => f.toLowerCase() === `${outputId.toLowerCase()}${suffix}`)
-    : undefined;
-  const suffixed = suffix ? files.filter((f) => f.toLowerCase().endsWith(suffix)) : [];
-  const exact = files.find((f) => parsePath(f).name === outputId);
-  const chosen = canonical ?? suffixed[0] ?? exact ?? files[0];
-
-  // The selection is *identified* — by a name, not by sort order — when the
-  // canonical `<id>.<format>` is present, or (with no format declared) the
-  // `<id>.*` convention picked the file. A lone file carrying the declared
-  // extension identifies it too, unless a *different* file matches the output
-  // id, which means the declared format and the on-disk names disagree.
-  const identified = suffix
-    ? canonical !== undefined || (suffixed.length === 1 && (exact === undefined || exact === chosen))
-    : exact !== undefined;
-  if (files.length > 1 && !identified && !hints.warned?.has(outputId)) {
+  if (matches.length === 0) return undefined;
+  if (matches.length > 1 && !hints.warned?.has(outputId)) {
     hints.warned?.add(outputId);
-    reportWarn(hints.vfile, ambiguityMessage(outputId, files, suffixed, exact, chosen, hints.format));
+    reportWarn(
+      hints.vfile,
+      `"${outputId}" declares no \`format:\` and ${matches.length} files could be it ` +
+        `(${matches.join(', ')}) — reading "${matches[0]}" by alphabetical order. ` +
+        `Declare the output's \`format:\` to name the artifact.`,
+    );
   }
-  return join(dir, chosen);
-}
-
-/**
- * Say which file was read and why it was a guess. Four ways to end up here,
- * each pointing at a different edit, so each gets its own sentence.
- */
-function ambiguityMessage(
-  outputId: string,
-  files: string[],
-  suffixed: string[],
-  exact: string | undefined,
-  chosen: string,
-  format?: string,
-): string {
-  const nudge = `Name the primary artifact "${outputId}.${format ?? '<ext>'}" to make the choice explicit.`;
-  if (!format) {
-    return `"${outputId}" has ${files.length} result files and none is named ` +
-      `"${outputId}.*" — reading "${chosen}" by alphabetical order. Declare the ` +
-      `output's \`format:\`, or name the primary artifact "${outputId}.<ext>".`;
-  }
-  if (suffixed.length === 0) {
-    return `"${outputId}" declares \`format: ${format}\`, but none of its ` +
-      `${files.length} result files carries that extension — reading "${chosen}". ` +
-      `Fix the declared format, or write the artifact as "${outputId}.${format}".`;
-  }
-  if (suffixed.length > 1) {
-    return `"${outputId}" declares \`format: ${format}\` and ${suffixed.length} of its ` +
-      `${files.length} result files carry that extension — reading "${chosen}" by ` +
-      `alphabetical order. ${nudge}`;
-  }
-  // One file has the declared extension, but another one owns the output's name.
-  return `"${outputId}" declares \`format: ${format}\`, so it reads "${chosen}" — ` +
-    `not "${exact}", which matches the output id. Fix whichever is wrong: the ` +
-    `declared format, or the file names.`;
+  return join(dir, matches[0]);
 }
 
 function safeIsFile(path: string): boolean {

@@ -67,4 +67,4 @@ Embed a sub-analysis by its bare path to get a navigation card linking to its pa
 
 ## Results for sub-analyses
 
-A sub-analysis that declares `path: ./analyses/<sub>` in `astra.yaml` roots its own `results/<universe>/` tree there; MySTRA resolves each scope's artifacts from the right base automatically. Nothing to configure on the report side.
+A sub-analysis that declares `path: ./analyses/<sub>` in `astra.yaml` roots its own `results/<universe>/` tree there, beside its own spec. An **inline** sub-analysis has no directory of its own, so its results nest one level deeper in the parent's tree: `results/<universe>/<sub>/<output-id>.<format>`. MySTRA derives each scope's artifact paths from the right base automatically — nothing to configure on the report side. See [Results layout](../reference/configuration.md#results-layout).

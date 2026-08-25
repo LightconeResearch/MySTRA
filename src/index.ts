@@ -39,14 +39,25 @@
 import { basename, join, relative, sep } from 'node:path';
 import { readFileSync, statSync } from 'node:fs';
 import {
+  descendPlacement,
+  descendTo,
   loadASTRASource,
   resolveArtifact,
   sourceDependencyPaths,
   type ArtifactResolver,
   type ASTRASource,
+  type Placement,
 } from './loader.js';
 import { parseYamlString } from '@astra-spec/sdk';
-import type { Analysis, Decision, Input, Insight, Output, Universe } from '@astra-spec/sdk';
+import type {
+  Analysis,
+  Decision,
+  Input,
+  Insight,
+  Output,
+  Universe,
+  UniverseNode,
+} from '@astra-spec/sdk';
 import { reportError, reportWarn } from './diagnostics.js';
 import { proseParser } from './transform/prose.js';
 import type { ProseParser } from './transform/prose.js';
@@ -208,7 +219,12 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
   const ancestors: Analysis[] = [];
   const inheritedPriorInsights: Record<string, Insight>[] = [];
   const slugParts: string[] = [];
-  let resultsBase = root;
+  // Where this scope's results are filed. `activeUniverse` is narrowed for
+  // *decisions* and loses the `universe:` key on the way down, so the raw
+  // universe node is tracked alongside it — that key is what lets a `path:`
+  // sub-analysis file its results under a universe of its own.
+  let place: Placement = { home: root, universeId: source.universe.id, scope: [] };
+  let universeNode: UniverseNode | undefined = source.universe;
 
   for (const seg of analysisPath) {
     const child = analysis.analyses?.[seg];
@@ -220,18 +236,19 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
     if (analysis.prior_insights) inheritedPriorInsights.push(analysis.prior_insights);
     ancestors.push(analysis);
 
+    const childUniverse: UniverseNode | undefined = universeNode?.analyses?.[seg];
+    place = descendPlacement(place, seg, child, childUniverse);
+    universeNode = childUniverse;
     activeUniverse = {
       id: activeUniverse.id,
       description: activeUniverse.description,
       ...narrow(activeUniverse, seg),
     };
-    if (child.path) resultsBase = join(resultsBase, child.path.replace(/^\.\//, ''));
     analysis = child;
     slugParts.push(seg);
   }
 
   const slug = slugParts.length ? slugParts.join('/') : 'index';
-  const universeId = source.universe.id;
   const priorInsights = Object.assign(
     {},
     ...inheritedPriorInsights,
@@ -240,20 +257,31 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
   // Keyed by the id the *page* writes — the locally declared one — which is
   // what every `{astra…}` path resolves to, however many `from:` hops the
   // resolution took to fill the view in.
+  const resolvedOutputs = resolveOutputs(analysis);
   const outputsById = new Map(
-    resolveOutputs(analysis).map(({ declared, resolved }) => [declared.id, resolved] as const),
+    resolvedOutputs.map(({ declared, resolved }) => [declared.id, resolved] as const),
   );
-  // Ambiguity depends on the *results* tree, which is outside this cache's
-  // invalidation (mtimes of astra.yaml and the universe file). Deduping per
-  // vfile — a fresh object per page per render — keeps a page from repeating
-  // the nudge for every reference, while still re-reporting on each rebuild,
-  // so a stray file dropped into a results directory is not missed forever.
+  const sourcesById = new Map(
+    resolvedOutputs.map(({ declared, resolved, source: from }) => [declared.id, { from, resolved }] as const),
+  );
+  // A search only happens for an output with no `format:`, and what it finds
+  // depends on the results tree — which is outside this cache's invalidation
+  // (mtimes of astra.yaml and the universe file). Deduping per vfile — a fresh
+  // object per page per render — keeps a page from repeating the nudge for
+  // every reference, while still re-reporting on each rebuild.
   const warnedByFile = new WeakMap<object, Set<string>>();
   const makeResults = (vf?: any): ArtifactResolver => (id) => {
+    const entry = sourcesById.get(id);
+    if (!entry) return undefined;
+    // A re-export is never materialized under its own id: `lc` skips outputs
+    // with no command, so the artifact is the source's file, in the source's
+    // scope. Walk there before deriving the path.
+    const target = descendTo(place, analysis, universeNode, entry.from.scope);
+    if (!target) return undefined;
     let warned = vf ? warnedByFile.get(vf) : undefined;
     if (vf && !warned) warnedByFile.set(vf, (warned = new Set<string>()));
-    return resolveArtifact(resultsBase, universeId, id, {
-      format: outputsById.get(id)?.format,
+    return resolveArtifact(target, entry.from.id, {
+      format: entry.resolved.format,
       vfile: vf,
       warned,
     });
@@ -1022,9 +1050,10 @@ const valueRole = {
         }
       }
 
-      // An output is a *directory*: name the file that was actually read, so a
-      // mis-selected artifact is self-evident rather than looking like a bad
-      // column name (see resolveArtifact for how the file is chosen).
+      // Name the file that was actually read. With a declared `format:` the
+      // path is derived and this is confirmation; without one it was searched
+      // for, and the filename is what makes a wrong pick self-evident rather
+      // than looking like a bad column name.
       const file = basename(abs);
       const tbl = parseTableData(abs);
       if (!tbl) return fail(`"${id}" (${file}) is not tabular`);

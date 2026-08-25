@@ -61,14 +61,14 @@ my-analysis/
 ├── universes/
 │   └── baseline.yaml   Decision selections for the baseline universe
 ├── results/
-│   └── baseline/<output-id>/<output-id>.png   Materialised result artifacts
+│   └── baseline/<output-id>.png   Materialised result artifacts (one file per output)
 ├── myst.yml            Registers the plugin; lists pages
 └── index.md            Your report (+ optional sub-analysis pages)
 ```
 
-MySTRA never scans the results tree: it computes each output's directory deterministically from the convention above (the analysis's `path:` + universe + output id) and resolves the artifact file lazily, as it renders. A sub-analysis that declares `path: ./analyses/<sub>` roots its own `results/<universe>/` there.
+An output is **one file**, and MySTRA never searches for it: the path is derived from the spec — the declaring analysis's directory, the universe, one directory per inline sub-analysis, then `<output-id>.<format>` — and resolved lazily as the page renders.
 
-That directory may hold several files. Declare the output's `format:` in `astra.yaml` (`format: csv`, `format: png`, …) so MySTRA reads the artifact rather than whatever sorts first — see [Results layout](reference/configuration.md#results-layout).
+Declare each output's `format:` in `astra.yaml` (`format: csv`, `format: png`, …): it is what names the file. See [Results layout](reference/configuration.md#results-layout) for sub-analyses, re-exports, and what happens when `format:` is missing.
 
 ## Write your first references
 

@@ -25,26 +25,30 @@ MySTRA reads `astra.yaml` from the working directory — run `myst` from the AST
 
 ## Results layout
 
-MySTRA never scans the results tree. It computes each output's artifact location deterministically from the convention:
+**An output is one file, and MySTRA never searches for it.** Its path is *derived* from the spec:
 
 ```
-<analysis path>/results/<universe-id>/<output-id>/<output-id>.<ext>
+<home>/results/<universe-id>/<inline scope…>/<output-id>.<format>
 ```
 
-and resolves the file lazily, as it renders. A sub-analysis that declares `path: ./analyses/<sub>` in `astra.yaml` roots its own `results/<universe>/` tree at that path. Image artifacts are handed to MyST's asset pipeline, which hashes and copies them into the build.
+- **`<home>`** — the directory holding the declaring analysis's own `astra.yaml`: the project root, or a sub-analysis's own directory when it declares `path: ./analyses/<sub>`. Results sit beside the spec that declares them.
+- **`<universe-id>`** — the active universe. A `path:` sub-analysis the universe gives its own `universe:` to files results under *that* id instead.
+- **`<inline scope…>`** — one directory per **inline** sub-analysis descended through since `<home>`. An inline sub shares its parent's home and disambiguates with a scope directory; an external (`path:`) one gets its own home, and the scope resets there. Only the path nests — addressing stays the qualified id.
+- **`<format>`** — the output's declared [`format:`](https://astra-spec.org/latest/specification/), the file extension without the leading dot.
 
-### When an output directory holds more than one file
+So a root output `hubble_diagram` with `format: png` is `results/baseline/hubble_diagram.png`, and `fit` inside an inline `reconstruction` is `results/baseline/reconstruction/fit.png`. The run manifest is a `.{output-id}.manifest.json` sidecar *beside* the artifact, never inside it — MySTRA skips dotfiles, so it can never be mistaken for the result.
 
-The output is a *directory*, so a recipe is free to write a log, a preview, or a second table beside the artifact. MySTRA picks the file to read in this order:
+This is the layout [lightcone-cli](https://github.com/LightconeResearch/lightcone-cli) writes (`engine/assets.py`). Because the recipe does not choose the filename, MySTRA computes the path and asks whether the file is there. An absent file means *not produced yet*, which is a supported mid-analysis state, not an error.
 
-1. `<output-id>.<format>`, where `format` is the output's declared [`format:`](https://astra-spec.org/latest/specification/) (`csv`, `png`, `parquet`, …)
-2. any file carrying the declared extension — for a recipe that names its own artifact, and for dotted formats like `tar.gz`
-3. `<output-id>.<anything>` — the convention above
-4. the first file alphabetically
+### `format:` is what names the file
 
-Whenever the winning file was picked by **sort order rather than by its name**, MySTRA warns and names the file it read. That covers all four ways to get here: no `format:` and no `<output-id>.*` file; a `format:` that matches nothing in the directory; several files carrying the declared extension; and a declared format that points at one file while `<output-id>.*` names another.
+Without a declared `format:` there is no extension to derive, so an output that omits one falls back to matching `<output-id>.<ext>` in its results directory. If more than one file matches, MySTRA reads the first alphabetically and **warns**.
 
-Declaring `format:` on every output is therefore the way to make the choice explicit. It is recommended in ASTRA 0.0.x — MySTRA reports the outputs missing one as a build warning — and required from ASTRA 0.1.0. A re-export (`from:`) inherits its source's format and must not declare one.
+Treat that as a migration aid, not a feature: `format` is [recommended in ASTRA 0.0.x and required from 0.1.0](https://astra-spec.org/latest/specification/), MySTRA reports every output missing one as a build warning, and `lc` already refuses to run a recipe without it. A re-export (`from:`) inherits its source's format and must not declare one.
+
+### Re-exports have no file of their own
+
+An output declared with `from:` names bytes another output makes; nothing materializes it a second time under the alias id. A reference to a re-export therefore resolves to **the source's file, in the source's scope directory** — following the whole `from:` chain, however many hops it takes. Image artifacts are handed to MyST's asset pipeline, which hashes and copies them into the build.
 
 ## Caching and live reload
 

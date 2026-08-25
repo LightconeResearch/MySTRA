@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { VFile } from 'vfile';
 import { mystParse } from 'myst-parser';
@@ -62,6 +62,7 @@ inputs:
 outputs:
   - id: scatter_plot
     type: figure
+    format: png
     label: "Scatter plot"
     description: "Scatter of the measurements."
     inputs: [raw_catalog]
@@ -71,6 +72,7 @@ outputs:
       container: "astro:1"
   - id: measurements
     type: table
+    format: csv
     label: "Measurement table"
     description: "Best-fit values per tracer."
     inputs: [sub.sub_table]
@@ -79,6 +81,7 @@ outputs:
       command: "python measure.py {output}"
   - id: summary_metric
     type: metric
+    format: json
     label: "Summary metric"
     description: "A single summary number."
     inputs: [measurements]
@@ -92,11 +95,12 @@ outputs:
   - id: ambiguous_table
     type: table
     label: "Ambiguous table"
-    description: "Two result files, neither named for the output."
+    description: "No format:, so more than one file could be it."
     recipe:
       command: "python amb.py {output}"
   - id: unproduced_metric
     type: metric
+    format: json
     label: "Unproduced metric"
     description: "Declared but not yet materialised."
     recipe:
@@ -132,6 +136,7 @@ analyses:
     outputs:
       - id: sub_table
         type: table
+        format: csv
         label: "Sub table"
         inputs: [sub_raw]
         decisions: [sub_decision, inherited_method]
@@ -139,6 +144,7 @@ analyses:
           command: "python sub.py {output}"
       - id: sub_plot
         type: figure
+        format: png
         label: "Sub plot"
         inputs: [sub_raw]
         decisions: [sub_decision]
@@ -174,11 +180,16 @@ lrg,19.88,0.17
 elg,0.0696,0.002
 `;
 
-/** Write `dir/results/baseline/<id>/<file>` with `content`. */
-function writeResult(root: string, id: string, file: string, content: string): void {
-  const dir = join(root, 'results', 'baseline', id);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, file), content);
+/**
+ * Write one materialized output. An output is a *file*, named from the spec:
+ * `<home>/results/<universe>/<inline scope…>/<id>.<format>`, with the run
+ * manifest as a `.<id>.manifest.json` sidecar beside it — the layout
+ * lightcone-cli's `engine/assets.py` writes.
+ */
+function writeResult(root: string, relPath: string, content: string): void {
+  const path = join(root, 'results', 'baseline', ...relPath.split('/'));
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
 }
 
 /** Build the full fixture project under a fresh temp dir and return its path. */
@@ -187,16 +198,19 @@ function buildFixture(): string {
   writeFileSync(join(root, 'astra.yaml'), ASTRA_YAML);
   mkdirSync(join(root, 'universes'), { recursive: true });
   writeFileSync(join(root, 'universes', 'baseline.yaml'), BASELINE_YAML);
-  writeResult(root, 'scatter_plot', 'scatter_plot.png', 'PNG');
-  writeResult(root, 'measurements', 'measurements.csv', MEASUREMENTS_CSV);
-  writeResult(root, 'summary_metric', 'summary_metric.json', JSON.stringify({ value: 1.5, uncertainty: 0.3, unit: 'Mpc' }));
-  writeResult(root, 'aliased_plot', 'aliased_plot.png', 'PNG');
-  writeResult(root, 'sub_table', 'sub_table.csv', MEASUREMENTS_CSV);
-  writeResult(root, 'sub_plot', 'sub_plot.png', 'PNG');
-  writeResult(root, 'chained_plot', 'notes.txt', 'notes');
-  writeResult(root, 'chained_plot', 'render.png', 'PNG');
-  writeResult(root, 'ambiguous_table', 'alpha.csv', MEASUREMENTS_CSV);
-  writeResult(root, 'ambiguous_table', 'zeta.csv', MEASUREMENTS_CSV);
+  writeResult(root, 'scatter_plot.png', 'PNG');
+  writeResult(root, '.scatter_plot.manifest.json', '{"lc_version":"0.5.0"}');
+  writeResult(root, 'measurements.csv', MEASUREMENTS_CSV);
+  writeResult(root, 'summary_metric.json', JSON.stringify({ value: 1.5, uncertainty: 0.3, unit: 'Mpc' }));
+  // `sub` is inline, so its outputs nest under a scope directory; `nested` is
+  // inline within it. `aliased_plot` and `chained_plot` are re-exports and get
+  // no file of their own — they name bytes these outputs make.
+  writeResult(root, 'sub/sub_table.csv', MEASUREMENTS_CSV);
+  writeResult(root, 'sub/sub_plot.png', 'PNG');
+  writeResult(root, 'sub/nested/leaf_plot.png', 'PNG');
+  // No `format:` on this one, so both files match `<id>.<ext>`.
+  writeResult(root, 'ambiguous_table.csv', MEASUREMENTS_CSV);
+  writeResult(root, 'ambiguous_table.json', '{}');
   return root;
 }
 
@@ -304,7 +318,7 @@ describe('directive — elements', () => {
     expect(hasClass(carrier, 'astra-output')).toBe(true);
     expect(hasClass(carrier, 'astra-output--figure')).toBe(true);
     const image = findFirst(nodes, (n) => n.type === 'image');
-    expect(image?.url).toBe('results/baseline/scatter_plot/scatter_plot.png');
+    expect(image?.url).toBe('results/baseline/scatter_plot.png');
   });
 
   it('outputs.<id> table → container[table] tagged astra-output--table', () => {
@@ -777,7 +791,7 @@ describe('resolved-store transform', () => {
     const store = runStore('index.md');
 
     expect(store.outputs['scatter_plot'].type).toBe('figure');
-    expect(store.outputs['scatter_plot'].resolved_path).toBe('results/baseline/scatter_plot/scatter_plot.png');
+    expect(store.outputs['scatter_plot'].resolved_path).toBe('results/baseline/scatter_plot.png');
     expect(store.outputs['measurements'].table_data?.headers).toContain('value');
     expect(store.outputs['summary_metric'].metric).toMatchObject({ value: 1.5, uncertainty: 0.3, unit: 'Mpc' });
 
@@ -800,12 +814,14 @@ describe('resolved-store transform', () => {
     expect(runStore('index.md').decisions['method'].option_insights).toEqual({ mcmc: ['prior_literature_result'] });
   });
 
-  it('binds a chained re-export by the format inherited down the whole chain', () => {
-    // `chained_plot` declares no format (the schema forbids it on a re-export);
-    // `png` comes from `sub.nested.leaf_plot`, two hops away. Without it,
-    // "notes.txt" sorts first and wins.
-    expect(runStore('index.md').outputs['chained_plot'].resolved_path)
-      .toBe('results/baseline/chained_plot/render.png');
+  it('binds a re-export to the file its source produces, not one of its own', () => {
+    // A re-export is never materialized under its own id — `lc` skips outputs
+    // with no command — so the artifact is the source's file, in the source's
+    // scope directory. One hop for `aliased_plot`, two for `chained_plot`.
+    const outputs = runStore('index.md').outputs;
+    expect(outputs['aliased_plot'].resolved_path).toBe('results/baseline/sub/sub_plot.png');
+    expect(outputs['chained_plot'].resolved_path)
+      .toBe('results/baseline/sub/nested/leaf_plot.png');
   });
 
   it('routes result images through a hidden astra-assets carrier', () => {
@@ -814,7 +830,7 @@ describe('resolved-store transform', () => {
     expect(assets?.style).toEqual({ display: 'none' });
     expect(assets!.children.find((n: any) => n.data?.astraAsset === 'scatter_plot')).toMatchObject({
       type: 'image',
-      url: 'results/baseline/scatter_plot/scatter_plot.png',
+      url: 'results/baseline/scatter_plot.png',
     });
   });
 
