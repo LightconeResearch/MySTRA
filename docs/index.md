@@ -6,7 +6,7 @@ It runs on the **stock `myst` CLI and themes** — no custom server, no copy-pas
 
 ```markdown
 We adopt the {astra}`decisions.algorithm.multigrid` and measure
-$\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
+$\alpha =$ {astra:value col=alpha where="tracer=elg1" err=alpha_std}`outputs.alpha_table`,
 consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
 :::{astra} outputs.bao_fit_plot
@@ -45,7 +45,7 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     # BAO from the ELG sample
 
     We adopt the {astra}`decisions.algorithm.multigrid` and measure
-    $\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
+    $\alpha =$ {astra:value col=alpha where="tracer=elg1" err=alpha_std}`outputs.alpha_table`,
     consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
     :::{astra} outputs.bao_fit_plot

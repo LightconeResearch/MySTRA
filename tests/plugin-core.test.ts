@@ -562,14 +562,17 @@ describe('roles {astra:cite} / {astra:cite:t}', () => {
 // ── Inline role: {astra:value} ───────────────────────────────────────────────
 
 describe('role {astra:value}', () => {
-  it('interpolates a real cell with ± uncertainty (pm option)', () => {
-    const [token] = runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', pm: true });
+  it('interpolates a real cell with ± uncertainty via err=<col>', () => {
+    const [token] = runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', err: 'value_std' });
     expect(textOf([token])).toBe('19.88 ± 0.17');
     expect(token.data?.astra).toMatchObject({ kind: 'value', id: 'measurements', col: 'value' });
   });
 
-  it('honours an explicit err=<col>', () => {
-    expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', err: 'value_std' }))).toBe('19.88 ± 0.17');
+  it('reports an error for an err= column that does not exist', () => {
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', err: 'nope' }, vf);
+    expect(token.type).toBe('inlineCode');
+    expect(vf.messages.some((m) => String(m.message).includes('no uncertainty column "nope"'))).toBe(true);
   });
 
   it('formats to significant figures and respects sig=N', () => {
@@ -579,7 +582,7 @@ describe('role {astra:value}', () => {
 
   it('parses role options through the MyST inline-attribute syntax', () => {
     const tree = mystParse(
-      '{astra:value col=value where="tracer=lrg" pm=true}`outputs.measurements`',
+      '{astra:value col=value where="tracer=lrg" err=value_std}`outputs.measurements`',
       { roles: plugin.roles as any },
     );
     expect(textOf(tree as any)).toBe('19.88 ± 0.17');
@@ -593,9 +596,8 @@ describe('role {astra:value}', () => {
     expect(textOf(runRole('astra:value', 'decisions.method'))).toBe('Grid search');
   });
 
-  it('interpolates a metric output directly — no col= needed', () => {
-    expect(textOf(runRole('astra:value', 'outputs.summary_metric'))).toBe('1.5');
-    expect(textOf(runRole('astra:value', 'outputs.summary_metric', { pm: true }))).toBe('1.5 ± 0.3');
+  it('interpolates a metric output directly — no col= needed, uncertainty appended automatically', () => {
+    expect(textOf(runRole('astra:value', 'outputs.summary_metric'))).toBe('1.5 ± 0.3');
   });
 
   it('rejects the retired space-separated body grammar with a pointer to options', () => {

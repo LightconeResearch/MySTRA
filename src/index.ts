@@ -14,7 +14,7 @@
  *     {astra}`outputs.hubble_diagram`              link + hover card
  *     {astra}`our method <decisions.algorithm>`    custom display text
  *     {astra:ref}`outputs.hubble_diagram`             numbered ("Figure 3")
- *     {astra:value col=DV where="tracer=lrg3" pm=true}`outputs.bao_table`   live number
+ *     {astra:value col=DV where="tracer=lrg3" err=DV_std}`outputs.bao_table`   live number
  *     {astra:cite}`prior_insights.recon`           parenthetical citation
  *     {astra:cite:t}`prior_insights.recon`         textual citation
  *
@@ -833,7 +833,7 @@ function parseWhere(where: string | undefined): [string, string][] {
  * selection is expressed as role options (MyST inline attributes):
  *
  *   {astra:value}`outputs.chi2_reduced`                             a metric
- *   {astra:value col=DV where="tracer=lrg3" pm=true}`outputs.bao_table`
+ *   {astra:value col=DV where="tracer=lrg3" err=DV_std}`outputs.bao_table`
  *   {astra:value}`decisions.algorithm`                    the selected option
  *
  *   - body       a table/metric output (`outputs.bao_table`, scoped allowed)
@@ -841,9 +841,9 @@ function parseWhere(where: string | undefined): [string, string][] {
  *   - col=       the column to read (table outputs).
  *   - where=     row filters — space/comma-separated `key=value` pairs,
  *                matched case-insensitively (e.g. "tracer=lrg3 recon=Post").
- *   - pm=true    also render the uncertainty: `<col>_std` for tables, the
- *                metric's own uncertainty field for metrics.
- *   - err=       explicit uncertainty column (implies pm).
+ *   - err=       uncertainty column to append as `± <value>` (table outputs).
+ *                A metric's own uncertainty, when it has one, is appended
+ *                automatically — no option needed.
  *   - sig=       significant figures (default 4; uncertainties use 2).
  */
 const valueRole = {
@@ -857,8 +857,10 @@ const valueRole = {
       alias: ['filter'],
       doc: 'Row filters: space/comma-separated key=value pairs (case-insensitive).',
     },
-    pm: { type: Boolean, doc: 'Append the ± uncertainty (<col>_std, or the metric’s own).' },
-    err: { type: String, doc: 'Explicit uncertainty column (implies pm).' },
+    err: {
+      type: String,
+      doc: 'Uncertainty column to append as ± (table outputs). Metric outputs append their own uncertainty automatically when present.',
+    },
     sig: { type: Number, doc: 'Significant figures (default 4).' },
   },
   run(data: any, vfile: any): any[] {
@@ -868,7 +870,7 @@ const valueRole = {
       return [valueError(msg)];
     };
     const pathStr = String(data?.body ?? '').trim();
-    const options: { col?: string; where?: string; pm?: boolean; err?: string; sig?: number } =
+    const options: { col?: string; where?: string; err?: string; sig?: number } =
       data?.options ?? {};
     if (!pathStr) return fail('missing path');
     if (/\s/.test(pathStr)) {
@@ -915,7 +917,7 @@ const valueRole = {
         if (metric?.value !== undefined) {
           let out = fmtNum(String(metric.value), sig);
           const unc = metric.uncertainty ?? metric.error;
-          if (options.pm && unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
+          if (unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
           const node = refNode('value', id, dottedKey(p.scope, id), out, 'metric');
           Object.assign(node.data.astra, { type: 'metric', product: output.label });
           return [node];
@@ -941,10 +943,10 @@ const valueRole = {
         return fail(`no row [${desc}] in "${id}"`);
       }
       let out = fmtNum(row[ci], sig);
-      const errCol = options.err ?? (options.pm ? `${col}_std` : null);
-      if (errCol) {
-        const ei = tbl.headers.indexOf(errCol);
-        if (ei >= 0 && row[ei] != null && row[ei] !== '' && row[ei] !== '-') {
+      if (options.err) {
+        const ei = tbl.headers.indexOf(options.err);
+        if (ei < 0) return fail(`no uncertainty column "${options.err}" in "${id}"`);
+        if (row[ei] != null && row[ei] !== '' && row[ei] !== '-') {
           out += ` ± ${fmtNum(row[ei], 2)}`;
         }
       }

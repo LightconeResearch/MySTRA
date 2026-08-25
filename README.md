@@ -37,7 +37,7 @@ ASTRA→MyST boundary so reports remain normal, portable MyST documents.
 
 ```markdown
 We adopt the {astra}`decisions.algorithm.multigrid` and measure
-$\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`,
+$\alpha =$ {astra:value col=alpha where="tracer=elg1" err=alpha_std}`outputs.alpha_table`,
 consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
 :::{astra} outputs.bao_fit_plot
@@ -207,18 +207,19 @@ Options follow MyST's `:key: value` form:
 Pull a number straight from the resolved analysis at build time:
 
 ```markdown
-{astra:value col=DV_over_rd where="tracer=lrg3_elg1" pm=true}`outputs.bao_distance_table`  → 19.88 ± 0.17
-{astra:value col=alpha1 where="tracer=elg1 recon=Pre" sig=3}`outputs.bao_alpha_values`     → 0.0696
-{astra:value}`outputs.chi2_reduced`                                                         → a metric's scalar
-{astra:value}`decisions.algorithm`                                                          → the selected option
+{astra:value col=DV_over_rd where="tracer=lrg3_elg1" err=DV_over_rd_std}`outputs.bao_distance_table`  → 19.88 ± 0.17
+{astra:value col=alpha1 where="tracer=elg1 recon=Pre" sig=3}`outputs.bao_alpha_values`                → 0.0696
+{astra:value}`outputs.chi2_reduced`                                                                    → a metric's scalar
+{astra:value}`decisions.algorithm`                                                                     → the selected option
 ```
 
 The body is the path; the selection is expressed as role options: `col=` picks
 the column, `where="key=val …"` filters rows (all pairs must match,
-case-insensitively), `pm=true` appends the `± <col>_std` uncertainty
-(`err=<col>` names an explicit column), and `sig=N` sets significant figures. A
-metric output interpolates its scalar directly with no options; a
-`decisions.<id>` path renders the option selected under the active universe.
+case-insensitively), `err=<col>` names the uncertainty column to append as
+`± <value>`, and `sig=N` sets significant figures. A metric output
+interpolates its scalar directly with no options, appending its own
+uncertainty automatically when it has one; a `decisions.<id>` path renders
+the option selected under the active universe.
 
 ### Native cross-references
 
