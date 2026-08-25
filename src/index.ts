@@ -827,6 +827,17 @@ function parseWhere(where: string | undefined): [string, string][] {
     });
 }
 
+/** Whether `pm=` requests an uncertainty at all (anything but absent/`false`). */
+function pmEnabled(pm: boolean | string | undefined): boolean {
+  return pm !== undefined && pm !== false && pm !== 'false';
+}
+
+/** The column named by `pm=<column>` (e.g. `pm=sigma`), or `undefined` for `pm=true`/`pm=false`. */
+function pmColumnName(pm: boolean | string | undefined): string | undefined {
+  if (typeof pm !== 'string' || pm === '' || pm === 'true' || pm === 'false') return undefined;
+  return pm;
+}
+
 /**
  * `{astra:value}` — interpolate a real number from the resolved analysis, so no
  * measured value is ever hard-typed into prose. The body is a path; the cell
@@ -834,6 +845,7 @@ function parseWhere(where: string | undefined): [string, string][] {
  *
  *   {astra:value}`outputs.chi2_reduced`                             a metric
  *   {astra:value col=DV where="tracer=lrg3" pm=true}`outputs.bao_table`
+ *   {astra:value col=DV where="tracer=lrg3" pm=sigma}`outputs.bao_table`
  *   {astra:value}`decisions.algorithm`                    the selected option
  *
  *   - body       a table/metric output (`outputs.bao_table`, scoped allowed)
@@ -841,10 +853,16 @@ function parseWhere(where: string | undefined): [string, string][] {
  *   - col=       the column to read (table outputs).
  *   - where=     row filters — space/comma-separated `key=value` pairs,
  *                matched case-insensitively (e.g. "tracer=lrg3 recon=Post").
- *   - pm=true    also render the uncertainty: `<col>_std` for tables, the
- *                metric's own uncertainty field for metrics.
- *   - err=       explicit uncertainty column (implies pm).
+ *   - pm=true    also render the uncertainty: `<col>_std` for tables (the
+ *                metric's own uncertainty field for metrics). Tables that
+ *                don't follow the `<col>_std` convention can name the
+ *                uncertainty column directly instead, e.g. `pm=sigma`.
+ *   - err=       explicit uncertainty column — an alias for `pm=<column>`.
  *   - sig=       significant figures (default 4; uncertainties use 2).
+ *
+ * A `<col>_std`/`err=`/`pm=<column>` that doesn't exist on the table is
+ * reported through MyST diagnostics rather than silently rendering the
+ * value with no uncertainty — see `pmEnabled`/`pmColumnName` below.
  */
 const valueRole = {
   name: 'astra:value',
@@ -857,8 +875,13 @@ const valueRole = {
       alias: ['filter'],
       doc: 'Row filters: space/comma-separated key=value pairs (case-insensitive).',
     },
-    pm: { type: Boolean, doc: 'Append the ± uncertainty (<col>_std, or the metric’s own).' },
-    err: { type: String, doc: 'Explicit uncertainty column (implies pm).' },
+    pm: {
+      type: String,
+      doc:
+        'Append the ± uncertainty. "true" uses <col>_std (or the metric’s own field); ' +
+        'a column name (e.g. pm=sigma) reads it directly, same as err=.',
+    },
+    err: { type: String, doc: 'Explicit uncertainty column — an alias for pm=<column>.' },
     sig: { type: Number, doc: 'Significant figures (default 4).' },
   },
   run(data: any, vfile: any): any[] {
@@ -868,8 +891,13 @@ const valueRole = {
       return [valueError(msg)];
     };
     const pathStr = String(data?.body ?? '').trim();
-    const options: { col?: string; where?: string; pm?: boolean; err?: string; sig?: number } =
-      data?.options ?? {};
+    const options: {
+      col?: string;
+      where?: string;
+      pm?: boolean | string;
+      err?: string;
+      sig?: number;
+    } = data?.options ?? {};
     if (!pathStr) return fail('missing path');
     if (/\s/.test(pathStr)) {
       // The pre-options body grammar (`<path> col=… tracer=… ±`) — point at
@@ -915,7 +943,9 @@ const valueRole = {
         if (metric?.value !== undefined) {
           let out = fmtNum(String(metric.value), sig);
           const unc = metric.uncertainty ?? metric.error;
-          if (options.pm && unc !== undefined && unc !== '') out += ` ± ${fmtNum(String(unc), 2)}`;
+          if (pmEnabled(options.pm) && unc !== undefined && unc !== '') {
+            out += ` ± ${fmtNum(String(unc), 2)}`;
+          }
           const node = refNode('value', id, dottedKey(p.scope, id), out, 'metric');
           Object.assign(node.data.astra, { type: 'metric', product: output.label });
           return [node];
@@ -941,10 +971,22 @@ const valueRole = {
         return fail(`no row [${desc}] in "${id}"`);
       }
       let out = fmtNum(row[ci], sig);
-      const errCol = options.err ?? (options.pm ? `${col}_std` : null);
+      // An explicit name (err=, or pm=<column> like pm=sigma) was asked for by
+      // name, so a missing column is the author's error; the implicit
+      // pm=true → `<col>_std` convention is a guess, so a miss is only a warning.
+      const namedCol = options.err ?? pmColumnName(options.pm);
+      const errCol = namedCol ?? (pmEnabled(options.pm) ? `${col}_std` : null);
       if (errCol) {
         const ei = tbl.headers.indexOf(errCol);
-        if (ei >= 0 && row[ei] != null && row[ei] !== '' && row[ei] !== '-') {
+        if (ei < 0) {
+          const msg =
+            `astra:value: no uncertainty column "${errCol}" in "${id}" — ` +
+            (namedCol
+              ? `check the column name.`
+              : `pass err=<column> (or pm=<column>) to name it explicitly.`);
+          if (namedCol) reportError(vfile, msg, data?.node);
+          else reportWarn(vfile, msg, data?.node);
+        } else if (row[ei] != null && row[ei] !== '' && row[ei] !== '-') {
           out += ` ± ${fmtNum(row[ei], 2)}`;
         }
       }

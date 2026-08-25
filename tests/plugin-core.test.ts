@@ -149,9 +149,9 @@ analyses:
       sub_decision: beta
 `;
 
-const MEASUREMENTS_CSV = `tracer,value,value_std
-lrg,19.88,0.17
-elg,0.0696,0.002
+const MEASUREMENTS_CSV = `tracer,value,value_std,sigma,extra
+lrg,19.88,0.17,0.17,5
+elg,0.0696,0.002,0.002,3
 `;
 
 /** Write `dir/results/baseline/<id>/<file>` with `content`. */
@@ -572,6 +572,35 @@ describe('role {astra:value}', () => {
     expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', err: 'value_std' }))).toBe('19.88 ± 0.17');
   });
 
+  it('honours pm=<column> as an alias for err=<column> (e.g. tables named "sigma", not "<col>_std")', () => {
+    expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', pm: 'sigma' }))).toBe('19.88 ± 0.17');
+  });
+
+  it('warns (not errors) when the implicit pm=true "<col>_std" convention has no matching column', () => {
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra:value', 'outputs.measurements', { col: 'extra', where: 'tracer=lrg', pm: true }, vf);
+    expect(textOf([token])).toBe('5');
+    const msgs = vf.messages.filter((m) => String(m.message).includes('extra_std'));
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].fatal).not.toBe(true);
+  });
+
+  it('errors (not warns) when an explicit err=<col>/pm=<col> names a column that does not exist', () => {
+    const vfErr = new VFile({ path: 'index.md' });
+    const [tokenErr] = runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', err: 'nope' }, vfErr);
+    expect(textOf([tokenErr])).toBe('19.88');
+    const errMsgs = vfErr.messages.filter((m) => String(m.message).includes('"nope"'));
+    expect(errMsgs).toHaveLength(1);
+    expect(errMsgs[0].fatal).toBe(true);
+
+    const vfPm = new VFile({ path: 'index.md' });
+    const [tokenPm] = runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', pm: 'nope' }, vfPm);
+    expect(textOf([tokenPm])).toBe('19.88');
+    const pmMsgs = vfPm.messages.filter((m) => String(m.message).includes('"nope"'));
+    expect(pmMsgs).toHaveLength(1);
+    expect(pmMsgs[0].fatal).toBe(true);
+  });
+
   it('formats to significant figures and respects sig=N', () => {
     expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=elg' }))).toBe('0.0696');
     expect(textOf(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=lrg', sig: 2 }))).toBe('20');
@@ -580,6 +609,14 @@ describe('role {astra:value}', () => {
   it('parses role options through the MyST inline-attribute syntax', () => {
     const tree = mystParse(
       '{astra:value col=value where="tracer=lrg" pm=true}`outputs.measurements`',
+      { roles: plugin.roles as any },
+    );
+    expect(textOf(tree as any)).toBe('19.88 ± 0.17');
+  });
+
+  it('parses pm=<column> (not just pm=true) through the MyST inline-attribute syntax', () => {
+    const tree = mystParse(
+      '{astra:value col=value where="tracer=lrg" pm=sigma}`outputs.measurements`',
       { roles: plugin.roles as any },
     );
     expect(textOf(tree as any)).toBe('19.88 ± 0.17');

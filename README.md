@@ -216,9 +216,11 @@ Pull a number straight from the resolved analysis at build time:
 The body is the path; the selection is expressed as role options: `col=` picks
 the column, `where="key=val …"` filters rows (all pairs must match,
 case-insensitively), `pm=true` appends the `± <col>_std` uncertainty
-(`err=<col>` names an explicit column), and `sig=N` sets significant figures. A
-metric output interpolates its scalar directly with no options; a
-`decisions.<id>` path renders the option selected under the active universe.
+(`pm=<col>`, e.g. `pm=sigma`, or the equivalent `err=<col>`, names an explicit
+column when a table doesn't follow that convention), and `sig=N` sets
+significant figures. A metric output interpolates its scalar directly with no
+options; a `decisions.<id>` path renders the option selected under the active
+universe.
 
 ### Native cross-references
 
