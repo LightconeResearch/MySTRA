@@ -60,4 +60,14 @@ Because the citations go through MyST, they participate in the project bibliogra
 
 ## Errors and fallbacks
 
-Inline surfaces degrade gracefully rather than breaking the page: a path that cannot be resolved (unknown id, missing scope) still renders a plain label from the path, and a `{astra:cite}` on a non-citable path renders a small inline error token — so a typo is visible in the preview without hiding the surrounding prose.
+Inline surfaces degrade gracefully rather than breaking the page: a path that cannot be resolved (unknown id, missing scope) still renders a plain label from the path, and a `{astra:cite}` on a non-citable path renders a small inline error token — so the surrounding prose keeps reading.
+
+Every unresolved path is **reported** on the build's diagnostics channel, with the file and line:
+
+```
+⛔️ index.md:12:3 astra "outputs.does_not_exist": no output "does_not_exist" in this scope — rendering a plain label
+```
+
+This matters because the fallback label is derived from the id (`does_not_exist` → "does not exist"), which can read as ordinary English. Renaming an element in `astra.yaml` breaks every reference to it; the diagnostic is what stops the broken references from reaching a reader as fluent prose.
+
+An element that *exists* but declares no `label:` is not an error — its humanized id is the intended label. Universe ids are also not checked: the active universe is one file among however many the project ships.

@@ -9,7 +9,12 @@
 
 import { dirname, join, parse as parsePath } from 'node:path';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { loadYaml, resolveAnalysisTree, validateAnalysis } from '@astra-spec/sdk';
+import {
+  collectRecommendations,
+  loadYaml,
+  resolveAnalysisTree,
+  validateAnalysis,
+} from '@astra-spec/sdk';
 import type { Analysis, Universe } from '@astra-spec/sdk';
 import { reportWarn } from './diagnostics.js';
 
@@ -24,6 +29,22 @@ export interface ASTRASource {
 
 /** Resolve an output id to its artifact's absolute path, or `undefined`. */
 export type ArtifactResolver = (outputId: string) => string | undefined;
+
+/** What {@link resolveArtifact} needs beyond the path, to choose well and say so. */
+export interface ArtifactHints {
+  /**
+   * The output's declared `format` — an extension token without the dot
+   * (`csv`, `png`, `tar.gz`), inherited from the source for a `from:` alias.
+   */
+  format?: string;
+  /** Routes the ambiguity warning to the page that triggered the resolve. */
+  vfile?: any;
+  /**
+   * Output ids already warned about. Owned by the caller (one set per cached
+   * scope) so the nudge is emitted once per build, not once per reference.
+   */
+  warned?: Set<string>;
+}
 
 /**
  * Load an ASTRA project. `vfile` routes validation diagnostics to MyST's
@@ -65,6 +86,18 @@ function reportValidation(projectDir: string, raw: RawSpec, vfile?: any): void {
     // The validator itself blew up — downgrade to a warning and move on.
     const message = err instanceof Error ? err.message : String(err);
     reportWarn(vfile, `validateAnalysis could not run (skipped): ${message}`);
+  }
+  // Recommended-but-absent fields — chiefly `Output.format`, which is what
+  // lets `resolveArtifact` bind a multi-file output without guessing. Advisory
+  // in ASTRA 0.0.x, required from 0.1.0; a separate channel from the errors
+  // above because a recommendation must never make an analysis invalid.
+  try {
+    for (const message of collectRecommendations(raw as any, { basePath: projectDir })) {
+      reportWarn(vfile, `astra: ${message}`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reportWarn(vfile, `collectRecommendations could not run (skipped): ${message}`);
   }
 }
 
@@ -109,14 +142,25 @@ function loadUniverse(projectDir: string): Universe {
  *
  * astra-spec leaves the on-disk path to the runner; lightcone-cli fixes the
  * output *directory* as `[<analysis path>/]results/<universe>/<id>/`, so it is
- * computed (never scanned). The recipe chooses the file *name*, so we read that
- * one directory, preferring `<id>.<ext>`, else the first regular file (dotfiles,
- * incl. `.lightcone-manifest.json`, skipped). Absent directory → not produced.
+ * computed (never scanned). The recipe chooses the file *name*, and may write
+ * several files into that one directory, so the choice runs in order of
+ * decreasing explicitness — mirroring the SDK's `discoverArtifact`, so a MySTRA
+ * page and a viewer bind the same file:
+ *
+ *   1. `<id>.<format>`, when the output declares a `format:`
+ *   2. any file carrying the declared extension (covers a name the recipe
+ *      chose for itself, and dotted formats like `tar.gz`)
+ *   3. `<id>.<anything>`, the convention this code has always preferred
+ *   4. the first file, alphabetically — a last resort, and warned about
+ *
+ * Dotfiles (incl. `.lightcone-manifest.json`) are skipped throughout; an
+ * absent directory means "not produced".
  */
 export function resolveArtifact(
   base: string,
   universeId: string,
   outputId: string,
+  hints: ArtifactHints = {},
 ): string | undefined {
   const dir = join(base, 'results', universeId, outputId);
   let entries: string[];
@@ -129,7 +173,33 @@ export function resolveArtifact(
     .filter((f) => !f.startsWith('.') && safeIsFile(join(dir, f)))
     .sort();
   if (files.length === 0) return undefined;
-  return join(dir, files.find((f) => parsePath(f).name === outputId) ?? files[0]);
+
+  const suffix = hints.format ? `.${hints.format.toLowerCase()}` : undefined;
+  const declared = suffix
+    ? files.find((f) => f.toLowerCase() === `${outputId.toLowerCase()}${suffix}`)
+      ?? files.find((f) => f.toLowerCase().endsWith(suffix))
+    : undefined;
+  const exact = files.find((f) => parsePath(f).name === outputId);
+  const chosen = declared ?? exact ?? files[0];
+
+  // Only worth saying when the directory holds a choice to get wrong.
+  if (files.length > 1 && !hints.warned?.has(outputId)) {
+    const message = suffix && !declared
+      ? `"${outputId}" declares \`format: ${hints.format}\`, but none of its ` +
+        `${files.length} result files carries that extension — reading "${chosen}". ` +
+        `Fix the declared format, or write the artifact as "${outputId}${suffix}".`
+      : !suffix && !exact
+        ? `"${outputId}" has ${files.length} result files and none is named ` +
+          `"${outputId}.*" — reading "${chosen}" by alphabetical order. Declare the ` +
+          `output's \`format:\` (or name the primary artifact "${outputId}.<ext>") ` +
+          `to make the choice explicit.`
+        : undefined;
+    if (message) {
+      hints.warned?.add(outputId);
+      reportWarn(hints.vfile, message);
+    }
+  }
+  return join(dir, chosen);
 }
 
 function safeIsFile(path: string): boolean {

@@ -3,7 +3,8 @@
  *
  * As of astra-spec v0.0.7, an Output with `from:` is a pure pointer
  * — type, description, inputs, decisions, and recipe are inherited
- * from the source. The path grammar is downward only:
+ * from the source (and `format`, since v0.0.14). The path grammar is
+ * downward only:
  *
  *   from: child.out_id            -- own child sub's output
  *   from: child.grand.out_id      -- descend through nested children
@@ -11,8 +12,8 @@
  * Resolution is the consumer's problem if MySTRA doesn't do it. To
  * keep the boundary clean (renderers pattern-match on emitted nodes,
  * never re-read `astra.yaml`), MySTRA does it here: every Output
- * surfaces a resolved view with type/description/inputs/decisions/
- * recipe inherited from the source if `from:` is set.
+ * surfaces a resolved view with type/format/description/inputs/
+ * decisions/recipe inherited from the source if `from:` is set.
  *
  * This mirrors the resolver lightcone-ui's `ed0e69c` pulled into
  * `bundle.ts`; that work moves back into MySTRA so both
@@ -27,8 +28,8 @@ export interface ResolvedOutput {
   /** The original output as declared in this scope. */
   declared: Output;
   /**
-   * The resolved view: type, description, inputs, decisions, recipe
-   * filled in from the source if `from:` chains were walked. When
+   * The resolved view: type, format, description, inputs, decisions,
+   * recipe filled in from the source if `from:` chains were walked. When
    * `declared.from` is unset, this equals `declared`.
    */
   resolved: Output;
@@ -93,6 +94,11 @@ export function resolveOutput(
     when: output.when,
     label: output.label ?? sourceOutput.label,
     type: sourceOutput.type,
+    // The schema forbids `format:` on a re-export, so an alias that reported
+    // only what it declared would always report nothing — and the artifact
+    // resolver would be back to guessing for exactly the outputs a reader is
+    // most likely to be looking at.
+    format: sourceOutput.format,
     description: sourceOutput.description,
     inputs: sourceOutput.inputs,
     decisions: sourceOutput.decisions,

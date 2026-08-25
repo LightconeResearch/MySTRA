@@ -498,6 +498,50 @@ describe('role {astra}', () => {
     });
   });
 
+  // An id that does not exist used to render as fluent prose — `humanize()` is
+  // the right label for an element that exists but declares no `label:`, and
+  // exactly the wrong thing for one that is simply absent.
+  const MISSING_REFS: [string, string][] = [
+    ['outputs.does_not_exist', 'does_not_exist'],
+    ['decisions.example_method', 'example_method'],
+    ['findings.no_such_finding', 'no_such_finding'],
+    ['prior_insights.no_such_insight', 'no_such_insight'],
+    ['inputs.no_such_input', 'no_such_input'],
+    ['decisions.method.options.no_such_option', 'no_such_option'],
+    ['findings.signal_detected.evidence.no_such_evidence', 'no_such_evidence'],
+  ];
+
+  it.each(MISSING_REFS)('reports an unknown id in %s', (path, id) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const vf = new VFile({ path: 'index.md' });
+    const nodes = runRole('astra', path, undefined, vf);
+
+    // Reported — at error severity, matching the `:::{astra}` block form.
+    const flagged = vf.messages.filter((m) => String(m.message).includes(id));
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].fatal).toBe(true);
+    // …and the page still renders rather than breaking.
+    expect(nodes).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('keeps humanize() for an element that exists but declares no label', () => {
+    const vf = new VFile({ path: 'index.md' });
+    // `sub_raw` is a real input of the sub-analysis, aliased and unlabelled.
+    const [token] = runRole('astra', 'sub.inputs.sub_raw', undefined, vf);
+    expect(textOf([token])).toBe('sub raw');
+    expect(token.data?.astra).toMatchObject({ kind: 'input', id: 'sub_raw' });
+    expect(vf.messages).toEqual([]);
+  });
+
+  it('stays lenient on universes, which have no registry to check against', () => {
+    const vf = new VFile({ path: 'index.md' });
+    const [token] = runRole('astra', 'universes.some_other_universe', undefined, vf);
+    expect(token.data?.astra).toMatchObject({ kind: 'universe', id: 'some_other_universe' });
+    expect(vf.messages).toEqual([]);
+  });
+
   it('an unresolvable ref falls back with a collection-elided key, marked unresolved', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const vf = new VFile({ path: 'index.md' });
@@ -609,6 +653,14 @@ describe('role {astra:value}', () => {
     expect(runRole('astra:value', 'outputs.measurements', { col: 'nope', where: 'tracer=lrg' })[0].type).toBe('inlineCode');
     expect(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'tracer=ghost' })[0].type).toBe('inlineCode');
     expect(runRole('astra:value', 'outputs.measurements', { col: 'value', where: 'notapair' })[0].type).toBe('inlineCode');
+  });
+
+  it('names the file it actually read, since an output is a directory', () => {
+    // Without the filename a mis-selected artifact reads as a bad column name;
+    // with it, the author can see at a glance which file was consulted.
+    const vf = new VFile({ path: 'index.md' });
+    runRole('astra:value', 'outputs.measurements', { col: 'nope' }, vf);
+    expect(vf.messages.some((m) => String(m.message).includes('measurements.csv'))).toBe(true);
   });
 
   it('treats an unproduced result as a warning, not an error (pending state)', () => {

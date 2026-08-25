@@ -68,6 +68,8 @@ my-analysis/
 
 MySTRA never scans the results tree: it computes each output's directory deterministically from the convention above (the analysis's `path:` + universe + output id) and resolves the artifact file lazily, as it renders. A sub-analysis that declares `path: ./analyses/<sub>` roots its own `results/<universe>/` there.
 
+That directory may hold several files. Declare the output's `format:` in `astra.yaml` (`format: csv`, `format: png`, …) so MySTRA reads the artifact rather than whatever sorts first — see [Results layout](reference/configuration.md#results-layout).
+
 ## Write your first references
 
 Create an `index.md` and reference the analysis instead of restating it. Everything is addressed by a [path](authoring/paths.md) that mirrors `astra.yaml`:

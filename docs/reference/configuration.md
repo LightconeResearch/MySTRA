@@ -33,6 +33,17 @@ MySTRA never scans the results tree. It computes each output's artifact location
 
 and resolves the file lazily, as it renders. A sub-analysis that declares `path: ./analyses/<sub>` in `astra.yaml` roots its own `results/<universe>/` tree at that path. Image artifacts are handed to MyST's asset pipeline, which hashes and copies them into the build.
 
+### When an output directory holds more than one file
+
+The output is a *directory*, so a recipe is free to write a log, a preview, or a second table beside the artifact. MySTRA picks the file to read in this order:
+
+1. `<output-id>.<format>`, where `format` is the output's declared [`format:`](https://astra-spec.org/latest/specification/) (`csv`, `png`, `parquet`, …)
+2. any file carrying the declared extension — for a recipe that names its own artifact, and for dotted formats like `tar.gz`
+3. `<output-id>.<anything>` — the convention above
+4. the first file alphabetically, **with a warning**, because at that point nothing in the project says which file is the artifact
+
+Declaring `format:` on every output is therefore the way to make the choice explicit. It is recommended in ASTRA 0.0.x — MySTRA reports the outputs missing one as a build warning — and required from ASTRA 0.1.0. A re-export (`from:`) inherits its source's format and must not declare one.
+
 ## Caching and live reload
 
 - `astra.yaml` is parsed once per build and cached; the cache is invalidated when `astra.yaml` or the active universe file changes on disk (by modification time).

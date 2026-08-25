@@ -44,7 +44,7 @@
     "url": "https://github.com/LightconeResearch/MySTRA"
   },
   "dependencies": {
-    "@astra-spec/sdk": "^0.0.5",
+    "@astra-spec/sdk": "^0.0.7",
     "myst-common": "^1.9.5",
     "myst-parser": "^1.7.1",
     "papaparse": "^5.4.0"

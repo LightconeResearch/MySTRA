@@ -164,8 +164,14 @@ interface Scope {
   vfile?: any;
 }
 
-/** A memoizable scope: everything but the per-pass tabItem and per-call vfile. */
-type ScopeCore = Omit<Scope, 'tabItem' | 'vfile'>;
+/**
+ * A memoizable scope: everything but the per-pass tabItem and per-call vfile.
+ * `results` is not memoized directly — it closes over the vfile its ambiguity
+ * warnings are attributed to — so the core carries the factory instead.
+ */
+type ScopeCore = Omit<Scope, 'tabItem' | 'vfile' | 'results'> & {
+  makeResults: (vfile?: any) => ArtifactResolver;
+};
 
 /**
  * Memoized scope cores — a {@link Scope} minus its per-pass `tabItem` factory
@@ -188,7 +194,7 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
   const cacheKey = `${root}::${analysisPath.join('.')}`;
   const cached = scopeCache.get(cacheKey);
   if (cached && cached.source === source) {
-    return { ...cached.core, tabItem: makeTabItem(), vfile };
+    return { ...cached.core, results: cached.core.makeResults(vfile), tabItem: makeTabItem(), vfile };
   }
 
   let analysis = source.analysis;
@@ -220,7 +226,6 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
 
   const slug = slugParts.length ? slugParts.join('/') : 'index';
   const universeId = source.universe.id;
-  const results: ArtifactResolver = (id) => resolveArtifact(resultsBase, universeId, id);
   const priorInsights = Object.assign(
     {},
     ...inheritedPriorInsights,
@@ -229,12 +234,21 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
   const outputsById = new Map(
     resolveOutputs(analysis).map(({ resolved }) => [resolved.id, resolved] as const),
   );
+  // Lives with the memoized core, so a directory whose artifact had to be
+  // guessed is reported once per build rather than once per reference.
+  const warned = new Set<string>();
+  const makeResults = (vf?: any): ArtifactResolver => (id) =>
+    resolveArtifact(resultsBase, universeId, id, {
+      format: outputsById.get(id)?.format,
+      vfile: vf,
+      warned,
+    });
 
   const core: ScopeCore = {
     root,
     analysis,
     universe: activeUniverse,
-    results,
+    makeResults,
     prose: proseParser,
     priorInsights,
     outputsById,
@@ -243,7 +257,7 @@ function resolveScope(root: string, analysisPath: string[], vfile?: any): Scope 
     ancestors,
   };
   scopeCache.set(cacheKey, { source, core });
-  return { ...core, tabItem: makeTabItem(), vfile };
+  return { ...core, results: makeResults(vfile), tabItem: makeTabItem(), vfile };
 }
 
 /** Absolute result path → posix project-relative URL for MyST's asset copy. */
@@ -653,7 +667,17 @@ type RefKind =
   | 'evidence'
   | 'universe';
 
-/** Resolve a parsed path to its inline reference kind, label, and store key. */
+/**
+ * Resolve a parsed path to its inline reference kind, label, and store key.
+ *
+ * Every branch checks that the element *exists* before falling back to
+ * `humanize(id)` for its label. The two are easy to conflate — and were: a
+ * humanized id is the right label for an element that exists but declares no
+ * `label:`, and exactly the wrong thing for one that does not exist at all,
+ * because `{astra}`outputs.does_not_exist`` then renders as the fluent prose
+ * "does not exist" and survives review. A missing element throws, and the
+ * caller reports it on the page's diagnostics channel.
+ */
 function resolveInlineRef(
   p: AstraPath,
   scope: Scope,
@@ -662,19 +686,28 @@ function resolveInlineRef(
   // Children first — an option / evidence inline reference.
   if (p.child) {
     const ownerId = p.id!;
+    const childPath = dottedKey(p.scope, `${ownerId}.${p.child.id}`);
     if (p.child.collection === 'options') {
-      const opt = scope.analysis.decisions?.[ownerId]?.options?.[p.child.id];
+      const decision = scope.analysis.decisions?.[ownerId];
+      if (!decision) throw new Error(`no decision "${ownerId}" in this scope`);
+      const opt = decision.options?.[p.child.id];
+      if (!opt) throw new Error(`no option "${p.child.id}" on decision "${ownerId}"`);
       return {
         kind: 'option',
         id: p.child.id,
-        path: dottedKey(p.scope, `${ownerId}.${p.child.id}`),
-        label: display ?? opt?.label ?? humanize(p.child.id),
+        path: childPath,
+        label: display ?? opt.label ?? humanize(p.child.id),
       };
     }
+    // Same lookup the `:::{astra}` block form does for a single evidence record.
+    const owner = insightOwner(p, scope);
+    if (!owner) throw new Error(`no ${p.collection} "${ownerId}" in this scope`);
+    const ev = (owner.evidence ?? []).find((e: any) => e.id === p.child!.id);
+    if (!ev) throw new Error(`no evidence "${p.child.id}" on ${p.collection} "${ownerId}"`);
     return {
       kind: 'evidence',
       id: p.child.id,
-      path: dottedKey(p.scope, `${ownerId}.${p.child.id}`),
+      path: childPath,
       label: display ?? humanize(p.child.id),
     };
   }
@@ -682,25 +715,41 @@ function resolveInlineRef(
   const id = p.id!;
   const path = dottedKey(p.scope, id);
   switch (p.collection) {
-    case 'decisions':
-      return { kind: 'decision', id, path, label: display ?? scope.analysis.decisions?.[id]?.label ?? humanize(id) };
-    case 'findings':
-      return { kind: 'finding', id, path, label: display ?? scope.analysis.findings?.[id]?.label ?? humanize(id) };
-    case 'prior_insights':
-      return { kind: 'prior_insight', id, path, label: display ?? scope.priorInsights[id]?.label ?? humanize(id) };
+    case 'decisions': {
+      const decision = scope.analysis.decisions?.[id];
+      if (!decision) throw new Error(`no decision "${id}" in this scope`);
+      return { kind: 'decision', id, path, label: display ?? decision.label ?? humanize(id) };
+    }
+    case 'findings': {
+      const finding = scope.analysis.findings?.[id];
+      if (!finding) throw new Error(`no finding "${id}" in this scope`);
+      return { kind: 'finding', id, path, label: display ?? finding.label ?? humanize(id) };
+    }
+    case 'prior_insights': {
+      const insight = scope.priorInsights[id];
+      if (!insight) throw new Error(`no prior insight "${id}" in this scope`);
+      return { kind: 'prior_insight', id, path, label: display ?? insight.label ?? humanize(id) };
+    }
     case 'analyses': {
       const sub = scope.analysis.analyses?.[id];
       if (!sub) throw new Error(`no sub-analysis "${id}" in this scope`);
       return { kind: 'analysis', id, path, label: display ?? sub.name ?? humanize(id) };
     }
-    case 'inputs':
-      return { kind: 'input', id, path, label: display ?? (scope.analysis.inputs ?? []).find((i) => i.id === id)?.label ?? humanize(id) };
+    case 'inputs': {
+      const input = (scope.analysis.inputs ?? []).find((i) => i.id === id);
+      if (!input) throw new Error(`no input "${id}" in this scope`);
+      return { kind: 'input', id, path, label: display ?? input.label ?? humanize(id) };
+    }
     case 'universes':
+      // Deliberately lenient: there is no registry to check a universe id
+      // against — the active universe is one file among however many the
+      // project ships, so an id naming another one is not an error here.
       return { kind: 'universe', id, path, label: display ?? id };
     case 'outputs':
     default: {
       const o = scope.outputsById.get(id);
-      return { kind: 'output', id, path, label: display ?? o?.label ?? humanize(id), subtype: o?.type ?? 'output' };
+      if (!o) throw new Error(`no output "${id}" in this scope`);
+      return { kind: 'output', id, path, label: display ?? o.label ?? humanize(id), subtype: o.type ?? 'output' };
     }
   }
 }
@@ -722,7 +771,11 @@ const astraRole = {
       const r = resolveInlineRef(p, scope, display);
       return [refNode(r.kind, r.id, r.path, r.label, r.subtype)];
     } catch (err) {
-      reportWarn(vfile, `astra "${path}": ${(err as Error).message} — rendering a plain label`, data?.node);
+      // A dead reference is an authoring error, the same as it is on the
+      // `:::{astra}` block and on `{astra:value}` — reported at error severity
+      // even though the page still renders, so a rename that orphans a
+      // reference cannot leave a clean build behind.
+      reportError(vfile, `astra "${path}": ${(err as Error).message} — rendering a plain label`, data?.node);
       const id = p.id ?? path;
       // Store key in the same collection-elided format as resolveInlineRef;
       // `unresolved` tells the store transform not to attempt a cross-scope
@@ -922,12 +975,16 @@ const valueRole = {
         }
       }
 
+      // An output is a *directory*: name the file that was actually read, so a
+      // mis-selected artifact is self-evident rather than looking like a bad
+      // column name (see resolveArtifact for how the file is chosen).
+      const file = basename(abs);
       const tbl = parseTableData(abs);
-      if (!tbl) return fail(`"${id}" is not tabular`);
+      if (!tbl) return fail(`"${id}" (${file}) is not tabular`);
       const col = options.col;
-      if (!col) return fail(`missing col= for "${id}"`);
+      if (!col) return fail(`missing col= for "${id}" (${file})`);
       const ci = tbl.headers.indexOf(col);
-      if (ci < 0) return fail(`no column "${col}" in "${id}"`);
+      if (ci < 0) return fail(`no column "${col}" in "${id}" (${file})`);
       const filters = parseWhere(options.where);
       // Resolve each filter's column index once, not per row.
       const filterCols = filters.map(
@@ -938,7 +995,7 @@ const valueRole = {
       );
       if (!row) {
         const desc = filters.map(([k, v]) => `${k}=${v}`).join(', ') || '(no filter)';
-        return fail(`no row [${desc}] in "${id}"`);
+        return fail(`no row [${desc}] in "${id}" (${file})`);
       }
       let out = fmtNum(row[ci], sig);
       const errCol = options.err ?? (options.pm ? `${col}_std` : null);
