@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { VFile } from 'vfile';
 import { parseProseBlocks, parseProseInline } from '../src/transform/prose.js';
 
 function collectNodes(nodes: any[], type: string): any[] {
@@ -57,6 +58,12 @@ describe('parseProseBlocks (via myst-parser)', () => {
     const admonitions = collectNodes(out, 'admonition');
     expect(admonitions).toHaveLength(1);
   });
+
+  it('renders display math before late component prose reaches the theme', () => {
+    const [math] = parseProseBlocks('$$\nx^2 + y^2\n$$');
+    expect(math).toMatchObject({ type: 'math', value: 'x^2 + y^2' });
+    expect(math.html).toContain('class="katex-display"');
+  });
 });
 
 describe('parseProseInline', () => {
@@ -79,5 +86,25 @@ describe('parseProseInline', () => {
     expect(flat).toContain('heading');
     expect(flat).toContain('item one');
     expect(flat).toContain('fenced code');
+  });
+
+  it('renders inline math before late component prose reaches the theme', () => {
+    const math = collectNodes(
+      parseProseInline('where $x^2$ is positive'),
+      'inlineMath',
+    )[0];
+    expect(math).toMatchObject({ type: 'inlineMath', value: 'x^2' });
+    expect(math.html).toContain('class="katex"');
+  });
+
+  it('reports invalid math through the supplied page file', () => {
+    const file = new VFile({ path: 'article.md' });
+    const math = collectNodes(
+      parseProseInline('broken $\\notacommand{$', file),
+      'inlineMath',
+    )[0];
+    expect(file.messages).toHaveLength(1);
+    expect(file.messages[0]?.fatal).toBe(true);
+    expect(math).toMatchObject({ type: 'inlineMath', error: true });
   });
 });

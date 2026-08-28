@@ -59,7 +59,7 @@ import {
   sourceStem,
 } from './page-map.js';
 import { reportError, reportWarn } from './diagnostics.js';
-import { proseParser } from './transform/prose.js';
+import { createProseParser } from './transform/prose.js';
 import type { ProseParser } from './transform/prose.js';
 import {
   admonition,
@@ -163,7 +163,7 @@ function resolveScope(
     root: project.root,
     analysis,
     results,
-    prose: proseParser,
+    prose: createProseParser(vfile),
     records: project.index.recordByPath,
     outputsById: new Map(analysis.outputs.map((output) => [output.id, output])),
     outputsByPath: outputIndex(project),

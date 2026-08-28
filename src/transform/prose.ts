@@ -13,6 +13,12 @@
 
 import { mystParse } from 'myst-parser';
 import { liftChildren } from 'myst-common';
+import {
+  mathLabelTransform,
+  mathNestingTransform,
+  mathTransform,
+} from 'myst-transforms';
+import { VFile } from 'vfile';
 
 // ── Parsing ───────────────────────────────────────────────────────
 
@@ -22,9 +28,15 @@ import { liftChildren } from 'myst-common';
  * a `container`, …) sits inside as children, which downstream renderers
  * consume. The tree is freshly parsed, so the in-place lift is safe.
  */
-function parseAndLift(md: string): any {
+function parseAndLift(md: string, file: VFile): any {
   const tree = mystParse(md);
   liftChildren(tree, 'mystDirective');
+  // Component prose is inserted after MyST's document-level math passes. Run
+  // those same math transforms here so late inline/display math reaches themes
+  // with KaTeX HTML and reports diagnostics through the page's VFile.
+  mathNestingTransform(tree, file);
+  mathLabelTransform(tree, file);
+  mathTransform(tree, file);
   return tree;
 }
 
@@ -32,9 +44,12 @@ function parseAndLift(md: string): any {
  * Parse a Markdown string into mdast block nodes (paragraphs, headings, lists,
  * …), with directive wrappers lifted and positions stripped.
  */
-export function parseProseBlocks(md: string | undefined): any[] {
+export function parseProseBlocks(
+  md: string | undefined,
+  file = new VFile(),
+): any[] {
   if (!md) return [];
-  return (parseAndLift(md).children ?? []).map(stripPositions);
+  return (parseAndLift(md, file).children ?? []).map(stripPositions);
 }
 
 /**
@@ -43,9 +58,12 @@ export function parseProseBlocks(md: string | undefined): any[] {
  * claims). A single paragraph is unwrapped; otherwise phrasing is flattened
  * across blocks so author input that overshoots an inline context still survives.
  */
-export function parseProseInline(md: string | undefined): any[] {
+export function parseProseInline(
+  md: string | undefined,
+  file = new VFile(),
+): any[] {
   if (!md) return [];
-  const blocks = parseAndLift(md).children ?? [];
+  const blocks = parseAndLift(md, file).children ?? [];
   if (blocks.length === 0) return [];
   if (blocks.length === 1 && blocks[0].type === 'paragraph') {
     return (blocks[0].children ?? []).map(stripPositions);
@@ -88,11 +106,13 @@ export interface ProseParser {
   inline(md: string | undefined): any[];
 }
 
-/** The one (stateless) prose parser — shared by every scope and renderer. */
-export const proseParser: ProseParser = {
-  blocks: parseProseBlocks,
-  inline: parseProseInline,
-};
+/** Create a parser whose math diagnostics are attached to the current page. */
+export function createProseParser(file = new VFile()): ProseParser {
+  return {
+    blocks: (md) => parseProseBlocks(md, file),
+    inline: (md) => parseProseInline(md, file),
+  };
+}
 
 /**
  * Recursively strip the `position` field markdown-it injects. The book-theme

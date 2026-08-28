@@ -284,6 +284,15 @@ describe('neutral block rendering from the resolved SDK model', () => {
     );
   });
 
+  it('renders math in late output-caption overrides', async () => {
+    const figure = await renderDirective('outputs.scatter_plot', {
+      caption: 'Fit residual $\\Delta x$ by sample.',
+    });
+    const math = find(figure, (node) => node.type === 'inlineMath');
+    expect(math).toMatchObject({ type: 'inlineMath', value: '\\Delta x' });
+    expect(math?.html).toContain('class="katex"');
+  });
+
   it('does not present SDK-inactive decisions or outputs as pending records', async () => {
     expect(textContent(await renderDirective('outputs'))).not.toContain('Hidden metric');
     expect(textContent(await renderDirective('outputs.hidden_metric'))).toContain(
