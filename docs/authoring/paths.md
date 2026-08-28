@@ -26,9 +26,6 @@ The recognised collections are exactly the `astra.yaml` keys:
 | `findings` | Claims with notes, scope, and evidence | `finding` |
 | `prior_insights` | Cited claims from the literature | `prior_insight` |
 | `analyses` | Nested sub-analyses | `analysis` |
-| `universes` | Decision-selection sets | `universe` |
-
-`prior-insights` (hyphenated) is accepted as an alias for `prior_insights`.
 
 ## Sub-analyses
 
@@ -38,7 +35,7 @@ A sub-analysis id may be written directly — the `analyses.` prefix is implied 
 reconstruction.outputs.xi               shorthand
 analyses.reconstruction.outputs.xi      the explicit long form
 clustering.correlation.outputs.xi       two levels deep
-reconstruction                          the sub-analysis itself (renders a nav card)
+reconstruction                          the sub-analysis itself (renders a summary card)
 ```
 
 Each segment before the first collection keyword is a step into a sub-analysis; the first collection keyword fixes the target.
@@ -67,7 +64,7 @@ reconstruction.inputs                   the inputs registry of a sub-analysis
 
 ## Where paths resolve from
 
-A path always resolves from the **root analysis**, so it means the same thing on every page; a leading `/` is tolerated (`decisions.algorithm` and `/decisions.algorithm` are the same). To address something inside a sub-analysis, spell the scope out: `reconstruction.outputs.xi`.
+A path always resolves from the **root analysis**, so it means the same thing on every page. To address something inside a sub-analysis, spell the scope out: `reconstruction.outputs.xi`. Paths must use canonical collection names and exact dot-separated segments; leading slashes, empty segments, and trailing content are errors.
 
 ## IDs and labels
 

@@ -16,7 +16,7 @@ Edit `astra.yaml` or rerun the analysis, rebuild, and every number in the prose 
 | Option | Meaning |
 |---|---|
 | `col=<column>` | The column to read (required for table outputs). |
-| `where="<key>=<val> …"` | Row filters — space- or comma-separated `key=value` pairs; every pair must match, case-insensitively. Alias: `filter=`. |
+| `where="<key>=<val> …"` | Row filters — space- or comma-separated `key=value` pairs; every pair must match, case-insensitively. |
 | `pm=true` | Also render the uncertainty: `<col>_std` for tables, the metric's own uncertainty for metrics. |
 | `err=<column>` | Explicit uncertainty column (instead of the `<col>_std` convention). |
 | `sig=<N>` | Significant figures for the value (default 4; uncertainties render with 2). |

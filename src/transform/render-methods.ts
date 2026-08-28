@@ -13,8 +13,12 @@
  * has no opinion about how decisions are organised.
  */
 
-import { isConditionMet } from '@astra-spec/sdk';
-import type { Decision, Insight, Universe } from '@astra-spec/sdk';
+import type {
+  ResolvedDecision,
+  ResolvedInsight,
+  ResolvedRecord,
+  ResolvedOption,
+} from '@astra-spec/sdk';
 import {
   carrierDiv,
   heading,
@@ -28,7 +32,6 @@ import {
   refNode,
 } from './ast-helpers.js';
 import type { ProseParser } from './prose.js';
-import { reportWarn } from '../diagnostics.js';
 
 /**
  * tabItem factory bound to the current render pass. Created once per
@@ -40,62 +43,35 @@ export type TabItemFn = (title: string, children: any[], selected?: boolean) => 
 /**
  * Will this decision produce a rendered block on the page?
  *
- * Two reasons a declared decision drops out of the AST:
- *  - it's a bare `from`-reference (no local definition; the
- *    parent analysis is where the data lives)
- *  - its `when` predicate is unmet given the active universe
+ * A decision drops out only when its `when` predicate is unmet under the
+ * active universe. The SDK has already resolved `from` references into a
+ * complete record, so renderers do not special-case their authored origin.
  *
  * The xref index uses this predicate to publish only ids that have
  * a real carrier — anchors to unrendered decisions would otherwise
  * land on nothing.
  */
 export function isDecisionRendered(
-  decision: Decision,
-  universe: Universe,
+  decision: ResolvedDecision,
 ): boolean {
-  if (decision.from) return false;
-  if (!decision.options) return false;
-  if (!isConditionMet(decision.when, universe.decisions ?? {})) return false;
-  return true;
+  return decision.active && decision.options.length > 0;
 }
 
 /**
- * The option id a universe selects for a decision, falling back to the
- * decision's declared default. THE "what did the universe pick" rule —
- * every surface (tabs, values, store, provenance) resolves through here.
- */
-export function selectedOptionId(
-  id: string,
-  decision: { default?: string } | undefined,
-  universe: { decisions?: Record<string, string> },
-): string | undefined {
-  return universe.decisions?.[id] ?? decision?.default;
-}
-
-/**
- * The "Supporting insight(s): a, b" paragraph of store-driven `astra-ref`
+ * The "Supporting insight(s): a, b" paragraph of SDK-backed `astra-ref`
  * tokens for an option's cited prior insights, or `null` when none resolve.
- * Broken references warn through the vfile channel so unresolved insight ids
- * don't silently disappear. Shared by the option tabs and the single-option
- * embed.
+ * The SDK has already validated and resolved every path. Shared by the option
+ * tabs and the single-option embed.
  */
 export function supportingInsightsParagraph(
-  insightIds: string[],
-  priorInsights: Record<string, Insight>,
-  vfile?: any,
+  insightPaths: string[],
+  records: ReadonlyMap<string, ResolvedRecord>,
 ): any | null {
   const refs: any[] = [];
-  for (const insightId of insightIds) {
-    const insight = priorInsights[insightId];
-    if (!insight) {
-      reportWarn(
-        vfile,
-        `Option references unknown prior_insight id "${insightId}" — broken reference dropped from output.`,
-      );
-      continue;
-    }
-    const linkText = insight.label ?? insight.claim ?? insightId;
-    refs.push(refNode('prior_insight', insightId, insightId, linkText));
+  for (const canonicalPath of insightPaths) {
+    const insight = records.get(canonicalPath) as ResolvedInsight;
+    const linkText = insight.label ?? insight.claim ?? insight.id;
+    refs.push(refNode('prior_insight', insight.id, linkText, undefined, canonicalPath));
   }
   if (refs.length === 0) return null;
   const para: any[] = [text(refs.length === 1 ? 'Supporting insight: ' : 'Supporting insights: ')];
@@ -108,16 +84,16 @@ export function supportingInsightsParagraph(
 
 export function renderDecision(
   id: string,
-  decision: Decision,
-  priorInsights: Record<string, Insight>,
-  universe: Universe,
+  decision: ResolvedDecision,
+  records: ReadonlyMap<string, ResolvedRecord>,
   prose: ProseParser,
   tabItem: TabItemFn,
-  vfile?: any,
 ): any[] {
-  const options = decision.options!;
-  const selectedId = selectedOptionId(id, decision, universe);
-  const selectedOption = selectedId ? options[selectedId] : undefined;
+  const options = decision.options;
+  const selectedId = decision.selectedOptionId;
+  const selectedOption = selectedId
+    ? options.find((option) => option.id === selectedId)
+    : undefined;
   const selectedLabel = selectedOption?.label ?? selectedId ?? '(none)';
   const decisionLabel = decision.label ?? id;
 
@@ -130,13 +106,13 @@ export function renderDecision(
   fallback.push(heading(3, [text(decisionLabel)]));
 
   // Build option tabs in declaration order…
-  const tabs = Object.entries(options).map(([optionId, option]) =>
-    renderOptionTab(optionId, option, optionId === selectedId, priorInsights, prose, tabItem, vfile),
+  const tabs = options.map((option) =>
+    renderOptionTab(option, option.id === selectedId, records, prose, tabItem),
   );
   // …then move the selected tab to first position (book-theme defaults to the
   // first tab). `indexOf` returns -1 when nothing is selected, so the splice
   // is skipped.
-  const selectedIndex = Object.keys(options).indexOf(selectedId ?? '');
+  const selectedIndex = options.findIndex((option) => option.id === selectedId);
   if (selectedIndex > 0) tabs.unshift(...tabs.splice(selectedIndex, 1));
 
   // Build details/summary dropdown (neutral styling, not admonition)
@@ -170,19 +146,11 @@ export function renderDecision(
 }
 
 function renderOptionTab(
-  optionId: string,
-  option: {
-    label: string;
-    description?: string;
-    insights?: string[];
-    excluded?: boolean;
-    excluded_reason?: string;
-  },
+  option: ResolvedOption,
   isSelected: boolean,
-  priorInsights: Record<string, Insight>,
+  records: ReadonlyMap<string, ResolvedRecord>,
   prose: ProseParser,
   tabItem: TabItemFn,
-  vfile?: any,
 ): any {
   // Tab title with selection marker
   let marker: string;
@@ -213,10 +181,13 @@ function renderOptionTab(
     );
   }
 
-  // Supporting insights — emit store-driven `astra-ref` tokens (the same inline
-  // reference the `{astra:prior-insight}` role produces). A rich theme renders
-  // each one's card from the resolved store by id; a bare theme shows the label.
-  const insightsPara = supportingInsightsParagraph(option.insights ?? [], priorInsights, vfile);
+  // Supporting insights use the same canonical-path `astra-ref` token as the
+  // authoring role. Rich themes can open the shared record UI; bare themes show
+  // the label.
+  const insightsPara = supportingInsightsParagraph(
+    option.resolvedInsightPaths,
+    records,
+  );
   if (insightsPara) children.push(insightsPara);
 
   return tabItem(title, children, isSelected);

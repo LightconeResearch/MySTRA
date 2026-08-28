@@ -8,7 +8,7 @@
  * exists whether or not any evidence references the output.
  */
 
-import type { Input, Output } from '@astra-spec/sdk';
+import type { ResolvedInput, ResolvedOutput } from '@astra-spec/sdk';
 import {
   table,
   tableRow,
@@ -21,10 +21,9 @@ import type { ProseParser } from './prose.js';
 /**
  * The shared registry-table shape: label / type / description per row.
  *
- * Compact handle: prefer label, fall back to id (added in v0.0.6).
+ * Compact handle: prefer label, fall back to id.
  * Description parses as inline Markdown so emphasis/links/code render
- * inside the table cell. `type` is schema-optional only for aliased
- * elements (those with `from:`); fall back to an empty cell when absent.
+ * inside the table cell. The resolved SDK contract guarantees `type`.
  *
  * Each row carries a stable `identifier: <kind>-<id>` so the narrative
  * grammar `[text](#<collection>.<id>)` resolves to it. mdast's `tableRow`
@@ -38,7 +37,7 @@ import type { ProseParser } from './prose.js';
  */
 function renderRegistryTable(
   kind: 'Input' | 'Output',
-  items: Array<Input | Output>,
+  items: Array<ResolvedInput | ResolvedOutput>,
   prose: ProseParser,
 ): any {
   const headerRow = tableRow(
@@ -54,7 +53,7 @@ function renderRegistryTable(
     const descCell = prose.inline(item.description);
     const row: any = tableRow([
       tableCell([strong([text(item.label ?? item.id)])]),
-      tableCell([text(item.type ?? '')]),
+      tableCell([text(item.type)]),
       tableCell(descCell.length > 0 ? descCell : [text('')]),
     ]);
     row.identifier = `${kind.toLowerCase()}-${item.id}`;
@@ -68,7 +67,7 @@ function renderRegistryTable(
 // Callers filter out the empty case so the page doesn't render a stray
 // "no inputs" sentence without a section heading to anchor it.
 
-export function renderInputsTable(inputs: Input[], prose: ProseParser): any {
+export function renderInputsTable(inputs: ResolvedInput[], prose: ProseParser): any {
   return renderRegistryTable('Input', inputs, prose);
 }
 
@@ -77,6 +76,6 @@ export function renderInputsTable(inputs: Input[], prose: ProseParser): any {
  * by `output-<id>`, regardless of whether the artifact has been produced or
  * any finding references it via evidence.
  */
-export function renderOutputsTable(outputs: Output[], prose: ProseParser): any {
+export function renderOutputsTable(outputs: ResolvedOutput[], prose: ProseParser): any {
   return renderRegistryTable('Output', outputs, prose);
 }

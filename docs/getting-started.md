@@ -61,12 +61,12 @@ my-analysis/
 ├── universes/
 │   └── baseline.yaml   Decision selections for the baseline universe
 ├── results/
-│   └── baseline/<output-id>/<output-id>.png   Materialised result artifacts
+│   └── baseline/<output-id>.png               Materialised result artifacts
 ├── myst.yml            Registers the plugin; lists pages
 └── index.md            Your report (+ optional sub-analysis pages)
 ```
 
-MySTRA never scans the results tree: it computes each output's directory deterministically from the convention above (the analysis's `path:` + universe + output id) and resolves the artifact file lazily, as it renders. A sub-analysis that declares `path: ./analyses/<sub>` roots its own `results/<universe>/` there.
+MySTRA never scans the results tree. The SDK derives each artifact binding from the selected universe, analysis namespace, output id, and declared `format`; path-backed sub-analyses start their own `results/` namespace.
 
 ## Write your first references
 
@@ -102,7 +102,7 @@ Run the stock MyST CLI from the project directory:
 myst start        # → http://localhost:3000
 ```
 
-That's it — no custom server and no build step of your own. MySTRA reads `astra.yaml` from the working directory and resolves the first universe in `universes/`.
+That's it — no custom server and no build step of your own. MySTRA reads `astra.yaml` from the working directory and delegates full validation, universe selection, and resolution to the SDK. With multiple universe files, the SDK selects the first `.yaml` or `.yml` filename in lexical order; with none, it uses authored defaults.
 
 !!! note "Editing `astra.yaml` while the server runs"
     `myst start` watches your Markdown files, not the ASTRA spec. The plugin does detect spec and universe edits (it checks file modification times), but a re-render is only triggered by a Markdown change — so after editing `astra.yaml`, re-save any `.md` page (or restart the server) to see the update.
@@ -119,4 +119,4 @@ produces a static site in `_build/html/` that you can host anywhere. All referen
 
 - Learn the full [path grammar](authoring/paths.md) — one idea that drives every surface.
 - Split a large report into [multiple pages](authoring/multi-page.md) that mirror your sub-analyses.
-- Building a theme? See [theming](reference/theming.md) for the classes and the resolved store the plugin emits.
+- Building a theme? See [theming](reference/theming.md) for the classes, canonical paths, and SDK publication bundle the plugin emits.

@@ -17,7 +17,7 @@ await build({
   bundle: true,
   format: 'esm',
   platform: 'node',
-  target: 'node18',
+  target: 'node20',
   outfile: OUTFILE,
   // markdown-it (via myst-parser) does `require('punycode')`, which esbuild
   // leaves pointing at Node's deprecated builtin (DEP0040 at load time). Alias

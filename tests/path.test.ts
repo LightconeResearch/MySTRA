@@ -5,9 +5,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseAstraPath,
+  canonicalRecordPath,
   pathIdentifier,
   splitDisplay,
-  dottedKey,
   KIND_BY_COLLECTION,
 } from '../src/path.js';
 
@@ -52,12 +52,6 @@ describe('parseAstraPath', () => {
       collection: 'prior_insights',
       id: 'recon',
       child: { collection: 'evidence', id: 'e1' },
-    });
-    // Collections without children ignore a trailing segment (as before).
-    expect(parseAstraPath('outputs.xi.extra')).toMatchObject({
-      collection: 'outputs',
-      id: 'xi',
-      child: null,
     });
   });
 
@@ -113,25 +107,12 @@ describe('parseAstraPath', () => {
     expect(parseAstraPath('analyses')).toMatchObject({ collection: 'analyses', id: null });
   });
 
-  it('tolerates a leading / (paths always resolve from the root)', () => {
-    expect(parseAstraPath('/decisions.method')).toMatchObject({
-      collection: 'decisions',
-      id: 'method',
-    });
-  });
-
-  it('accepts the prior-insights hyphen alias for prior_insights', () => {
-    expect(parseAstraPath('prior-insights.recon')).toMatchObject({
-      collection: 'prior_insights',
-      id: 'recon',
-    });
-  });
-
-  it('tolerates surrounding/duplicate dots and whitespace', () => {
-    expect(parseAstraPath('  outputs..xi.  ')).toMatchObject({
-      collection: 'outputs',
-      id: 'xi',
-    });
+  it('rejects malformed and non-canonical paths', () => {
+    expect(() => parseAstraPath('/decisions.method')).toThrow(/must not start/);
+    expect(() => parseAstraPath('outputs..xi')).toThrow(/invalid ASTRA path/);
+    expect(() => parseAstraPath('outputs.xi.extra')).toThrow(/unexpected segment/);
+    expect(() => parseAstraPath('prior-insights.recon')).toThrow(/prior_insights/);
+    expect(() => parseAstraPath('universes.baseline')).toThrow(/not addressable/);
   });
 });
 
@@ -155,6 +136,25 @@ describe('pathIdentifier', () => {
   });
 });
 
+describe('canonicalRecordPath', () => {
+  it('matches SDK record paths at root and in nested analyses', () => {
+    expect(canonicalRecordPath(parseAstraPath('outputs.xi'))).toBe('outputs.xi');
+    expect(canonicalRecordPath(parseAstraPath('stage.outputs.plot'))).toBe(
+      'stage.outputs.plot',
+    );
+  });
+
+  it('collapses children to their owning record and excludes navigation targets', () => {
+    expect(canonicalRecordPath(parseAstraPath('decisions.method.grid'))).toBe(
+      'decisions.method',
+    );
+    expect(canonicalRecordPath(parseAstraPath('findings.result.evidence.plot'))).toBe(
+      'findings.result',
+    );
+    expect(canonicalRecordPath(parseAstraPath('stage'))).toBeNull();
+  });
+});
+
 describe('splitDisplay', () => {
   it('extracts MyST-style display text <target>', () => {
     expect(splitDisplay('our method <decisions.algorithm>')).toEqual({
@@ -175,12 +175,7 @@ describe('splitDisplay', () => {
   });
 });
 
-describe('dottedKey + KIND_BY_COLLECTION', () => {
-  it('builds the dotted store key from scope + id', () => {
-    expect(dottedKey([], 'xi')).toBe('xi');
-    expect(dottedKey(['reconstruction'], 'xi')).toBe('reconstruction.xi');
-  });
-
+describe('KIND_BY_COLLECTION', () => {
   it('maps every collection to its singular kind', () => {
     expect(KIND_BY_COLLECTION).toMatchObject({
       outputs: 'output',
@@ -189,7 +184,6 @@ describe('dottedKey + KIND_BY_COLLECTION', () => {
       findings: 'finding',
       prior_insights: 'prior_insight',
       analyses: 'analysis',
-      universes: 'universe',
     });
   });
 });

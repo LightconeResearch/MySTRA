@@ -6,7 +6,7 @@
  * for element references (`when: decision.option`, `from: scope.id`, recipe
  * placeholders `{inputs.id}`, and RFC-0002's `<sub>.<id>` addressing). Dots
  * address elements; slashes are reserved for files. Paths always resolve from
- * the root analysis (a leading `/` is tolerated):
+ * the root analysis:
  *
  *   outputs.hubble_diagram                    an output in the root analysis
  *   decisions.algorithm.gp                    a child (one Option of a Decision)
@@ -29,8 +29,7 @@ export type Collection =
   | 'decisions'
   | 'findings'
   | 'prior_insights'
-  | 'analyses'
-  | 'universes';
+  | 'analyses';
 
 /** Child collections that live *inside* an element. */
 export type ChildCollection = 'options' | 'evidence';
@@ -42,7 +41,6 @@ const COLLECTIONS = new Set<string>([
   'findings',
   'prior_insights',
   'analyses',
-  'universes',
 ]);
 
 const CHILD_COLLECTIONS = new Set<string>(['options', 'evidence']);
@@ -67,13 +65,10 @@ export const KIND_BY_COLLECTION: Record<Collection, string> = {
   findings: 'finding',
   prior_insights: 'prior_insight',
   analyses: 'analysis',
-  universes: 'universe',
 };
 
-/** Accept the hyphenated alias `prior-insights` for the YAML key `prior_insights`. */
 function canonicalCollection(seg: string): Collection | null {
-  const s = seg === 'prior-insights' ? 'prior_insights' : seg;
-  return COLLECTIONS.has(s) ? (s as Collection) : null;
+  return COLLECTIONS.has(seg) ? (seg as Collection) : null;
 }
 
 export interface AstraPath {
@@ -85,6 +80,22 @@ export interface AstraPath {
   id: string | null;
   /** A child target inside the element (an option or an evidence record). */
   child: { collection: ChildCollection; id: string } | null;
+}
+
+/**
+ * Return the SDK canonical path for the record addressed by an authored path.
+ * Analysis paths are navigation targets rather than records; child
+ * option/evidence paths resolve to their owning record.
+ */
+export function canonicalRecordPath(path: AstraPath): string | null {
+  if (
+    !path.collection ||
+    !path.id ||
+    path.collection === 'analyses'
+  ) {
+    return null;
+  }
+  return [...path.scope, path.collection, path.id].join('.');
 }
 
 /**
@@ -106,19 +117,28 @@ export function splitDisplay(body: string): { display: string | null; path: stri
  * The dotted body is read left-to-right: each segment is either a *collection
  * keyword* (which begins the target) or a *sub-analysis step* (the `analyses.`
  * shorthand). The first non-`analyses` collection keyword fixes the target;
- * everything before it is scope. A leading `/` is tolerated (paths always
- * resolve from the root analysis).
+ * everything before it is scope. Malformed paths are rejected rather than
+ * normalized into a different target.
  *
  * The parse is purely syntactic — it never checks the element exists. Callers
  * resolve {@link AstraPath} against a loaded analysis and report missing ids.
  */
 export function parseAstraPath(raw: string): AstraPath {
-  const segs = (raw ?? '')
-    .trim()
-    .replace(/^\//, '')
-    .split('.')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const value = (raw ?? '').trim();
+  if (!value) return { scope: [], collection: null, id: null, child: null };
+  if (value.startsWith('/')) {
+    throw new Error('ASTRA paths must not start with "/"');
+  }
+  const segs = value.split('.');
+  if (segs.some((segment) => !segment || segment !== segment.trim())) {
+    throw new Error(`invalid ASTRA path "${raw}"`);
+  }
+  if (segs.includes('prior-insights')) {
+    throw new Error('use the canonical collection name "prior_insights"');
+  }
+  if (segs.includes('universes')) {
+    throw new Error('universes are resolution inputs, not addressable records');
+  }
 
   const scope: string[] = [];
   let collection: Collection | null = null;
@@ -134,7 +154,17 @@ export function parseAstraPath(raw: string): AstraPath {
       // `analyses.<sub>` is a scope step (the sub becomes the target only when
       // it's the final segment); a trailing bare `analyses` is the registry.
       if (i + 1 < segs.length) {
-        scope.push(segs[i + 1]);
+        const analysisId = segs[i + 1];
+        if (canonicalCollection(analysisId) || CHILD_COLLECTIONS.has(analysisId)) {
+          throw new Error(`missing analysis id after "analyses" in "${raw}"`);
+        }
+        if (i + 2 === segs.length) {
+          collection = 'analyses';
+          id = analysisId;
+          i = segs.length;
+          break;
+        }
+        scope.push(analysisId);
         i += 2;
         continue;
       }
@@ -150,15 +180,28 @@ export function parseAstraPath(raw: string): AstraPath {
         i++;
       }
       if (i < segs.length) {
+        const expectedChild = CHILD_BY_COLLECTION[collection];
+        if (!expectedChild) {
+          throw new Error(`unexpected segment "${segs[i]}" after ${collection}.${id}`);
+        }
         if (CHILD_COLLECTIONS.has(segs[i])) {
           // Explicit long form: `…options.<id>` / `…evidence.<id>`.
           const cc = segs[i] as ChildCollection;
           const cid = segs[i + 1];
-          if (cid) child = { collection: cc, id: cid };
+          if (cc !== expectedChild) {
+            throw new Error(`${collection}.${id} has "${expectedChild}", not "${cc}"`);
+          }
+          if (!cid) throw new Error(`missing ${cc} id in "${raw}"`);
+          if (i + 2 !== segs.length) {
+            throw new Error(`unexpected segment "${segs[i + 2]}" in "${raw}"`);
+          }
+          child = { collection: cc, id: cid };
         } else {
           // Short form: the child collection is implied by the parent kind.
-          const implied = CHILD_BY_COLLECTION[collection];
-          if (implied) child = { collection: implied, id: segs[i] };
+          if (i + 1 !== segs.length) {
+            throw new Error(`unexpected segment "${segs[i + 1]}" in "${raw}"`);
+          }
+          child = { collection: expectedChild, id: segs[i] };
         }
       }
       break;
@@ -190,13 +233,4 @@ export function parseAstraPath(raw: string): AstraPath {
 export function pathIdentifier(p: AstraPath): string | null {
   if (!p.collection || !p.id || p.collection === 'analyses') return null;
   return `${KIND_BY_COLLECTION[p.collection]}-${p.id}`;
-}
-
-/**
- * The dotted scope key (`reconstruction.xi`) used as the resolved-store join
- * key and the cross-scope merge prefix. Since authoring is dot-based too, this
- * is simply the collection-elided form of an element's path.
- */
-export function dottedKey(scope: string[], id: string): string {
-  return [...scope, id].join('.');
 }

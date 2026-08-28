@@ -13,26 +13,25 @@ The `{astra}` directive embeds any addressable element, child, or collection as 
 |---|---|
 | `decisions.<id>` | The decision: label, rationale, and its options as tabs, with the universe's selection marked |
 | `decisions.<id>.<option>` | One option: label, description, supporting insights |
-| `outputs.<id>` | The output — a real figure, table, or metric — with its provenance |
+| `outputs.<id>` | The active output — a real figure, table, or metric when materialized |
 | `findings.<id>` | The finding: claim + notes + scope + evidence |
 | `findings.<id>.<evidence>` | One evidence record |
 | `prior_insights.<id>` | The prior insight as a "see also" admonition with its evidence |
 | `inputs.<id>` | The input as a one-row registry table |
-| `<sub-analysis>` | A navigation card linking to the sub-analysis page |
-| `universes.<id>` | A table of the universe's decision → selected-option pairs |
-| `inputs`, `outputs`, `decisions`, `findings`, `prior_insights`, `analyses`, `universes` | The whole collection — a registry |
+| `<sub-analysis>` | A neutral summary card for the sub-analysis |
+| `inputs`, `outputs`, `decisions`, `findings`, `prior_insights`, `analyses` | The whole collection — a registry |
 
 Examples:
 
 ```markdown
 :::{astra} outputs.hubble_diagram
-:::                                   # the figure (or table / metric), with provenance
+:::                                   # the figure (or table / metric)
 
 :::{astra} findings.signal_detected
 :::                                   # claim + notes + scope + evidence
 
 :::{astra} reconstruction
-:::                                   # a nav card linking to the sub-analysis page
+:::                                   # a sub-analysis summary card
 
 :::{astra} outputs
 :::                                   # a whole collection → the outputs registry
@@ -65,14 +64,19 @@ Options follow MyST's `:key: value` form:
 :::
 ```
 
-## Universes
-
-`:::{astra} universes.<id>` embeds a **selection table** — the decision → selected-option pairs of the project's universe (the first `.yaml` file in `universes/`).
-
 ## Cross-referencing an embedded block
 
-Every embedded element carries a stable anchor `<kind>-<id>` (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …), so you can point at it from anywhere with plain MyST links (`[](#output-hubble_diagram)`) or `{astra:ref}`. Figures and tables are numbered by MyST as usual.
+Use the directive's `:label:` option and MyST's standard `{ref}` role for
+project-wide cross-references. Figures and tables are numbered by MyST as usual:
+
+```markdown
+:::{astra} outputs.hubble_diagram
+:label: fig-hubble
+:::
+
+{ref}`fig-hubble`
+```
 
 ## Errors
 
-A directive whose path cannot be resolved (unknown id, wrong scope, unmet `when:` condition on a decision) renders an **error admonition** in place, naming the path and the reason — the rest of the page builds normally.
+A directive whose path cannot be resolved (unknown id, wrong scope, or an inactive conditional record) renders an **error admonition** in place, naming the path and the reason — the rest of the page builds normally.

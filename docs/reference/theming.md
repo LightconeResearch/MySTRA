@@ -1,6 +1,6 @@
 # Theming — for theme authors
 
-This page documents the contract between MySTRA and a rich MyST theme. Report authors never need it: on the stock `book-theme` everything renders cleanly with no CSS. A dedicated theme uses the markers and data below to add kind glyphs, per-kind colours, hover preview cards, and richer patterns.
+This page documents the contract between MySTRA and a rich MyST theme. Report authors never need it: on the stock `book-theme` everything renders cleanly with no CSS. A dedicated theme uses the markers and data below to add kind glyphs, per-kind colours, record dialogs, and richer patterns.
 
 ## Recognition markers
 
@@ -15,29 +15,40 @@ Every placed block carries a stable `astra-<kind>` class on the node bearing its
 | `astra-input` / `astra-inputs` / `astra-outputs` | Single-input table / registries |
 | `astra-option` | An option heading |
 | `astra-universe` | A universe selection table |
-| `astra-subanalysis` | A sub-analysis nav card |
+| `astra-subanalysis` | A sub-analysis summary card |
 
-Inline tokens are neutral spans: `span.astra-ref--<kind>` (`decision`, `output`, `finding`, `prior_insight`, `analysis`, `input`, `option`, `evidence`, `universe`, `value`). Each carries a `data.astra` join key — `{ kind, id, path }` (plus value metadata such as the column and filter for `{astra:value}` tokens).
+Inline tokens are neutral spans: `span.astra-ref--<kind>` (`decision`, `output`, `finding`, `prior_insight`, `analysis`, `input`, `option`, `evidence`, `universe`, `value`). Each carries `data.astra` metadata — `{ kind, id, canonicalPath }` (plus value metadata such as the column and filter for `{astra:value}` tokens). `canonicalPath` is the stable lookup key from `@astra-spec/sdk`; option and evidence references use their owning record's canonical path.
 
-A theme selects a placed node by class or identifier (`.astra-output`, `[identifier^="output-"]`) and joins it to the store below by id — it never reads `astra.yaml`.
+A theme selects a placed node by class or identifier (`.astra-output`, `[identifier^="output-"]`) and joins it to the bundle below by canonical path — it never reads `astra.yaml` or reimplements ASTRA resolution.
 
-## The resolved store
+## The publication bundle
 
-For rich rendering the plugin bakes a **resolved store** onto a hidden `div.astra-store` carrier's `data` on every page: the fully resolved outputs (project-relative paths, parsed table/metric values, recipes, provenance), inputs, decisions, findings, prior insights, and sub-analyses of the page's scope, all keyed by id. Elements referenced across scopes are merged in, keyed by their full dotted path (`reconstruction.xi`).
-
-The exact shape is defined by [`src/transform/resolved-store.ts`](https://github.com/LightconeResearch/MySTRA/blob/main/src/transform/resolved-store.ts) and its exported `ResolvedStore` / `Serialized*` types, importable for programmatic use:
+MySTRA opens the complete project through `@astra-spec/sdk` and places its canonical `ResolvedAnalysisBundle` unchanged on every page. The theme discovers the hidden `div.astra-publication-bundle` carrier by class and reads this data shape:
 
 ```ts
-import type { ResolvedStore, SerializedOutput } from '@astra-spec/mystra';
+interface AstraPublicationData {
+  schemaVersion: 'astra-publication-bundle.v1';
+  activeAnalysisPath: '$' | string;
+  bundle: ResolvedAnalysisBundle;
+}
 ```
+
+The SDK owns the versioned resolved document, canonical paths, alias resolution, active decisions/outputs, provenance, evidence links, and deterministic artifact bindings. Theme code should import those types and derived-index helpers directly:
+
+```ts
+import { indexAnalysis } from '@astra-spec/sdk';
+import type { ResolvedAnalysisBundle } from '@astra-spec/sdk';
+```
+
+`activeAnalysisPath` is `$` for the root or the canonical analysis path selected by the page's filename/frontmatter. It is presentation context only; the bundle always contains the whole project.
 
 ## Hidden carriers
 
-Besides the store, the plugin appends two more hidden carriers per page when relevant:
+Besides the bundle, the plugin appends two hidden carriers when relevant:
 
-- **`div.astra-assets`** — one hidden `image` node per image-typed result (tagged `data.astraAsset = <output-id>`), so MyST's asset pipeline produces a servable hashed URL the theme can rejoin to the store entry.
-- **`div.astra-cites`** — one hidden `cite` node per DOI (both narrative and parenthetical kinds), so MyST's citation pipeline resolves formatted author–year citations and bibliography entries that the theme's hover cards can render instead of raw DOIs.
+- **`div.astra-publication-resources`** — one `link` node marked `static: true` per SDK artifact binding. MyST copies and rewrites its `url`; `data.astraArtifact = { outputPath, cacheToken }` joins that URL back to the bundle binding without changing the SDK data.
+- **`div.astra-cites`** — one hidden `cite` node per DOI (both narrative and parenthetical kinds), so MyST's citation pipeline resolves formatted author–year citations and bibliography entries that the theme's record dialogs can render instead of raw DOIs.
 
 ## Anchors
 
-Rendered elements carry `<kind>-<id>` identifiers (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, `prior_insight-recon`, `option-<decision>-<option>`, `universe-<id>`, `analysis-<sub>`), which is what `{astra:ref}` and plain MyST references resolve against. An author's `:label:` option replaces the default identifier on that block.
+Rendered elements retain local fallback identifiers for MyST rendering. Authors who need a project-wide cross-reference should set the directive's explicit `:label:` and use MyST's standard `{ref}` role; MySTRA does not invent a globally unique anchor from an unscoped record id.
