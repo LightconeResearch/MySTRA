@@ -70,7 +70,7 @@ export function supportingInsightsParagraph(
   for (const canonicalPath of insightPaths) {
     const insight = records.get(canonicalPath) as ResolvedInsight;
     const linkText = insight.label ?? insight.claim ?? insight.id;
-    refs.push(refNode('prior_insight', insight.id, linkText, undefined, canonicalPath));
+    refs.push(refNode('prior_insight', insight.id, linkText, undefined, { canonicalPath }));
   }
   if (refs.length === 0) return null;
   const para: any[] = [text(refs.length === 1 ? 'Supporting insight: ' : 'Supporting insights: ')];

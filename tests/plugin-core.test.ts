@@ -11,7 +11,10 @@ import { join } from 'node:path';
 import { VFile } from 'vfile';
 import { mystParse } from 'myst-parser';
 
-import plugin, { clearResolvedProjectCache } from '../src/index.js';
+import plugin, {
+  clearResolvedProjectCache,
+  loadResolvedProject,
+} from '../src/index.js';
 
 const ANALYSIS = `version: "0.0.14"
 name: Test analysis
@@ -108,6 +111,10 @@ analyses:
         label: Sub table
         inputs: [source]
         decisions: [local_method]
+  unmapped:
+    name: Unmapped analysis
+    inputs: []
+    outputs: []
 `;
 
 const UNIVERSE = `id: baseline
@@ -144,6 +151,15 @@ beforeAll(() => {
   writeFileSync(join(root, 'results', 'baseline', 'sub.sub_table.csv'), CSV);
   writeFileSync(join(root, 'index.md'), '# Root');
   writeFileSync(join(root, 'sub.md'), '# Sub');
+  writeFileSync(
+    join(root, 'myst.yml'),
+    `version: 1
+project:
+  toc:
+    - file: index.md
+    - file: sub.md
+`,
+  );
   mkdirSync(join(root, 'chapters'));
   writeFileSync(join(root, 'chapters', 'results.md'), '# Results');
   process.chdir(root);
@@ -295,6 +311,61 @@ describe('neutral block rendering from the resolved SDK model', () => {
     expect(find(await renderDirective('outputs'), (node) => node.class === 'astra-outputs')).toBeDefined();
     expect(find(await renderDirective('sub'), (node) => node.identifier === 'analysis-sub')).toBeDefined();
   });
+
+  it('stamps placed carriers with SDK identity independently of document labels', async () => {
+    const output = await renderDirective('sub.outputs.sub_table', {
+      label: 'published-results-table',
+    });
+    expect(find(output, (node) => node.identifier === 'published-results-table')?.data?.astra)
+      .toEqual({
+        kind: 'output',
+        id: 'sub_table',
+        canonicalPath: 'sub.outputs.sub_table',
+      });
+
+    const decision = await renderDirective('decisions.method');
+    expect(find(decision, (node) => node.class?.includes('astra-decision'))?.data?.astra)
+      .toEqual({
+        kind: 'decision',
+        id: 'method',
+        canonicalPath: 'decisions.method',
+      });
+
+    const analysis = await renderDirective('sub', { label: 'supporting-stage' });
+    const analysisCarrier = find(analysis, (node) => node.identifier === 'supporting-stage')!;
+    expect(analysisCarrier.data.astra).toEqual({
+      kind: 'analysis',
+      id: 'sub',
+      analysisPath: 'sub',
+    });
+    expect(analysisCarrier.data.astra).not.toHaveProperty('canonicalPath');
+  });
+
+  it('stamps child embeds and registry rows with their resolvable owner identity', async () => {
+    const option = await renderDirective('decisions.method.grid');
+    expect(find(option, (node) => node.class?.includes('astra-option'))?.data?.astra)
+      .toEqual({
+        kind: 'option',
+        id: 'grid',
+        canonicalPath: 'decisions.method',
+      });
+
+    const evidence = await renderDirective('findings.signal.plot');
+    expect(evidence[0]?.data?.astra).toEqual({
+      kind: 'evidence',
+      id: 'plot',
+      canonicalPath: 'findings.signal',
+    });
+
+    const outputs = await renderDirective('outputs');
+    const outputRow = find(outputs, (node) =>
+      node.data?.astra?.canonicalPath === 'outputs.scatter_plot');
+    expect(outputRow?.data.astra).toEqual({
+      kind: 'output',
+      id: 'scatter_plot',
+      canonicalPath: 'outputs.scatter_plot',
+    });
+  });
 });
 
 describe('inline roles', () => {
@@ -305,8 +376,29 @@ describe('inline roles', () => {
       canonicalPath: 'outputs.scatter_plot',
     });
     expect(rootRef.data.astra).not.toHaveProperty('path');
+    expect(rootRef.data.astra).not.toHaveProperty('analysisPath');
+    expect(rootRef.data.astra).not.toHaveProperty('href');
     const nestedRef = (await renderRole('astra', 'sub.outputs.sub_table'))[0]!;
     expect(nestedRef.data.astra.canonicalPath).toBe('sub.outputs.sub_table');
+  });
+
+  it('keeps analysis navigation separate and links only a configured page mapping', async () => {
+    const mapped = (await renderRole('astra', 'sub'))[0]!;
+    expect(mapped.data.astra).toEqual({
+      kind: 'analysis',
+      id: 'sub',
+      analysisPath: 'sub',
+      href: '/sub',
+    });
+    expect(mapped.data.astra).not.toHaveProperty('canonicalPath');
+
+    const unmapped = (await renderRole('astra', 'unmapped'))[0]!;
+    expect(unmapped.data.astra).toEqual({
+      kind: 'analysis',
+      id: 'unmapped',
+      analysisPath: 'unmapped',
+    });
+    expect(unmapped.data.astra).not.toHaveProperty('href');
   });
 
   it('renders DOI-backed citation nodes', async () => {
@@ -319,15 +411,34 @@ describe('inline roles', () => {
   });
 
   it('interpolates decisions, metrics, and filtered table values', async () => {
-    expect(textContent(await renderRole('astra:value', 'decisions.method'))).toContain('Grid search');
-    expect(textContent(await renderRole('astra:value', 'outputs.summary_metric', { pm: true }))).toContain('1.5 ± 0.3');
-    expect(
-      textContent(await renderRole('astra:value', 'outputs.measurements', {
+    const [decision] = await renderRole('astra:value', 'decisions.method');
+    expect(textContent(decision)).toContain('Grid search');
+    expect(decision.data.astra).toMatchObject({
+      canonicalPath: 'decisions.method',
+      type: 'decision',
+      selection: 'grid',
+    });
+
+    const [metric] = await renderRole('astra:value', 'outputs.summary_metric', { pm: true });
+    expect(textContent(metric)).toContain('1.5 ± 0.3');
+    expect(metric.data.astra).toMatchObject({
+      canonicalPath: 'outputs.summary_metric',
+      type: 'metric',
+      unit: 'Mpc',
+    });
+
+    const [tableValue] = await renderRole('astra:value', 'outputs.measurements', {
         col: 'value',
         where: 'tracer=lrg',
         pm: true,
-      })),
-    ).toContain('19.88 ± 0.17');
+    });
+    expect(textContent(tableValue)).toContain('19.88 ± 0.17');
+    expect(tableValue.data.astra).toMatchObject({
+      canonicalPath: 'outputs.measurements',
+      type: 'table',
+      col: 'value',
+      filter: 'tracer=lrg',
+    });
   });
 
   it('degrades an unknown record to plain text without fabricated metadata', async () => {
@@ -340,14 +451,31 @@ describe('inline roles', () => {
 
 describe('publication contract', () => {
   it('embeds the unchanged SDK bundle with the active analysis path', async () => {
+    const project = await loadResolvedProject(root);
     const { tree } = await transform([], 'sub.md');
     const carrier = find(tree, (node) => node.class === 'astra-publication-bundle')!;
     expect(carrier).not.toHaveProperty('identifier');
+    expect(Object.keys(carrier.data.astraPublication).sort()).toEqual([
+      'activeAnalysisPath',
+      'bundle',
+      'schemaVersion',
+    ]);
+    expect(carrier.data.astraPublication.bundle).toBe(project.bundle);
     expect(carrier.data.astraPublication).toMatchObject({
       schemaVersion: 'astra-publication-bundle.v1',
       activeAnalysisPath: 'sub',
       bundle: { document: { schemaVersion: 'astra-resolved-analysis.v1' } },
     });
+  });
+
+  it('uses the same active scope for every supported MyST source extension', async () => {
+    for (const page of ['sub.md', 'sub.ipynb', 'sub.tex', 'sub.myst.json']) {
+      const { tree } = await transform([], page);
+      const carrier = find(tree, (node) =>
+        node.class === 'astra-publication-bundle',
+      )!;
+      expect(carrier.data.astraPublication.activeAnalysisPath, page).toBe('sub');
+    }
   });
 
   it('routes every materialized binding through MyST static links', async () => {

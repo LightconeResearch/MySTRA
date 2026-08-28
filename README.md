@@ -247,8 +247,8 @@ prior insights are cards, numbers show their value. **No user CSS required.**
 
 A dedicated MyST theme can go further — kind glyphs, per-kind colours, record
 dialogs, and shared ASTRA UI — driven by the stable `astra-*` classes,
-canonical record paths, and SDK publication bundle the plugin bakes into every
-page. Building one? The contract is documented
+explicit record/analysis identity, and SDK publication bundle the plugin bakes
+into every page. Building one? The contract is documented
 in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
 
 ## What MyST handles for you

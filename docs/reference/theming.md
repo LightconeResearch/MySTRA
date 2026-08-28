@@ -4,7 +4,7 @@ This page documents the contract between MySTRA and a rich MyST theme. Report au
 
 ## Recognition markers
 
-Every placed block carries a stable `astra-<kind>` class on the node bearing its `<kind>-<id>` identifier:
+Every placed record block carries a stable `astra-<kind>` class and `data.astra` identity on its carrier. An author's directive `:label:` may replace the fallback MyST identifier, but it never changes the ASTRA identity:
 
 | Class | Element |
 |---|---|
@@ -16,9 +16,56 @@ Every placed block carries a stable `astra-<kind>` class on the node bearing its
 | `astra-option` | An option heading |
 | `astra-subanalysis` | A sub-analysis summary card |
 
-Inline tokens are neutral spans: `span.astra-ref--<kind>` (`decision`, `output`, `finding`, `prior_insight`, `analysis`, `input`, `option`, `evidence`, `value`). Each carries `data.astra` metadata — `{ kind, id, canonicalPath }` (plus value metadata such as the column and filter for `{astra:value}` tokens). `canonicalPath` is the stable lookup key from `@astra-spec/sdk`; option and evidence references use their owning record's canonical path.
+Inline tokens are neutral spans: `span.astra-ref--<kind>` (`decision`, `output`, `finding`, `prior_insight`, `analysis`, `input`, `option`, `evidence`, `value`). Record references and placed record blocks carry:
 
-A theme selects a placed node by class or identifier (`.astra-output`, `[identifier^="output-"]`) and joins it to the bundle below by canonical path — it never reads `astra.yaml` or reimplements ASTRA resolution.
+```ts
+{
+  kind: 'input' | 'output' | 'decision' | 'finding' | 'prior_insight';
+  id: string;
+  canonicalPath: string;
+}
+```
+
+`canonicalPath` is the stable record lookup key from `@astra-spec/sdk`. Option and evidence surfaces keep their own `kind` and child `id`, but their `canonicalPath` is the owning decision/finding/prior-insight record. Input/output registry rows carry the same record identity.
+
+Analysis navigation is deliberately a separate shape:
+
+```ts
+{
+  kind: 'analysis';
+  id: string;
+  analysisPath: '$' | string;
+  href?: string;
+}
+```
+
+Analysis nodes never carry `canonicalPath`, because SDK record indexes and analysis indexes are separate. A `{astra}` analysis reference receives `href` only when exactly one concrete page in the explicit `project.toc` maps to that analysis through its filename or `astra_scope`; an unlisted, invalid, ambiguous, or pattern-expanded mapping omits it. Themes must not manufacture a route from `analysisPath`. Placed sub-analysis cards carry `analysisPath` but leave navigation to the host.
+
+Value tokens retain the record `canonicalPath` and add the context needed to present the displayed value:
+
+```ts
+// Selected decision option
+{
+  kind: 'value'; id: string; canonicalPath: string;
+  type: 'decision'; selection?: string;
+}
+
+// Selected table cell
+{
+  kind: 'value'; id: string; canonicalPath: string;
+  type: OutputType; product?: string; col: string; filter?: string;
+}
+
+// Parsed scalar metric
+{
+  kind: 'value'; id: string; canonicalPath: string;
+  type: 'metric'; product?: string; unit?: string;
+}
+```
+
+Optional strings are omitted when unavailable. `filter` is the normalized `key=value, …` selection used to choose the row; `unit` is taken from the materialized metric's `unit`/`units` field.
+
+A theme selects a placed node by class and reads `data.astra` to join it to the bundle below — it never depends on an author-controlled document label, reads `astra.yaml`, or reimplements ASTRA resolution.
 
 ## The publication bundle
 

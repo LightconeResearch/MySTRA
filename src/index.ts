@@ -37,9 +37,7 @@
  * including authored defaults when no universe file exists.
  */
 
-import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
-import { readFileSync } from 'node:fs';
-import { parse as parseYaml } from 'yaml';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { collectCitedDois } from '@astra-spec/sdk';
 import type {
   ResolvedAnalysisBundle,
@@ -55,6 +53,11 @@ import {
   loadResolvedProject,
   type ResolvedProject,
 } from './project.js';
+import {
+  analysisPageHrefs,
+  rawAstraScope,
+  sourceStem,
+} from './page-map.js';
 import { reportError, reportWarn } from './diagnostics.js';
 import { proseParser } from './transform/prose.js';
 import type { ProseParser } from './transform/prose.js';
@@ -73,6 +76,7 @@ import {
   refNode,
   text,
   walkNodes,
+  type AstraNodeIdentity,
 } from './transform/ast-helpers.js';
 import {
   renderDecision,
@@ -219,15 +223,31 @@ function addClass(node: any, cls: string): void {
 }
 
 /**
- * Tag the carrier node of a rendered component (the one bearing `<kind>-<id>`,
- * else the first node) with `astra-<kind>` and, when given,
- * `astra-<kind>--<subtype>`. Returns the same node array for chaining.
+ * Attach stable ASTRA identity without disturbing other node data (for
+ * example decision/finding tags).
  */
-function tagComponent(nodes: any[], kind: string, id: string, subtype?: string): any[] {
+function stampAstra(node: any, identity: AstraNodeIdentity): void {
+  if (!node || typeof node !== 'object') return;
+  const data = node.data && typeof node.data === 'object' ? node.data : {};
+  const astra = data.astra && typeof data.astra === 'object' ? data.astra : {};
+  node.data = { ...data, astra: { ...astra, ...identity } };
+}
+
+/**
+ * Tag the carrier node of a resolved record (the node bearing `<kind>-<id>`,
+ * else the first node) with recognition classes and exact SDK identity.
+ */
+function tagComponent(
+  nodes: any[],
+  identity: AstraNodeIdentity & { canonicalPath: string },
+  subtype?: string,
+): any[] {
+  const { kind, id } = identity;
   const carrier = carrierOf(nodes, `${kind}-${id}`);
   if (carrier) {
     addClass(carrier, `astra-${kind}`);
     if (subtype) addClass(carrier, `astra-${kind}--${subtype}`);
+    stampAstra(carrier, identity);
   }
   return nodes;
 }
@@ -282,8 +302,7 @@ function renderFindingParts(
       resultUrl: resultUrl(scope.root, scope.vfile),
       vfile: scope.vfile,
     }),
-    'finding',
-    id,
+    { kind: 'finding', id, canonicalPath: finding.canonicalPath },
   );
 }
 
@@ -306,6 +325,11 @@ function renderPriorInsightBlock(
   });
   node.identifier = `prior_insight-${id}`;
   node.label = node.identifier;
+  stampAstra(node, {
+    kind: 'prior_insight',
+    id,
+    canonicalPath: insight.canonicalPath,
+  });
   return node;
 }
 
@@ -315,6 +339,7 @@ function renderOneInput(id: string, scope: Scope): any[] {
   if (!input) throw new Error(`no input "${id}" in this scope`);
   const table = renderInputsTable([input], scope.prose);
   addClass(table, 'astra-input');
+  stampAstra(table, { kind: 'input', id, canonicalPath: input.canonicalPath });
   return [table];
 }
 
@@ -339,6 +364,11 @@ function renderOneOption(decisionId: string, optionId: string, scope: Scope): an
   );
   if (insightsPara) nodes.push(insightsPara);
   addClass(head, 'astra-option');
+  stampAstra(head, {
+    kind: 'option',
+    id: optionId,
+    canonicalPath: decision.canonicalPath,
+  });
   return nodes;
 }
 
@@ -356,7 +386,15 @@ function renderOneEvidence(p: AstraPath, scope: Scope): any[] {
   const ev = (owner.evidence ?? []).find((e: any) => e.id === p.child!.id);
   if (!ev) throw new Error(`no evidence "${p.child!.id}" on ${p.collection} "${p.id}"`);
   // Reuse the per-insight evidence renderer for a single record.
-  return renderInsightEvidence({ evidence: [ev as ResolvedEvidence] });
+  const nodes = renderInsightEvidence({ evidence: [ev as ResolvedEvidence] });
+  if (nodes[0]) {
+    stampAstra(nodes[0], {
+      kind: 'evidence',
+      id: p.child!.id,
+      canonicalPath: owner.canonicalPath,
+    });
+  }
+  return nodes;
 }
 
 /** Render a sub-analysis as a neutral summary card. */
@@ -368,6 +406,11 @@ function renderSubAnalysisCard(subId: string, scope: Scope): any[] {
   node.identifier = `analysis-${subId}`;
   node.label = node.identifier;
   addClass(node, 'astra-subanalysis');
+  stampAstra(node, {
+    kind: 'analysis',
+    id: subId,
+    analysisPath: sub.canonicalPath,
+  });
   return [node];
 }
 
@@ -375,9 +418,20 @@ function renderSubAnalysisCard(subId: string, scope: Scope): any[] {
 function renderDecisionBlock(id: string, decision: ResolvedDecision, scope: Scope): any[] {
   return tagComponent(
     renderDecision(id, decision, scope.records, scope.prose, scope.tabItem),
-    'decision',
-    id,
+    { kind: 'decision', id, canonicalPath: decision.canonicalPath },
   );
+}
+
+/** Stamp the record rows inside a neutral input/output registry table. */
+function stampRegistryRows(table: any, records: readonly ResolvedRecord[]): void {
+  const rows = Array.isArray(table?.children) ? table.children.slice(1) : [];
+  records.forEach((record, index) => {
+    stampAstra(rows[index], {
+      kind: record.kind,
+      id: record.id,
+      canonicalPath: record.canonicalPath,
+    });
+  });
 }
 
 /** Render a whole collection (a registry) for the current scope. */
@@ -387,6 +441,7 @@ function renderRegistry(collection: Collection, scope: Scope): any[] {
       const inputs = scope.analysis.inputs;
       if (inputs.length === 0) return [errorNode('no inputs in this scope')];
       const table = renderInputsTable(inputs, scope.prose);
+      stampRegistryRows(table, inputs);
       addClass(table, 'astra-inputs');
       return [table];
     }
@@ -394,6 +449,7 @@ function renderRegistry(collection: Collection, scope: Scope): any[] {
       const outputs = scope.analysis.outputs.filter((output) => output.active);
       if (outputs.length === 0) return [errorNode('no outputs in this scope')];
       const table = renderOutputsTable(outputs, scope.prose);
+      stampRegistryRows(table, outputs);
       // Strip row identifiers: the canonical `output-<id>` carrier is the rich
       // output block. Leaving them here would collide when the report both lists
       // an output in the registry and embeds it as a figure.
@@ -463,7 +519,11 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
         vfile: scope.vfile,
       });
       if (options.caption) applyCaption(nodes, scope, options.caption);
-      return tagComponent(nodes, 'output', id, output.type);
+      return tagComponent(
+        nodes,
+        { kind: 'output', id, canonicalPath: output.canonicalPath },
+        output.type,
+      );
     }
     case 'findings':
       return renderFindingParts(id, scope, options);
@@ -556,9 +616,10 @@ function applyBlockOptions(nodes: any[], p: AstraPath, options: DirectiveOptions
 
 // ── Inline reference roles ───────────────────────────────────────────────────
 //
-// `{astra}` renders a neutral `astra-ref` span (best label as text plus SDK
-// canonical-path metadata). A rich theme can open shared record UI from that
-// path; a bare theme shows the plain label. `{astra:cite[:t]}` emit MyST citations.
+// `{astra}` renders a neutral `astra-ref` span (best label as text plus an
+// explicit record or analysis address). A rich theme can open shared UI from
+// that identity; a bare theme shows the plain label. `{astra:cite[:t]}` emit
+// MyST citations.
 
 type RefKind =
   | 'decision'
@@ -575,7 +636,13 @@ function resolveInlineRef(
   p: AstraPath,
   scope: Scope,
   display: string | null,
-): { kind: RefKind; id: string; label: string; subtype?: string } {
+): {
+  kind: RefKind;
+  id: string;
+  label: string;
+  subtype?: string;
+  analysisPath?: string;
+} {
   // Children first — an option / evidence inline reference.
   if (p.child) {
     const ownerId = p.id!;
@@ -622,7 +689,12 @@ function resolveInlineRef(
     case 'analyses': {
       const sub = scope.analysesById.get(id);
       if (!sub) throw new Error(`no sub-analysis "${id}" in this scope`);
-      return { kind: 'analysis', id, label: display ?? sub.name ?? humanize(id) };
+      return {
+        kind: 'analysis',
+        id,
+        label: display ?? sub.name ?? humanize(id),
+        analysisPath: sub.canonicalPath,
+      };
     }
     case 'inputs': {
       const input = scope.analysis.inputs.find((item) => item.id === id);
@@ -653,7 +725,6 @@ const astraRole = {
   },
 };
 
-/**
 /** Gather the DOIs backing a finding or prior insight. */
 function refDois(p: AstraPath, scope: Scope): string[] {
   const owner = insightOwner(p, scope);
@@ -775,43 +846,12 @@ export interface AstraArtifactData {
 }
 
 /**
- * The page's `astra_scope` frontmatter override, read from the SOURCE file on
- * disk. MyST validates page frontmatter against its own schema and drops
- * unknown keys before transforms run, so the override never survives into
- * `vfile.data.frontmatter` (#10) — the raw `---` block is the only reliable
- * place to read it. Returns `undefined` when the file is unreadable, has no
- * frontmatter, or carries no usable override. The value contract matches the
- * docs: a dotted string (`""` selects the root analysis) or a list of
- * segments.
- */
-function rawAstraScope(path: string | undefined): string | string[] | undefined {
-  if (!path) return undefined;
-  let src: string;
-  try {
-    src = readFileSync(path, 'utf-8');
-  } catch {
-    return undefined;
-  }
-  const fmBlock = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src);
-  if (!fmBlock) return undefined;
-  try {
-    const fm = parseYaml(fmBlock[1]) as Record<string, unknown>;
-    const value = fm.astra_scope;
-    if (typeof value === 'string') return value;
-    if (Array.isArray(value)) return value.map((s) => String(s));
-  } catch {
-    // Malformed frontmatter is MyST's problem to report; no override here.
-  }
-  return undefined;
-}
-
-/**
  * Resolve the page's active analysis. Unknown conventional basenames fall back
  * to the root because the publication bundle is project-wide; an invalid
  * explicit override is still reported as an authoring error.
  */
 function scopeForFile(project: ResolvedProject, vfile: any): Scope {
-  const base = basename(vfile?.path ?? '', '.md');
+  const base = sourceStem(vfile?.path ?? '');
   let analysisPath = base && base !== 'index' ? base.split('.').filter(Boolean) : [];
   // Prefer the validated frontmatter if a future MyST passes the key through;
   // fall back to the raw file, which is what works today (#10).
@@ -862,6 +902,7 @@ function renderAstraRefRequest(
   body: string,
   project: ResolvedProject,
   vfile: any,
+  analysisHrefs: ReadonlyMap<string, string>,
 ): any[] {
   const { display, path } = splitDisplay(body);
   try {
@@ -872,13 +913,25 @@ function renderAstraRefRequest(
     }
     const scope = resolveScope(project, p.scope, vfile);
     const ref = resolveInlineRef(p, scope, display);
+    const canonicalPath = canonicalRecordPath(p);
+    const href = ref.analysisPath
+      ? analysisHrefs.get(ref.analysisPath)
+      : undefined;
+    const identity = ref.kind === 'analysis' && ref.analysisPath
+      ? {
+          analysisPath: ref.analysisPath,
+          ...(href ? { href } : {}),
+        }
+      : canonicalPath
+        ? { canonicalPath }
+        : {};
     return [
       refNode(
         ref.kind,
         ref.id,
         ref.label,
         ref.subtype,
-        canonicalRecordPath(p),
+        identity,
       ),
     ];
   } catch (err) {
@@ -905,13 +958,14 @@ function renderCiteRequest(
     const dois = refDois(p, scope);
     if (dois.length === 0) {
       const ref = resolveInlineRef(p, scope, display);
+      const canonicalPath = canonicalRecordPath(p);
       return [
         refNode(
           ref.kind,
           ref.id,
           ref.label,
           ref.subtype,
-          canonicalRecordPath(p),
+          canonicalPath ? { canonicalPath } : undefined,
         ),
       ];
     }
@@ -973,9 +1027,12 @@ function renderValue(
         id,
         label,
         'decision',
-        canonicalPath,
+        canonicalPath ? { canonicalPath } : undefined,
       );
-      Object.assign(node.data.astra, { selection: optionId });
+      Object.assign(node.data.astra, {
+        type: 'decision',
+        ...(optionId ? { selection: optionId } : {}),
+      });
       return [node];
     }
     if (parsed.collection !== 'outputs') {
@@ -1004,9 +1061,14 @@ function renderValue(
           value += ` ± ${fmtNum(String(uncertainty), 2)}`;
         }
         const node = refNode(
-          'value', id, value, 'metric', canonicalPath,
+          'value', id, value, 'metric', { canonicalPath },
         );
-        Object.assign(node.data.astra, { type: 'metric', product: output.label });
+        const unit = metric.unit ?? metric.units;
+        Object.assign(node.data.astra, {
+          type: 'metric',
+          ...(output.label ? { product: output.label } : {}),
+          ...(unit ? { unit } : {}),
+        });
         return [node];
       }
     }
@@ -1040,13 +1102,13 @@ function renderValue(
     }
     const filter = filters.map(([key, item]) => `${key}=${item}`).join(', ');
     const node = refNode(
-      'value', id, value, output.type, canonicalPath,
+      'value', id, value, output.type, { canonicalPath },
     );
     Object.assign(node.data.astra, {
       col: column,
-      filter,
+      ...(filter ? { filter } : {}),
       type: output.type,
-      product: output.label,
+      ...(output.label ? { product: output.label } : {}),
     });
     return [node];
   } catch (err) {
@@ -1058,6 +1120,7 @@ function renderRequest(
   request: AstraRequest,
   project: ResolvedProject,
   vfile: any,
+  analysisHrefs: ReadonlyMap<string, string>,
 ): any[] {
   if (request.surface === 'directive') {
     try {
@@ -1070,7 +1133,7 @@ function renderRequest(
   }
   switch (request.role) {
     case 'astra':
-      return renderAstraRefRequest(request.body, project, vfile);
+      return renderAstraRefRequest(request.body, project, vfile, analysisHrefs);
     case 'astra:cite':
     case 'astra:cite:t':
       return renderCiteRequest(request, project, vfile);
@@ -1166,7 +1229,9 @@ const resolvedAnalysisTransform = {
       replaceRequests(tree, (request) => failedRequest(request, messages[0] ?? 'cannot load project'));
       return;
     }
-    replaceRequests(tree, (request) => renderRequest(request, project, vfile));
+    const analysisHrefs = analysisPageHrefs(project.root, project.index);
+    replaceRequests(tree, (request) =>
+      renderRequest(request, project, vfile, analysisHrefs));
     const activeScope = scopeForFile(project, vfile);
     (tree.children ??= []).push(
       ...publicationCarriers(project, activeScope),

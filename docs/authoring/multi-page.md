@@ -51,11 +51,12 @@ A page whose filename does not name an analysis (for example, an appendix) uses 
 
 - **Roles and directives always resolve from the root analysis**, on every page. `` {astra}`reconstruction.outputs.xi` `` means the same thing everywhere.
 - **The scope selects `activeAnalysisPath` in the [publication bundle](../reference/theming.md)** — rich themes can use it as page context. The bundle itself always contains the complete resolved project.
+- **Analysis-reference links come only from this configured page map.** If exactly one concrete `file:` entry in `project.toc` maps to a sub-analysis, `` {astra}`reconstruction` `` exposes that page's MyST route to a rich theme. Unlisted, multiply mapped, or pattern-expanded pages remain unlinked; MySTRA never turns an analysis id into a guessed URL.
 - **Cross-page links remain ordinary MyST:** give a placed block an explicit `:label:` and reference that label with `{ref}`.
 
 ## Sub-analysis summaries
 
-Embed a sub-analysis by its bare path to get a neutral summary card, or embed the whole `analyses` registry for one card per sub-analysis. Page navigation itself remains in MyST's table of contents, so arbitrary `astra_scope` mappings never produce guessed URLs:
+Embed a sub-analysis by its bare path to get a neutral summary card, or embed the whole `analyses` registry for one card per sub-analysis. Summary cards remain neutral content; page navigation itself stays in MyST's table of contents:
 
 ```markdown
 :::{astra} reconstruction

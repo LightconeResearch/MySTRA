@@ -212,13 +212,26 @@ function span(cls: string, children: any[]) {
   return { type: 'span' as const, class: cls, children };
 }
 
-/** A neutral inline ASTRA reference keyed by the SDK's canonical record path. */
+export interface AstraNodeIdentity {
+  /** The presentation surface represented by this node. */
+  kind: string;
+  /** Local authored id (a child id for option/evidence surfaces). */
+  id: string;
+  /** SDK record address. Never used for analysis navigation targets. */
+  canonicalPath?: string;
+  /** SDK analysis address (`$` for root). Never used as a record address. */
+  analysisPath?: string;
+  /** Host-provided route for an analysis page, when one is configured. */
+  href?: string;
+}
+
+/** A neutral inline ASTRA reference with explicit record/analysis identity. */
 export function refNode(
   kind: string,
   id: string,
   label: string,
   subtype?: string,
-  canonicalPath?: string | null,
+  identity?: Omit<AstraNodeIdentity, 'kind' | 'id'>,
 ) {
   const mods = subtype ? [kind, subtype] : [kind];
   const cls = ['astra-ref', ...mods.map((k) => `astra-ref--${k}`)].join(' ');
@@ -227,7 +240,7 @@ export function refNode(
     astra: {
       kind,
       id,
-      ...(canonicalPath ? { canonicalPath } : {}),
+      ...identity,
     },
   };
   return node;
