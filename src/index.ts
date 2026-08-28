@@ -24,7 +24,8 @@
  *     :::{astra} reconstruction         :::        a sub-analysis summary card
  *     :::{astra} outputs                :::        the outputs registry
  *
- * Paths always resolve from the **root analysis** (a leading `/` is tolerated).
+ * Paths always resolve from the **root analysis** and use exact dot-separated
+ * canonical segments.
  * See README.md for the authoring guide.
  *
  * Roles and directives first emit declarative placeholders. One asynchronous
@@ -32,11 +33,11 @@
  * MyST nodes, and publishes the same resolved bundle for rich themes.
  *
  * The project root is `process.cwd()` (run `myst start` from the project
- * dir). Decision selections come from the project's universe file (the first
- * in `universes/`).
+ * dir). Decision selections come from the project's resolved SDK universe,
+ * including authored defaults when no universe file exists.
  */
 
-import { basename, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import { collectCitedDois } from '@astra-spec/sdk';
@@ -70,10 +71,6 @@ import {
   makeTabItem,
   paragraph,
   refNode,
-  strong,
-  table,
-  tableCell,
-  tableRow,
   text,
   walkNodes,
 } from './transform/ast-helpers.js';
@@ -175,13 +172,21 @@ function resolveScope(
   };
 }
 
-/** Absolute result path → posix project-relative URL for MyST's asset copy. */
-function projectRelative(root: string, absPath: string): string {
-  return relative(root, absPath).split(sep).join('/');
+/** Absolute result path → POSIX URL relative to the current MyST source page. */
+function sourceRelative(
+  root: string,
+  sourcePath: string | undefined,
+  absPath: string,
+): string {
+  const sourceDirectory = sourcePath
+    ? dirname(isAbsolute(sourcePath) ? sourcePath : join(root, sourcePath))
+    : root;
+  return relative(sourceDirectory, absPath).split(sep).join('/');
 }
 
-function resultUrl(root: string): (absPath: string) => string {
-  return (absPath) => projectRelative(root, absPath);
+function resultUrl(root: string, vfile?: any): (absPath: string) => string {
+  const sourcePath = typeof vfile?.path === 'string' ? vfile.path : undefined;
+  return (absPath) => sourceRelative(root, sourcePath, absPath);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -274,7 +279,7 @@ function renderFindingParts(
   return tagComponent(
     renderFinding(finding, index ?? findings.findIndex((item) => item.id === id) + 1, id, scope.results, scope.outputsByPath, scope.prose, {
       parts: findingParts(options),
-      resultUrl: resultUrl(scope.root),
+      resultUrl: resultUrl(scope.root, scope.vfile),
       vfile: scope.vfile,
     }),
     'finding',
@@ -454,7 +459,7 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
         );
       }
       const nodes = renderOneOutput(output, id, scope.results, scope.prose, {
-        resultUrl: resultUrl(scope.root),
+        resultUrl: resultUrl(scope.root, scope.vfile),
         vfile: scope.vfile,
       });
       if (options.caption) applyCaption(nodes, scope, options.caption);
@@ -1104,6 +1109,7 @@ function publicationCarriers(
   project: ResolvedProject,
   activeScope: Scope,
 ): any[] {
+  const artifactUrl = resultUrl(project.root, activeScope.vfile);
   const carrier: any = hiddenDiv('astra-publication-bundle');
   const publication: AstraPublicationData = {
     schemaVersion: ASTRA_PUBLICATION_SCHEMA_VERSION,
@@ -1116,7 +1122,7 @@ function publicationCarriers(
 
   const resources = project.bundle.bindings.map((binding) => ({
     type: 'link' as const,
-    url: binding.path,
+    url: artifactUrl(join(project.root, binding.path)),
     static: true,
     children: [text(binding.outputPath)],
     data: {

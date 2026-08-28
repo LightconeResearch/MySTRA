@@ -47,7 +47,7 @@ export type ArtifactResolver = (outputPath: string) => string | undefined;
 /** Options threaded from the plugin surfaces into evidence rendering. */
 export interface EvidenceRenderOptions {
   /** Absolute artifact path → servable URL (the plugin passes a
-   *  project-relative mapping so MyST's asset pipeline copies the file). */
+   *  source-page-relative mapping so MyST's asset pipeline copies the file). */
   resultUrl: (absPath: string) => string;
   /** The page's vfile — broken references warn through MyST's channel. */
   vfile?: any;
@@ -89,16 +89,15 @@ function pendingOutput(artifactId: string): any {
   ]);
 }
 
-/** Map a produced artifact to the project-relative URL consumed by MyST. */
+/** Map a produced artifact to the source-page-relative URL consumed by MyST. */
 function artifactUrl(resultPath: string, resultUrl: (absPath: string) => string): string {
   return resultUrl(resultPath);
 }
 
 /**
- * A figure output as `container[figure]` (image + caption). The identifier
- * is set only in directive context — in evidence context the `output-<id>`
- * xref carrier lives on the per-output registry row, since a single output
- * may be cited by multiple findings.
+ * A figure output as `container[figure]` (image + caption). Standalone output
+ * blocks receive an identifier; evidence figures do not, because one output
+ * can support multiple findings.
  */
 function figureBlock(
   output: ResolvedOutput,
@@ -122,8 +121,8 @@ function figureBlock(
 
 /**
  * Format a DOI as a plain link to `doi.org`. (Citation resolution — a
- * reference list, author–year labels — is MyST's job once a bibliography
- * is wired; see SPEC.md §6.)
+ * reference list and author–year labels — is MyST's job once a bibliography
+ * is wired.)
  */
 function formatCiteNode(doi: string): any {
   return link(`https://doi.org/${doi}`, [text(doi)]);
@@ -132,10 +131,7 @@ function formatCiteNode(doi: string): any {
 /**
  * A DOI cite, optionally preceded by an attributed quote blockquote. Shared by
  * standalone literature evidence and per-insight evidence so both render the
- * same `> "quote"` / `— DOI` shape. There is no figure/table selector on
- * Evidence in astra-spec v0.0.6 — the author cites a paper here; to point at a
- * specific figure, narrative prose ("see Figure 3 in [Smith (2020)](…)") is the
- * route.
+ * same `> "quote"` / `— DOI` shape.
  */
 function renderDoiEvidence(doi: string, quote?: { exact: string }): any[] {
   if (quote) {
@@ -153,16 +149,12 @@ function renderLiteratureEvidence(evidence: ResolvedEvidence): any[] {
 
 /**
  * Render a single Output as a standalone block (not as evidence under a
- * finding). Used by the `astra:output` MyST directive: an author imports
- * one output by id and gets the figure / table / metric rendering inline
- * in their prose.
+ * finding). The `{astra}` directive uses this for addressed outputs.
  *
  * Differences from `renderArtifactEvidence`:
- *   - The figure container carries the `output-<id>` identifier so the
- *     block is the cross-reference anchor (in evidence context the table
- *     row is the carrier; in directive context the rich block is).
+ *   - The figure container carries the `output-<id>` identifier.
  *   - The figure image URL is built via `resultUrl`, which emits the
- *     project-relative path MyST hands to its asset pipeline.
+ *     source-page-relative path MyST hands to its asset pipeline.
  *   - There is no Evidence, so metric/data/report render without a quote.
  *
  * A declared-but-unproduced output renders the same "Pending Output"
@@ -178,10 +170,8 @@ export function renderOneOutput(
   const resultPath = results(output.canonicalPath);
   const identifier = `output-${artifactId}`;
   if (!resultPath) {
-    // Wrap the pending admonition in the identifier-bearing carrier div (the
-    // same contract as decisions/findings since #11): cross-references and
-    // rich-theme joins resolve even before the artifact is produced — the
-    // resolved record still exists without a materialized artifact.
+    // Keep the identifier-bearing carrier even before the artifact is
+    // produced, because the resolved record still exists for rich themes.
     return [carrierDiv([pendingOutput(artifactId)], identifier)];
   }
 
@@ -214,11 +204,11 @@ export function renderOneOutput(
       // One `div` carrier holds the whole neutral fallback (a readable
       // "label: value ± uncertainty unit" sentence), so a rich theme that
       // overrides the carrier renders its big-stat from the publication bundle and
-      // replaces the fallback wholesale — the #11 pattern.
+      // replaces the fallback wholesale.
       return [carrierDiv(metricFallback(output, artifactId, resultPath, opts.vfile), identifier)];
     default: {
-      // data / report: render inline, then tag the first node with
-      // the `output-<id>` carrier so cross-references resolve to it.
+      // data / report: render inline, then tag the first node as the
+      // `output-<id>` carrier.
       const nodes = renderInlineArtifact(output, artifactId, resultPath, undefined, opts.vfile);
       if (nodes.length > 0 && !nodes[0].identifier) {
         nodes[0].identifier = identifier;

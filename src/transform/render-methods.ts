@@ -47,9 +47,8 @@ export type TabItemFn = (title: string, children: any[], selected?: boolean) => 
  * active universe. The SDK has already resolved `from` references into a
  * complete record, so renderers do not special-case their authored origin.
  *
- * The xref index uses this predicate to publish only ids that have
- * a real carrier — anchors to unrendered decisions would otherwise
- * land on nothing.
+ * Inactive decisions have no carrier and are reported explicitly when an
+ * author addresses them.
  */
 export function isDecisionRendered(
   decision: ResolvedDecision,

@@ -144,6 +144,8 @@ beforeAll(() => {
   writeFileSync(join(root, 'results', 'baseline', 'sub.sub_table.csv'), CSV);
   writeFileSync(join(root, 'index.md'), '# Root');
   writeFileSync(join(root, 'sub.md'), '# Sub');
+  mkdirSync(join(root, 'chapters'));
+  writeFileSync(join(root, 'chapters', 'results.md'), '# Results');
   process.chdir(root);
   clearResolvedProjectCache();
 });
@@ -359,6 +361,23 @@ describe('publication contract', () => {
       url: 'results/baseline/scatter_plot.png',
       static: true,
     });
+  });
+
+  it('makes rendered and carrier asset URLs relative to a nested source page', async () => {
+    const { tree } = await transform(
+      directive('outputs.scatter_plot'),
+      'chapters/results.md',
+    );
+    expect(find(tree, (node) => node.type === 'image')?.url).toBe(
+      '../results/baseline/scatter_plot.png',
+    );
+    const resources = find(tree, (node) =>
+      node.class === 'astra-publication-resources',
+    )!;
+    const plot = resources.children.find(
+      (node: Node) => node.data?.astraArtifact?.outputPath === 'outputs.scatter_plot',
+    );
+    expect(plot.url).toBe('../results/baseline/scatter_plot.png');
   });
 
   it('registers cited DOIs once in both MyST citation modes', async () => {

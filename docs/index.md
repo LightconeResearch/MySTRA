@@ -66,9 +66,11 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     outputs:
       - id: alpha_table
         type: table
+        format: csv
         description: Best-fit BAO dilation parameters per tracer.
       - id: bao_fit_plot
         type: figure
+        format: png
         description: Correlation function and best-fit model.
 
     decisions:
@@ -82,6 +84,8 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     findings:
       bao_detected:
         claim: The BAO feature is detected at high significance.
+        created_at: "2026-01-15T00:00:00Z"
+        evidence: []
     ```
 
 === "Run it (`myst.yml`)"

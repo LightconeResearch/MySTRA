@@ -25,15 +25,9 @@ import type { ProseParser } from './prose.js';
  * Description parses as inline Markdown so emphasis/links/code render
  * inside the table cell. The resolved SDK contract guarantees `type`.
  *
- * Each row carries a stable `identifier: <kind>-<id>` so the narrative
- * grammar `[text](#<collection>.<id>)` resolves to it. mdast's `tableRow`
- * doesn't formally have an identifier slot, but the node tolerates extra
- * fields and the xref index keys off `identifier` regardless of node type.
- *
- * This is the xref contract: anything `collectIdentifiers` publishes must
- * have a rendered carrier. Image/JSON/CSV evidence still appears wherever
- * it's structurally referenced (typically under a finding); the row here
- * is the stable anchor target.
+ * Each row carries a stable `identifier: <kind>-<id>`. mdast's `tableRow`
+ * tolerates the extra field, giving stock rendering a local anchor and rich
+ * themes a predictable fallback carrier.
  */
 function renderRegistryTable(
   kind: 'Input' | 'Output',

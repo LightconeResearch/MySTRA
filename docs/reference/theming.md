@@ -14,10 +14,9 @@ Every placed block carries a stable `astra-<kind>` class on the node bearing its
 | `astra-prior-insight` | A prior-insight admonition |
 | `astra-input` / `astra-inputs` / `astra-outputs` | Single-input table / registries |
 | `astra-option` | An option heading |
-| `astra-universe` | A universe selection table |
 | `astra-subanalysis` | A sub-analysis summary card |
 
-Inline tokens are neutral spans: `span.astra-ref--<kind>` (`decision`, `output`, `finding`, `prior_insight`, `analysis`, `input`, `option`, `evidence`, `universe`, `value`). Each carries `data.astra` metadata — `{ kind, id, canonicalPath }` (plus value metadata such as the column and filter for `{astra:value}` tokens). `canonicalPath` is the stable lookup key from `@astra-spec/sdk`; option and evidence references use their owning record's canonical path.
+Inline tokens are neutral spans: `span.astra-ref--<kind>` (`decision`, `output`, `finding`, `prior_insight`, `analysis`, `input`, `option`, `evidence`, `value`). Each carries `data.astra` metadata — `{ kind, id, canonicalPath }` (plus value metadata such as the column and filter for `{astra:value}` tokens). `canonicalPath` is the stable lookup key from `@astra-spec/sdk`; option and evidence references use their owning record's canonical path.
 
 A theme selects a placed node by class or identifier (`.astra-output`, `[identifier^="output-"]`) and joins it to the bundle below by canonical path — it never reads `astra.yaml` or reimplements ASTRA resolution.
 
@@ -47,7 +46,7 @@ import type { ResolvedAnalysisBundle } from '@astra-spec/sdk';
 Besides the bundle, the plugin appends two hidden carriers when relevant:
 
 - **`div.astra-publication-resources`** — one `link` node marked `static: true` per SDK artifact binding. MyST copies and rewrites its `url`; `data.astraArtifact = { outputPath, cacheToken }` joins that URL back to the bundle binding without changing the SDK data.
-- **`div.astra-cites`** — one hidden `cite` node per DOI (both narrative and parenthetical kinds), so MyST's citation pipeline resolves formatted author–year citations and bibliography entries that the theme's record dialogs can render instead of raw DOIs.
+- **`div.astra-cites`** — a narrative/parenthetical pair of hidden `cite` nodes per DOI, registering every resolved citation with MyST's citation and bibliography pipeline. Rich themes read DOI evidence from the publication bundle itself.
 
 ## Anchors
 
