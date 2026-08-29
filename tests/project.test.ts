@@ -137,7 +137,7 @@ describe('readMetric', () => {
     expect(readMetric(path)).toEqual({ value: 2.5, uncertainty: 0.1 });
 
     await writeFile(path, '{"value":2.5,"error":0.2,"unit":"Mpc","label":"Fit"}');
-    expect(readMetric(path)).toEqual({ value: 2.5, error: 0.2, unit: 'Mpc', label: 'Fit' });
+    expect(readMetric(path)).toEqual({ value: 2.5, uncertainty: 0.2, unit: 'Mpc', label: 'Fit' });
   });
 
   it('returns undefined for unsupported files and values', async () => {

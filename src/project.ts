@@ -8,6 +8,7 @@
  * from resolving the same project more than once.
  */
 
+import { createHash } from 'node:crypto';
 import { resolve as resolvePath } from 'node:path';
 
 import {
@@ -39,8 +40,14 @@ export interface ResolvedProject {
 
 type DependencySnapshot =
   | { operation: 'stat'; path: string; value: ProjectEntry | undefined }
+  /** Text is retained as a digest: enough to detect any edit, without holding
+   *  a second copy of every spec and universe file for the process lifetime. */
   | { operation: 'readText'; path: string; value: string }
   | { operation: 'readDirectory'; path: string; value: ProjectDirectoryEntry[] };
+
+function digest(text: string): string {
+  return createHash('sha1').update(text).digest('hex');
+}
 
 interface CachedProject {
   project: ResolvedProject;
@@ -92,9 +99,9 @@ function trackingReader(delegate: ProjectReader): {
 
   const reader: ProjectReader = {
     async readText(path: string): Promise<string> {
-      const value = await delegate.readText(path);
-      remember({ operation: 'readText', path, value });
-      return value;
+      const text = await delegate.readText(path);
+      remember({ operation: 'readText', path, value: digest(text) });
+      return text;
     },
 
     async stat(path: string): Promise<ProjectEntry | undefined> {
@@ -145,7 +152,7 @@ async function dependencyIsFresh(
       case 'stat':
         return entriesEqual(await reader.stat(dependency.path), dependency.value);
       case 'readText':
-        return (await reader.readText(dependency.path)) === dependency.value;
+        return digest(await reader.readText(dependency.path)) === dependency.value;
       case 'readDirectory':
         return directoriesEqual(
           orderedDirectory(await reader.readDirectory(dependency.path)),
@@ -168,10 +175,6 @@ async function cacheIsFresh(
     dependencies.map((dependency) => dependencyIsFresh(reader, dependency)),
   );
   return results.every(Boolean);
-}
-
-function optionsCacheKey(options: ResolveAnalysisOptions): string {
-  return options.universeId === undefined ? '<implicit>' : `universe:${options.universeId}`;
 }
 
 async function resolveFreshProject(
@@ -207,7 +210,11 @@ export function loadResolvedProject(
   const resolveOptions: ResolveAnalysisOptions = options.universeId === undefined
     ? {}
     : { universeId: options.universeId };
-  const key = JSON.stringify([normalizedRoot, optionsCacheKey(resolveOptions)]);
+  // NUL separates the two parts, and the `universe:` prefix keeps an implicit
+  // universe distinct from an explicit empty one.
+  const key = resolveOptions.universeId === undefined
+    ? normalizedRoot
+    : `${normalizedRoot}\u0000universe:${resolveOptions.universeId}`;
   let slot = projectCache.get(key);
   if (!slot) {
     slot = {};

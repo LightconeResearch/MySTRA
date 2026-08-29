@@ -2,13 +2,17 @@
 
 import { readFileSync } from 'node:fs';
 
-/** A supported scalar, tuple, or object metric normalized for rendering. */
+/**
+ * A supported scalar, tuple, or object metric normalized for rendering.
+ *
+ * The accepted spellings of each field are collapsed here — `error` folds into
+ * `uncertainty` and `units` into `unit` — so renderers never re-implement the
+ * alias rule and a new spelling is a one-line change in this module.
+ */
 export interface ParsedMetric {
   value?: number | string;
   uncertainty?: number | string;
-  error?: number | string;
   unit?: string;
-  units?: string;
   label?: string;
 }
 
@@ -41,14 +45,12 @@ export function readMetric(path: string): ParsedMetric | undefined {
 
       const object = raw as Record<string, unknown>;
       const result: ParsedMetric = { value };
-      if (typeof object.uncertainty === 'number' || typeof object.uncertainty === 'string') {
-        result.uncertainty = object.uncertainty;
+      const uncertainty = object.uncertainty ?? object.error;
+      if (typeof uncertainty === 'number' || typeof uncertainty === 'string') {
+        result.uncertainty = uncertainty;
       }
-      if (typeof object.error === 'number' || typeof object.error === 'string') {
-        result.error = object.error;
-      }
-      if (typeof object.unit === 'string') result.unit = object.unit;
-      if (typeof object.units === 'string') result.units = object.units;
+      const unit = object.unit ?? object.units;
+      if (typeof unit === 'string') result.unit = unit;
       if (typeof object.label === 'string') result.label = object.label;
       return result;
     }

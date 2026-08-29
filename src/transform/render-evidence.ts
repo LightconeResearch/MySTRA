@@ -89,11 +89,6 @@ function pendingOutput(artifactId: string): any {
   ]);
 }
 
-/** Map a produced artifact to the source-page-relative URL consumed by MyST. */
-function artifactUrl(resultPath: string, resultUrl: (absPath: string) => string): string {
-  return resultUrl(resultPath);
-}
-
 /**
  * A figure output as `container[figure]` (image + caption). Standalone output
  * blocks receive an identifier; evidence figures do not, because one output
@@ -180,7 +175,7 @@ export function renderOneOutput(
       return figureBlock(
         output,
         artifactId,
-        artifactUrl(resultPath, opts.resultUrl),
+        opts.resultUrl(resultPath),
         prose,
         identifier,
       );
@@ -238,11 +233,11 @@ function metricFallback(
       strong([text(`${output.label ?? artifactId}: `)]),
       text(String(metric.value)),
     ];
-    const uncertainty = metric.uncertainty ?? metric.error;
+    const uncertainty = metric.uncertainty;
     if (uncertainty !== undefined && uncertainty !== '') {
       parts.push(text(` \u00B1 ${uncertainty}`));
     }
-    const unit = metric.unit ?? metric.units;
+    const unit = metric.unit;
     if (unit) parts.push(text(` ${unit}`));
     return [paragraph(parts)];
   }
@@ -276,7 +271,7 @@ function renderArtifactEvidence(
   switch (output.type) {
     case 'figure':
       nodes.push(
-        ...figureBlock(output, artifactId, artifactUrl(resultPath, opts.resultUrl), prose),
+        ...figureBlock(output, artifactId, opts.resultUrl(resultPath), prose),
       );
       break;
     case 'table':

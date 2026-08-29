@@ -35,17 +35,16 @@ export function renderFinding(
   outputs: ReadonlyMap<string, ResolvedOutput>,
   prose: ProseParser,
   opts: {
-    /** Parts to render (of notes / scope / evidence); all when absent. The
-     *  claim heading — the finding's identifier carrier — is always kept. */
-    parts?: Set<string>;
+    /** Parts to render (of notes / scope / evidence). The claim heading —
+     *  the finding's identifier carrier — is always kept. */
+    parts: Set<string>;
     /** Absolute artifact path → servable URL, for figure evidence. */
     resultUrl: (absPath: string) => string;
     /** The page's vfile, for broken-reference diagnostics. */
     vfile?: any;
   },
 ): any[] {
-  const parts = opts.parts;
-  const has = (part: string) => !parts || parts.has(part);
+  const has = (part: string) => opts.parts.has(part);
   const nodes: any[] = [];
 
   // Finding heading: claim parsed as inline Markdown so emphasis and

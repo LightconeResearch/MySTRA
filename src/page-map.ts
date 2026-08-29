@@ -22,6 +22,7 @@ import {
   relative,
   sep,
 } from 'node:path';
+import { slugToUrl } from 'myst-common';
 import { parse as parseYaml } from 'yaml';
 import type { AnalysisIndex } from '@astra-spec/sdk';
 
@@ -177,8 +178,32 @@ function pageSlug(
 }
 
 function hrefForSlug(slug: string): string {
-  const path = slug.replace(/\.index$/, '').replace(/\./g, '/');
+  // MyST owns the slug → route rule; only the leading slash is ours.
+  const path = slugToUrl(slug);
   return path ? `/${path}` : '/';
+}
+
+/**
+ * The single page → analysis-scope rule: an explicit `astra_scope` (array or
+ * dotted string) wins, otherwise the dotted source stem, with `index` and an
+ * empty stem meaning the root analysis.
+ *
+ * Shared with active-page scope resolution so a page that receives an analysis
+ * href resolves to that same analysis when MyST transforms it.
+ */
+export function scopeSegments(
+  explicit: AstraScopeValue | undefined,
+  file: string,
+): string[] {
+  if (Array.isArray(explicit)) return explicit.map(String).filter(Boolean);
+  if (typeof explicit === 'string') return explicit.split('.').filter(Boolean);
+  const stem = sourceStem(file);
+  return stem && stem !== 'index' ? stem.split('.').filter(Boolean) : [];
+}
+
+/** Dotted analysis segments → the canonical `$`-rooted analysis path. */
+export function canonicalAnalysisPath(segments: readonly string[]): string {
+  return segments.length ? segments.join('.') : '$';
 }
 
 function pageAnalysisPath(
@@ -187,16 +212,7 @@ function pageAnalysisPath(
   rootPage: boolean,
 ): string | undefined {
   const explicit = rawAstraScope(file);
-  let segments: string[];
-  if (Array.isArray(explicit)) {
-    segments = explicit.map(String).filter(Boolean);
-  } else if (typeof explicit === 'string') {
-    segments = explicit.split('.').filter(Boolean);
-  } else {
-    const stem = sourceStem(file);
-    segments = stem && stem !== 'index' ? stem.split('.').filter(Boolean) : [];
-  }
-  const analysisPath = segments.length ? segments.join('.') : '$';
+  const analysisPath = canonicalAnalysisPath(scopeSegments(explicit, file));
   if (index.analysisByPath.has(analysisPath)) return analysisPath;
   // This matches active-page fallback for a custom project index filename,
   // while still refusing to map arbitrary non-index appendices onto root.

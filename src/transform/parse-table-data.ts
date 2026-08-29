@@ -10,7 +10,7 @@
  * CSV/JSON reader from appearing in the system (constitution constraint).
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { parse as parsePath } from 'node:path';
 import Papa from 'papaparse';
 
@@ -30,15 +30,33 @@ export function fileExt(filePath: string): string {
   return parsePath(filePath).ext.slice(1).toLowerCase();
 }
 
+/** Parsed tables keyed by path, revalidated by mtime — the same file is
+ *  referenced many times per page ({astra:value} cells, evidence figures,
+ *  standalone output blocks), and each miss is a full read plus parse. */
+const tableCache = new Map<string, { mtimeMs: number; data: TableData | null }>();
+
 /**
  * Parse a result file at `filePath` and return `TableData`, or `null` when
  * the extension is unsupported or the file cannot be read / parsed.
  *
- * Supported extensions: `.csv`, `.json`.
+ * Supported extensions: `.csv`, `.json`. Results are cached per file and
+ * revalidated by mtime, so repeated references to one artifact parse it once.
  */
 export function parseTableData(filePath: string): TableData | null {
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+  const cached = tableCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.data;
+
   const ext = fileExt(filePath);
-  return ext === 'csv' ? parseCSV(filePath) : ext === 'json' ? parseJSON(filePath) : null;
+  const data =
+    ext === 'csv' ? parseCSV(filePath) : ext === 'json' ? parseJSON(filePath) : null;
+  tableCache.set(filePath, { mtimeMs, data });
+  return data;
 }
 
 // ── Format helpers (used by both CSV and JSON parsers) ────────────────────────

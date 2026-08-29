@@ -55,8 +55,9 @@ import {
 } from './project.js';
 import {
   analysisPageHrefs,
+  canonicalAnalysisPath,
   rawAstraScope,
-  sourceStem,
+  scopeSegments,
 } from './page-map.js';
 import { reportError, reportWarn } from './diagnostics.js';
 import { createProseParser } from './transform/prose.js';
@@ -123,14 +124,31 @@ interface Scope {
   insightsById: ReadonlyMap<string, ResolvedInsight>;
   analysesById: ReadonlyMap<string, ResolvedAnalysisNode>;
   tabItem: ReturnType<typeof makeTabItem>;
+  /** Absolute artifact path → URL relative to this scope's source page. */
+  resultUrl: (absPath: string) => string;
   vfile?: any;
 }
+
+/**
+ * The per-analysis half of a `Scope`: everything derived purely from the
+ * resolved project, and therefore identical for every reference on a page.
+ */
+type ScopeCore = Omit<Scope, 'prose' | 'tabItem' | 'resultUrl' | 'vfile'>;
+
+/**
+ * `resolveScope` runs once per authored `{astra}` role/directive, so the
+ * lookup maps are built once per (project, analysis) and reused. Keying on the
+ * `ResolvedProject` identity makes invalidation free: re-resolving the project
+ * produces a new object and thus a new cache.
+ */
+const scopeCoreCache = new WeakMap<ResolvedProject, Map<string, ScopeCore>>();
 
 const outputIndexCache = new WeakMap<
   ResolvedProject,
   ReadonlyMap<string, ResolvedOutput>
 >();
 
+/** Project-wide, so memoized independently of the per-analysis scope core. */
 function outputIndex(project: ResolvedProject): ReadonlyMap<string, ResolvedOutput> {
   const cached = outputIndexCache.get(project);
   if (cached) return cached;
@@ -142,28 +160,54 @@ function outputIndex(project: ResolvedProject): ReadonlyMap<string, ResolvedOutp
   return outputs;
 }
 
-function resolveScope(
-  project: ResolvedProject,
-  analysisPath: string[],
-  vfile?: any,
-): Scope {
-  const canonicalPath = analysisPath.length ? analysisPath.join('.') : '$';
+/**
+ * Project-wide derivations that are identical on every page. Both walk the
+ * whole resolved document, so they are computed once per resolved project
+ * rather than once per page transform.
+ */
+const citedDoiCache = new WeakMap<ResolvedProject, readonly string[]>();
+
+function citedDois(project: ResolvedProject): readonly string[] {
+  const cached = citedDoiCache.get(project);
+  if (cached) return cached;
+  const dois = collectCitedDois(project.bundle.document);
+  citedDoiCache.set(project, dois);
+  return dois;
+}
+
+const pageHrefCache = new WeakMap<ResolvedProject, ReadonlyMap<string, string>>();
+
+function pageHrefs(project: ResolvedProject): ReadonlyMap<string, string> {
+  const cached = pageHrefCache.get(project);
+  if (cached) return cached;
+  const hrefs = analysisPageHrefs(project.root, project.index);
+  pageHrefCache.set(project, hrefs);
+  return hrefs;
+}
+
+function scopeCore(project: ResolvedProject, canonicalPath: string): ScopeCore {
+  let byPath = scopeCoreCache.get(project);
+  if (!byPath) {
+    byPath = new Map();
+    scopeCoreCache.set(project, byPath);
+  }
+  const cached = byPath.get(canonicalPath);
+  if (cached) return cached;
+
   const analysis = project.index.analysisByPath.get(canonicalPath);
   if (!analysis) {
     throw new Error(
-      `unknown sub-analysis "${analysisPath.join('.') || '<root>'}"`,
+      `unknown sub-analysis "${canonicalPath === '$' ? '<root>' : canonicalPath}"`,
     );
   }
-  const results: ArtifactResolver = (outputPath) => {
-    const binding = project.bindingsByOutputPath.get(outputPath);
-    return binding ? join(project.root, binding.path) : undefined;
-  };
-  return {
+  const core: ScopeCore = {
     project,
     root: project.root,
     analysis,
-    results,
-    prose: createProseParser(vfile),
+    results: (outputPath) => {
+      const binding = project.bindingsByOutputPath.get(outputPath);
+      return binding ? join(project.root, binding.path) : undefined;
+    },
     records: project.index.recordByPath,
     outputsById: new Map(analysis.outputs.map((output) => [output.id, output])),
     outputsByPath: outputIndex(project),
@@ -171,7 +215,21 @@ function resolveScope(
     findingsById: new Map(analysis.findings.map((finding) => [finding.id, finding])),
     insightsById: new Map(analysis.prior_insights.map((insight) => [insight.id, insight])),
     analysesById: new Map(analysis.analyses.map((child) => [child.id, child])),
+  };
+  byPath.set(canonicalPath, core);
+  return core;
+}
+
+function resolveScope(
+  project: ResolvedProject,
+  analysisPath: string[],
+  vfile?: any,
+): Scope {
+  return {
+    ...scopeCore(project, canonicalAnalysisPath(analysisPath)),
+    prose: createProseParser(vfile),
     tabItem: makeTabItem(),
+    resultUrl: resultUrl(project.root, vfile),
     vfile,
   };
 }
@@ -194,6 +252,17 @@ function resultUrl(root: string, vfile?: any): (absPath: string) => string {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * The one wording for a record excluded by the active universe. Keeps the
+ * bundle accessor in a single place across the directive and value surfaces.
+ */
+function inactiveUnderUniverse(kind: string, id: string, scope: Scope): string {
+  return (
+    `${kind} "${id}" is inactive under universe ` +
+    `"${scope.project.bundle.document.universe.universeId}"`
+  );
+}
 
 function errorNode(message: string): any {
   return admonition('error', [
@@ -299,7 +368,7 @@ function renderFindingParts(
   return tagComponent(
     renderFinding(finding, index ?? findings.findIndex((item) => item.id === id) + 1, id, scope.results, scope.outputsByPath, scope.prose, {
       parts: findingParts(options),
-      resultUrl: resultUrl(scope.root, scope.vfile),
+      resultUrl: scope.resultUrl,
       vfile: scope.vfile,
     }),
     { kind: 'finding', id, canonicalPath: finding.canonicalPath },
@@ -498,10 +567,7 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
       const decision = scope.decisionsById.get(id);
       if (!decision) throw new Error(`no decision "${id}" in this scope`);
       if (!isDecisionRendered(decision)) {
-        throw new Error(
-          `decision "${id}" is inactive under universe ` +
-            `"${scope.project.bundle.document.universe.universeId}"`,
-        );
+        throw new Error(inactiveUnderUniverse('decision', id, scope));
       }
       return renderDecisionBlock(id, decision, scope);
     }
@@ -509,13 +575,10 @@ function renderElement(p: AstraPath, scope: Scope, options: DirectiveOptions): a
       const output = scope.outputsById.get(id);
       if (!output) throw new Error(`no output "${id}" in this scope`);
       if (!output.active) {
-        throw new Error(
-          `output "${id}" is inactive under universe ` +
-            `"${scope.project.bundle.document.universe.universeId}"`,
-        );
+        throw new Error(inactiveUnderUniverse('output', id, scope));
       }
       const nodes = renderOneOutput(output, id, scope.results, scope.prose, {
-        resultUrl: resultUrl(scope.root, scope.vfile),
+        resultUrl: scope.resultUrl,
         vfile: scope.vfile,
       });
       if (options.caption) applyCaption(nodes, scope, options.caption);
@@ -851,17 +914,11 @@ export interface AstraArtifactData {
  * explicit override is still reported as an authoring error.
  */
 function scopeForFile(project: ResolvedProject, vfile: any): Scope {
-  const base = sourceStem(vfile?.path ?? '');
-  let analysisPath = base && base !== 'index' ? base.split('.').filter(Boolean) : [];
   // Prefer the validated frontmatter if a future MyST passes the key through;
   // fall back to the raw file, which is what works today (#10).
   const explicit =
     vfile?.data?.frontmatter?.astra_scope ?? rawAstraScope(vfile?.path);
-  if (Array.isArray(explicit)) {
-    analysisPath = explicit.map((s) => String(s)).filter(Boolean);
-  } else if (typeof explicit === 'string') {
-    analysisPath = explicit.split('.').filter(Boolean);
-  }
+  const analysisPath = scopeSegments(explicit, vfile?.path ?? '');
   try {
     return resolveScope(project, analysisPath, vfile);
   } catch (err) {
@@ -1014,10 +1071,7 @@ function renderValue(
       const decision = scope.decisionsById.get(id);
       if (!decision) return fail(`no decision "${id}"`);
       if (!decision.active) {
-        return fail(
-          `decision "${id}" is inactive under universe ` +
-            `"${scope.project.bundle.document.universe.universeId}"`,
-        );
+        return fail(inactiveUnderUniverse('decision', id, scope));
       }
       const optionId = decision.selectedOptionId;
       const option = decision.options.find((item) => item.id === optionId);
@@ -1041,10 +1095,7 @@ function renderValue(
     const output = scope.outputsById.get(id);
     if (!output || !canonicalPath) return fail(`no output "${id}"`);
     if (!output.active) {
-      return fail(
-        `output "${id}" is inactive under universe ` +
-          `"${scope.project.bundle.document.universe.universeId}"`,
-      );
+      return fail(inactiveUnderUniverse('output', id, scope));
     }
     const absolutePath = scope.results(canonicalPath);
     if (!absolutePath) {
@@ -1056,14 +1107,14 @@ function renderValue(
       const metric = readMetric(absolutePath);
       if (metric?.value !== undefined) {
         let value = fmtNum(String(metric.value), sig);
-        const uncertainty = metric.uncertainty ?? metric.error;
+        const uncertainty = metric.uncertainty;
         if (options.pm && uncertainty !== undefined && uncertainty !== '') {
           value += ` ± ${fmtNum(String(uncertainty), 2)}`;
         }
         const node = refNode(
           'value', id, value, 'metric', { canonicalPath },
         );
-        const unit = metric.unit ?? metric.units;
+        const unit = metric.unit;
         Object.assign(node.data.astra, {
           type: 'metric',
           ...(output.label ? { product: output.label } : {}),
@@ -1172,7 +1223,7 @@ function publicationCarriers(
   project: ResolvedProject,
   activeScope: Scope,
 ): any[] {
-  const artifactUrl = resultUrl(project.root, activeScope.vfile);
+  const artifactUrl = activeScope.resultUrl;
   const carrier: any = hiddenDiv('astra-publication-bundle');
   const publication: AstraPublicationData = {
     schemaVersion: ASTRA_PUBLICATION_SCHEMA_VERSION,
@@ -1199,7 +1250,7 @@ function publicationCarriers(
   if (resources.length) {
     nodes.push(hiddenDiv('astra-publication-resources', resources));
   }
-  const dois = collectCitedDois(project.bundle.document);
+  const dois = citedDois(project);
   if (dois.length) {
     nodes.push(
       hiddenDiv('astra-cites', [
@@ -1229,7 +1280,7 @@ const resolvedAnalysisTransform = {
       replaceRequests(tree, (request) => failedRequest(request, messages[0] ?? 'cannot load project'));
       return;
     }
-    const analysisHrefs = analysisPageHrefs(project.root, project.index);
+    const analysisHrefs = pageHrefs(project);
     replaceRequests(tree, (request) =>
       renderRequest(request, project, vfile, analysisHrefs));
     const activeScope = scopeForFile(project, vfile);
