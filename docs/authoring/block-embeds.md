@@ -40,6 +40,18 @@ Examples:
 :::                                   # the inputs registry for a sub-analysis
 ```
 
+A bare sub-analysis target still renders a summary card. It does not guess a
+page URL: site navigation belongs to MyST's table of contents. An inline
+sub-analysis reference can expose a link when exactly one concrete TOC page is
+mapped to that analysis; see [multi-page reports](multi-page.md).
+
+Universe files still select decisions, conditional records, and artifact
+bindings for the entire rendered publication. They are resolution inputs,
+rather than records or collections, so `universes` and `universes.<id>` are not
+addressable `{astra}` paths. The rendered decisions and outputs already reflect
+the selected universe; see
+[project root and universe](../reference/configuration.md#project-root-and-universe).
+
 ## Options
 
 Options follow MyST's `:key: value` form:

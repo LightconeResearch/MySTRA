@@ -66,8 +66,6 @@ my-analysis/
 └── index.md            Your report (+ optional sub-analysis pages)
 ```
 
-MySTRA never scans the results tree. The SDK derives each artifact binding from the selected universe, analysis namespace, output id, and declared `format`; path-backed sub-analyses start their own `results/` namespace.
-
 ## Write your first references
 
 Create an `index.md` and reference the analysis instead of restating it. Everything is addressed by a [path](authoring/paths.md) that mirrors `astra.yaml`:
