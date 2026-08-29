@@ -10,6 +10,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VFile } from 'vfile';
 import { mystParse } from 'myst-parser';
+import {
+  basicTransformations,
+  inlineMathSimplificationTransform,
+  mathTransform,
+} from 'myst-transforms';
 
 import plugin, {
   clearResolvedProjectCache,
@@ -26,7 +31,13 @@ inputs:
 decisions:
   method:
     label: Fit method
-    rationale: Why we pick this estimator.
+    rationale: |
+      (late-rationale)=
+      ## Why $\\latevalue$
+
+      :::{note}
+      Body with {sub}\`2\`.
+      :::
     default: mcmc
     options:
       mcmc:
@@ -149,16 +160,25 @@ beforeAll(() => {
     JSON.stringify({ value: 1.5, uncertainty: 0.3, unit: 'Mpc' }),
   );
   writeFileSync(join(root, 'results', 'baseline', 'sub.sub_table.csv'), CSV);
-  writeFileSync(join(root, 'index.md'), '# Root');
   writeFileSync(join(root, 'sub.md'), '# Sub');
   writeFileSync(
     join(root, 'myst.yml'),
     `version: 1
 project:
+  math:
+    '\\latevalue': '41'
   toc:
     - file: index.md
     - file: sub.md
 `,
+  );
+  writeFileSync(
+    join(root, 'index.md'),
+    `---
+math:
+  '\\latevalue': '42'
+---
+# Root`,
   );
   mkdirSync(join(root, 'chapters'));
   writeFileSync(join(root, 'chapters', 'results.md'), '# Results');
@@ -262,6 +282,69 @@ describe('syntax boundary', () => {
     const vfile = new VFile({ path: join(root, 'index.md') });
     await (plugin.transforms[0] as any).plugin()(tree, vfile);
     expect(find(tree, (node) => node.identifier === 'output-scatter_plot')).toBeDefined();
+  });
+
+  it('runs the skipped MyST stages on late component prose with effective page macros', async () => {
+    const tree = mystParse(
+      '### Out of order\n\n## Late rationale\n\n:::{astra} decisions.method\n:::',
+      {
+        directives: plugin.directives as any,
+      },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+
+    // This is the host ordering: MyST's own passes have completed before a
+    // document-stage plugin replaces the ASTRA request.
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
+    inlineMathSimplificationTransform(tree, { replaceSymbol: false });
+    mathTransform(tree, vfile, {
+      macros: { '\\latevalue': { macro: '42' } },
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const carrier = find(tree, (node) => node.identifier === 'decision-method')!;
+    expect(find(carrier, (node) => node.type === 'mystTarget')).toBeUndefined();
+    expect(find(carrier, (node) => node.type === 'mystDirective')).toBeUndefined();
+    expect(find(carrier, (node) => node.type === 'mystRole')).toBeUndefined();
+    expect(find(carrier, (node) => node.identifier === 'late-rationale')).toMatchObject({
+      type: 'heading',
+      depth: 2,
+      label: 'late-rationale',
+      html_id: 'late-rationale-1',
+    });
+    expect(find(tree, (node) =>
+      node.type === 'heading' &&
+      node.identifier === 'late-rationale' &&
+      node.html_id === 'late-rationale',
+    )).toBeDefined();
+    const note = find(
+      carrier,
+      (node) => node.type === 'admonition' && node.kind === 'note',
+    )!;
+    expect(note.children[0]).toMatchObject({ type: 'admonitionTitle' });
+    expect(find(note, (node) => node.type === 'subscript')).toBeDefined();
+    const math = find(
+      carrier,
+      (node) => node.type === 'inlineMath' && node.value === '\\latevalue',
+    );
+    expect(math?.html).toContain('<mn>42</mn>');
+    expect(math).not.toHaveProperty('error');
+    expect(vfile.messages.some((message) =>
+      /Undefined control sequence/.test(String(message)),
+    )).toBe(false);
+  });
+
+  it('falls back to project math macros when the page has no override', async () => {
+    const decision = await renderDirective('decisions.method', {}, 'sub.md');
+    const math = find(
+      decision,
+      (node) => node.type === 'inlineMath' && node.value === '\\latevalue',
+    );
+    expect(math?.html).toContain('<mn>41</mn>');
+    expect(math).not.toHaveProperty('error');
   });
 });
 

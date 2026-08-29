@@ -12,32 +12,51 @@
  */
 
 import { mystParse } from 'myst-parser';
-import { liftChildren } from 'myst-common';
 import {
-  mathLabelTransform,
-  mathNestingTransform,
+  basicTransformations,
+  inlineMathSimplificationTransform,
   mathTransform,
 } from 'myst-transforms';
 import { VFile } from 'vfile';
+import type { MystMathMacros } from '../myst-config.js';
 
 // ── Parsing ───────────────────────────────────────────────────────
 
+export interface ProseTransformOptions {
+  macros?: MystMathMacros;
+  firstDepth?: number;
+}
+
 /**
- * Parse Markdown and lift the `mystDirective` wrappers myst-parser keeps
- * around expanded directive content — the canonical output (an `admonition`,
- * a `container`, …) sits inside as children, which downstream renderers
- * consume. The tree is freshly parsed, so the in-place lift is safe.
+ * Parse and transform one isolated Markdown fragment through the same
+ * pre-document stages MyST has already run on the host page.
+ *
+ * The synthetic block is a sentinel: `basicTransformations` otherwise wraps
+ * every top-level fragment in a new block. Starting with a block makes that
+ * root-nesting pass a no-op while every descendant transformation still runs;
+ * the sentinel is removed before callers receive the authored nodes.
  */
-function parseAndLift(md: string, file: VFile): any {
-  const tree = mystParse(md);
-  liftChildren(tree, 'mystDirective');
-  // Component prose is inserted after MyST's document-level math passes. Run
-  // those same math transforms here so late inline/display math reaches themes
-  // with KaTeX HTML and reports diagnostics through the page's VFile.
-  mathNestingTransform(tree, file);
-  mathLabelTransform(tree, file);
-  mathTransform(tree, file);
-  return tree;
+function parseAndTransform(
+  md: string,
+  file: VFile,
+  options: ProseTransformOptions,
+): any {
+  const parsed = mystParse(md, { vfile: file });
+  const sentinel: any = {
+    type: 'block',
+    children: parsed.children ?? [],
+  };
+  const fragment: any = {
+    type: 'root',
+    children: [sentinel],
+  };
+  basicTransformations(fragment, file, {
+    parser: (content: string) => mystParse(content, { vfile: file }),
+    ...(options.firstDepth == null ? {} : { firstDepth: options.firstDepth }),
+  });
+  inlineMathSimplificationTransform(fragment, { replaceSymbol: false });
+  mathTransform(fragment, file, { macros: options.macros });
+  return { type: 'root', children: sentinel.children };
 }
 
 /**
@@ -47,9 +66,10 @@ function parseAndLift(md: string, file: VFile): any {
 export function parseProseBlocks(
   md: string | undefined,
   file = new VFile(),
+  options: ProseTransformOptions = {},
 ): any[] {
   if (!md) return [];
-  return (parseAndLift(md, file).children ?? []).map(stripPositions);
+  return (parseAndTransform(md, file, options).children ?? []).map(stripPositions);
 }
 
 /**
@@ -61,9 +81,10 @@ export function parseProseBlocks(
 export function parseProseInline(
   md: string | undefined,
   file = new VFile(),
+  options: ProseTransformOptions = {},
 ): any[] {
   if (!md) return [];
-  const blocks = parseAndLift(md, file).children ?? [];
+  const blocks = parseAndTransform(md, file, options).children ?? [];
   if (blocks.length === 0) return [];
   if (blocks.length === 1 && blocks[0].type === 'paragraph') {
     return (blocks[0].children ?? []).map(stripPositions);
@@ -106,11 +127,17 @@ export interface ProseParser {
   inline(md: string | undefined): any[];
 }
 
-/** Create a parser whose math diagnostics are attached to the current page. */
-export function createProseParser(file = new VFile()): ProseParser {
+/**
+ * Create one page-bound parser. Diagnostics and effective math macros are
+ * shared by every ASTRA component rendered into that page.
+ */
+export function createProseParser(
+  file = new VFile(),
+  options: ProseTransformOptions = {},
+): ProseParser {
   return {
-    blocks: (md) => parseProseBlocks(md, file),
-    inline: (md) => parseProseInline(md, file),
+    blocks: (md) => parseProseBlocks(md, file, options),
+    inline: (md) => parseProseInline(md, file, options),
   };
 }
 

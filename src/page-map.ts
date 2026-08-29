@@ -25,6 +25,7 @@ import {
 import { slugToUrl } from 'myst-common';
 import { parse as parseYaml } from 'yaml';
 import type { AnalysisIndex } from '@astra-spec/sdk';
+import { rawPageFrontmatter } from './myst-config.js';
 
 export type AstraScopeValue = string | string[];
 
@@ -34,31 +35,9 @@ interface TocEntry {
   children?: unknown;
 }
 
-/** Read the unvalidated page frontmatter MyST strips before plugin transforms. */
-function rawFrontmatter(path: string | undefined): Record<string, unknown> | undefined {
-  if (!path) return undefined;
-  let source: string;
-  try {
-    source = readFileSync(path, 'utf-8');
-  } catch {
-    return undefined;
-  }
-  const block = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
-  if (!block) return undefined;
-  try {
-    const value = parseYaml(block[1]);
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : undefined;
-  } catch {
-    // MyST reports malformed page frontmatter. It is not a page mapping here.
-    return undefined;
-  }
-}
-
 /** The page's explicit `astra_scope`, when it has the documented value shape. */
 export function rawAstraScope(path: string | undefined): AstraScopeValue | undefined {
-  const value = rawFrontmatter(path)?.astra_scope;
+  const value = rawPageFrontmatter(path)?.astra_scope;
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) return value.map((segment) => String(segment));
   return undefined;

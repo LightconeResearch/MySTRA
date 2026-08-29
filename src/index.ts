@@ -59,6 +59,7 @@ import {
   rawAstraScope,
   scopeSegments,
 } from './page-map.js';
+import { pageMathMacros } from './myst-config.js';
 import { reportError, reportWarn } from './diagnostics.js';
 import { createProseParser } from './transform/prose.js';
 import type { ProseParser } from './transform/prose.js';
@@ -223,11 +224,12 @@ function scopeCore(project: ResolvedProject, canonicalPath: string): ScopeCore {
 function resolveScope(
   project: ResolvedProject,
   analysisPath: string[],
+  prose: ProseParser,
   vfile?: any,
 ): Scope {
   return {
     ...scopeCore(project, canonicalAnalysisPath(analysisPath)),
-    prose: createProseParser(vfile),
+    prose,
     tabItem: makeTabItem(),
     resultUrl: resultUrl(project.root, vfile),
     vfile,
@@ -913,14 +915,18 @@ export interface AstraArtifactData {
  * to the root because the publication bundle is project-wide; an invalid
  * explicit override is still reported as an authoring error.
  */
-function scopeForFile(project: ResolvedProject, vfile: any): Scope {
+function scopeForFile(
+  project: ResolvedProject,
+  prose: ProseParser,
+  vfile: any,
+): Scope {
   // Prefer the validated frontmatter if a future MyST passes the key through;
   // fall back to the raw file, which is what works today (#10).
   const explicit =
     vfile?.data?.frontmatter?.astra_scope ?? rawAstraScope(vfile?.path);
   const analysisPath = scopeSegments(explicit, vfile?.path ?? '');
   try {
-    return resolveScope(project, analysisPath, vfile);
+    return resolveScope(project, analysisPath, prose, vfile);
   } catch (err) {
     if (explicit != null) {
       const shown = Array.isArray(explicit) ? explicit.join('.') : explicit;
@@ -929,18 +935,19 @@ function scopeForFile(project: ResolvedProject, vfile: any): Scope {
         `astra_scope "${shown}": ${(err as Error).message} — using the root analysis`,
       );
     }
-    return resolveScope(project, [], vfile);
+    return resolveScope(project, [], prose, vfile);
   }
 }
 
 function renderDirectiveRequest(
   request: Extract<AstraRequest, { surface: 'directive' }>,
   project: ResolvedProject,
+  prose: ProseParser,
   vfile: any,
 ): any[] {
   const p = parseAstraPath(request.path);
   if (!p.collection) throw new Error('empty path');
-  const scope = resolveScope(project, p.scope, vfile);
+  const scope = resolveScope(project, p.scope, prose, vfile);
   let nodes: any[];
   if (p.child) {
     nodes = p.child.collection === 'options'
@@ -958,6 +965,7 @@ function renderDirectiveRequest(
 function renderAstraRefRequest(
   body: string,
   project: ResolvedProject,
+  prose: ProseParser,
   vfile: any,
   analysisHrefs: ReadonlyMap<string, string>,
 ): any[] {
@@ -968,7 +976,7 @@ function renderAstraRefRequest(
       reportWarn(vfile, `astra: empty path in "${body}" — rendering plain text`);
       return [text(body)];
     }
-    const scope = resolveScope(project, p.scope, vfile);
+    const scope = resolveScope(project, p.scope, prose, vfile);
     const ref = resolveInlineRef(p, scope, display);
     const canonicalPath = canonicalRecordPath(p);
     const href = ref.analysisPath
@@ -1003,12 +1011,13 @@ function renderAstraRefRequest(
 function renderCiteRequest(
   request: Extract<AstraRequest, { surface: 'role' }>,
   project: ResolvedProject,
+  prose: ProseParser,
   vfile: any,
 ): any[] {
   const { display, path } = splitDisplay(request.body);
   try {
     const p = parseAstraPath(path);
-    const scope = resolveScope(project, p.scope, vfile);
+    const scope = resolveScope(project, p.scope, prose, vfile);
     if (p.collection !== 'findings' && p.collection !== 'prior_insights') {
       throw new Error('astra:cite expects a finding or prior_insight path');
     }
@@ -1039,6 +1048,7 @@ function renderCiteRequest(
 function renderValue(
   request: Extract<AstraRequest, { surface: 'role' }>,
   project: ResolvedProject,
+  prose: ProseParser,
   vfile: any,
 ): any[] {
   const fail = (message: string): any[] => {
@@ -1064,7 +1074,7 @@ function renderValue(
     const parsed = parseAstraPath(path);
     const id = parsed.id;
     if (!id) return fail(`missing element id in "${path}"`);
-    const scope = resolveScope(project, parsed.scope, vfile);
+    const scope = resolveScope(project, parsed.scope, prose, vfile);
     const canonicalPath = canonicalRecordPath(parsed);
 
     if (parsed.collection === 'decisions') {
@@ -1170,12 +1180,13 @@ function renderValue(
 function renderRequest(
   request: AstraRequest,
   project: ResolvedProject,
+  prose: ProseParser,
   vfile: any,
   analysisHrefs: ReadonlyMap<string, string>,
 ): any[] {
   if (request.surface === 'directive') {
     try {
-      return renderDirectiveRequest(request, project, vfile);
+      return renderDirectiveRequest(request, project, prose, vfile);
     } catch (err) {
       const message = `astra "${request.path}": ${(err as Error).message}`;
       reportError(vfile, message);
@@ -1184,12 +1195,12 @@ function renderRequest(
   }
   switch (request.role) {
     case 'astra':
-      return renderAstraRefRequest(request.body, project, vfile, analysisHrefs);
+      return renderAstraRefRequest(request.body, project, prose, vfile, analysisHrefs);
     case 'astra:cite':
     case 'astra:cite:t':
-      return renderCiteRequest(request, project, vfile);
+      return renderCiteRequest(request, project, prose, vfile);
     case 'astra:value':
-      return renderValue(request, project, vfile);
+      return renderValue(request, project, prose, vfile);
   }
 }
 
@@ -1210,6 +1221,47 @@ function replaceRequests(
       replaceRequests(child, render);
     }
   }
+}
+
+/** The heading baseline already chosen by MyST for this page. */
+function pageHeadingBaseline(tree: any): number {
+  let baseline: number | undefined;
+  walkNodes(tree, (node) => {
+    if (node.type === 'heading' && typeof node.depth === 'number') {
+      baseline = baseline == null ? node.depth : Math.min(baseline, node.depth);
+    }
+  });
+  // A normal titled MyST page starts body headings at h2. This is the only
+  // case where the processed tree cannot tell us the host's chosen baseline.
+  return baseline ?? 2;
+}
+
+function existingHtmlIds(tree: any): Set<string> {
+  const ids = new Set<string>();
+  walkNodes(tree, (node) => {
+    if (typeof node.html_id === 'string' && node.html_id) ids.add(node.html_id);
+  });
+  return ids;
+}
+
+/**
+ * Make ids introduced by one replacement unique without renaming any anchor
+ * that MyST already published for the host page.
+ */
+function reserveReplacementHtmlIds(nodes: any[], reserved: Set<string>): any[] {
+  walkNodes(nodes, (node) => {
+    if (typeof node.html_id !== 'string' || !node.html_id) return;
+    const original = node.html_id;
+    let candidate = original;
+    let suffix = 1;
+    while (reserved.has(candidate)) {
+      candidate = `${original}-${suffix}`;
+      suffix += 1;
+    }
+    node.html_id = candidate;
+    reserved.add(candidate);
+  });
+  return nodes;
 }
 
 function failedRequest(request: AstraRequest, message: string): any[] {
@@ -1280,10 +1332,18 @@ const resolvedAnalysisTransform = {
       replaceRequests(tree, (request) => failedRequest(request, messages[0] ?? 'cannot load project'));
       return;
     }
+    const prose = createProseParser(vfile, {
+      macros: pageMathMacros(project.root, vfile),
+      firstDepth: pageHeadingBaseline(tree),
+    });
     const analysisHrefs = pageHrefs(project);
+    const reservedHtmlIds = existingHtmlIds(tree);
     replaceRequests(tree, (request) =>
-      renderRequest(request, project, vfile, analysisHrefs));
-    const activeScope = scopeForFile(project, vfile);
+      reserveReplacementHtmlIds(
+        renderRequest(request, project, prose, vfile, analysisHrefs),
+        reservedHtmlIds,
+      ));
+    const activeScope = scopeForFile(project, prose, vfile);
     (tree.children ??= []).push(
       ...publicationCarriers(project, activeScope),
     );
