@@ -124,7 +124,7 @@ export function renderDecision(
 
   if (decision.rationale) {
     // Rationale parses as full MyST Markdown.
-    detailsChildren.push(...prose.blocks(decision.rationale));
+    detailsChildren.push(...prose.blocks(decision.rationale, 4));
   }
 
   if (tabs.length > 0) {
@@ -166,7 +166,7 @@ function renderOptionTab(
 
   // Description as full MyST Markdown.
   if (option.description) {
-    children.push(...prose.blocks(option.description));
+    children.push(...prose.blocks(option.description, 4));
   }
 
   // Excluded reason: parsed as author prose.

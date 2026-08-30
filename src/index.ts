@@ -39,6 +39,12 @@
 
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { collectCitedDois } from '@astra-spec/sdk';
+import {
+  createHtmlId,
+  isTargetIdentifierNode,
+  transferTargetAttrs,
+} from 'myst-common';
+import { headingLabelTransform } from 'myst-transforms';
 import type {
   ResolvedAnalysisBundle,
   ResolvedAnalysisNode,
@@ -176,14 +182,11 @@ function citedDois(project: ResolvedProject): readonly string[] {
   return dois;
 }
 
-const pageHrefCache = new WeakMap<ResolvedProject, ReadonlyMap<string, string>>();
-
 function pageHrefs(project: ResolvedProject): ReadonlyMap<string, string> {
-  const cached = pageHrefCache.get(project);
-  if (cached) return cached;
-  const hrefs = analysisPageHrefs(project.root, project.index);
-  pageHrefCache.set(project, hrefs);
-  return hrefs;
+  // Page frontmatter and MyST config can change independently of ASTRA inputs
+  // during `myst start`; this inexpensive filesystem-derived map must follow
+  // those host-owned dependencies on every document pass.
+  return analysisPageHrefs(project.root, project.index);
 }
 
 function scopeCore(project: ResolvedProject, canonicalPath: string): ScopeCore {
@@ -428,7 +431,7 @@ function renderOneOption(decisionId: string, optionId: string, scope: Scope): an
     ...(selected ? [text(' '), emphasis([text('(selected)')])] : []),
   ], identifier);
   const nodes: any[] = [head];
-  if (option.description) nodes.push(...scope.prose.blocks(option.description));
+  if (option.description) nodes.push(...scope.prose.blocks(option.description, 5));
   const insightsPara = supportingInsightsParagraph(
     option.resolvedInsightPaths,
     scope.records,
@@ -626,13 +629,39 @@ type AstraRequest =
       options?: Record<string, any>;
     };
 
+/** The authored heading level represented by a heading-producing directive. */
+function requestHeadingDepth(request: AstraRequest): number | undefined {
+  if (request.surface !== 'directive') return undefined;
+  try {
+    const path = parseAstraPath(request.path);
+    if (path.child?.collection === 'options') return 4;
+    if (!path.child && (path.collection === 'decisions' || path.collection === 'findings')) {
+      return 3;
+    }
+  } catch {
+    // Resolution reports malformed paths later; they need no heading marker.
+  }
+  return undefined;
+}
+
+function headingMarker(rawDepth: number): any {
+  return {
+    type: 'heading',
+    depth: rawDepth,
+    data: { astraHeadingMarker: rawDepth },
+    children: [],
+  };
+}
+
 /** Synchronous MyST roles/directives emit requests for the async transform. */
-function requestNode(request: AstraRequest, inline: boolean): any {
+function requestNode(request: AstraRequest, inline: boolean, sourceNode?: any): any {
+  const rawHeadingDepth = requestHeadingDepth(request);
   return {
     type: inline ? 'span' : 'div',
     class: 'astra-request',
     data: { astraRequest: request },
-    children: [],
+    ...(sourceNode?.position ? { position: sourceNode.position } : {}),
+    children: rawHeadingDepth == null ? [] : [headingMarker(rawHeadingDepth)],
   };
 }
 
@@ -661,6 +690,7 @@ const astraDirective = {
           options: data?.options ?? {},
         },
         false,
+        data?.node,
       ),
     ];
   },
@@ -785,6 +815,7 @@ const astraRole = {
       requestNode(
         { surface: 'role', role: 'astra', body: String(data?.body ?? '') },
         true,
+        data?.node,
       ),
     ];
   },
@@ -812,6 +843,7 @@ function citeRole(name: string, kind: 'parenthetical' | 'narrative') {
             body: String(data?.body ?? ''),
           },
           true,
+          data?.node,
         ),
       ];
     },
@@ -887,6 +919,7 @@ const valueRole = {
           options: data?.options ?? {},
         },
         true,
+        data?.node,
       ),
     ];
   },
@@ -968,12 +1001,13 @@ function renderAstraRefRequest(
   prose: ProseParser,
   vfile: any,
   analysisHrefs: ReadonlyMap<string, string>,
+  sourceNode?: any,
 ): any[] {
   const { display, path } = splitDisplay(body);
   try {
     const p = parseAstraPath(path);
     if (!p.collection) {
-      reportWarn(vfile, `astra: empty path in "${body}" — rendering plain text`);
+      reportWarn(vfile, `astra: empty path in "${body}" — rendering plain text`, sourceNode);
       return [text(body)];
     }
     const scope = resolveScope(project, p.scope, prose, vfile);
@@ -1003,6 +1037,7 @@ function renderAstraRefRequest(
     reportWarn(
       vfile,
       `astra "${path}": ${(err as Error).message} — rendering a plain label`,
+      sourceNode,
     );
     return [text(display ?? humanize(path.split('.').at(-1) || path))];
   }
@@ -1013,6 +1048,7 @@ function renderCiteRequest(
   project: ResolvedProject,
   prose: ProseParser,
   vfile: any,
+  sourceNode?: any,
 ): any[] {
   const { display, path } = splitDisplay(request.body);
   try {
@@ -1040,7 +1076,7 @@ function renderCiteRequest(
     return cites.length === 1 ? cites : [citeGroup(cites, kind)];
   } catch (err) {
     const message = `${request.role} "${path}": ${(err as Error).message}`;
-    reportError(vfile, message);
+    reportError(vfile, message, sourceNode);
     return [inlineCode(`⟨cite: ${(err as Error).message}⟩`)];
   }
 }
@@ -1050,9 +1086,10 @@ function renderValue(
   project: ResolvedProject,
   prose: ProseParser,
   vfile: any,
+  sourceNode?: any,
 ): any[] {
   const fail = (message: string): any[] => {
-    reportError(vfile, `astra:value: ${message}`);
+    reportError(vfile, `astra:value: ${message}`, sourceNode);
     return [valueError(message)];
   };
   const path = request.body.trim();
@@ -1109,7 +1146,11 @@ function renderValue(
     }
     const absolutePath = scope.results(canonicalPath);
     if (!absolutePath) {
-      reportWarn(vfile, `astra:value: no result file for "${path}" (output not produced yet)`);
+      reportWarn(
+        vfile,
+        `astra:value: no result file for "${path}" (output not produced yet)`,
+        sourceNode,
+      );
       return [valueError(`no result file for "${path}"`)];
     }
     const sig = options.sig ?? 4;
@@ -1183,30 +1224,40 @@ function renderRequest(
   prose: ProseParser,
   vfile: any,
   analysisHrefs: ReadonlyMap<string, string>,
+  sourceNode?: any,
 ): any[] {
   if (request.surface === 'directive') {
     try {
       return renderDirectiveRequest(request, project, prose, vfile);
     } catch (err) {
       const message = `astra "${request.path}": ${(err as Error).message}`;
-      reportError(vfile, message);
+      reportError(vfile, message, sourceNode);
       return [errorNode(message)];
     }
   }
   switch (request.role) {
     case 'astra':
-      return renderAstraRefRequest(request.body, project, prose, vfile, analysisHrefs);
+      return renderAstraRefRequest(
+        request.body,
+        project,
+        prose,
+        vfile,
+        analysisHrefs,
+        sourceNode,
+      );
     case 'astra:cite':
     case 'astra:cite:t':
-      return renderCiteRequest(request, project, prose, vfile);
+      return renderCiteRequest(request, project, prose, vfile, sourceNode);
     case 'astra:value':
-      return renderValue(request, project, prose, vfile);
+      return renderValue(request, project, prose, vfile, sourceNode);
   }
 }
 
 function replaceRequests(
   node: any,
-  render: (request: AstraRequest) => any[],
+  render: (request: AstraRequest, sourceNode: any) => any[],
+  finalize?: (replacement: any[], sourceNode: any, ownedHtmlId?: string) => void,
+  vfile?: any,
 ): void {
   const children = node?.children;
   if (!Array.isArray(children)) return;
@@ -1214,33 +1265,80 @@ function replaceRequests(
     const child = children[index];
     const request = child?.data?.astraRequest as AstraRequest | undefined;
     if (request) {
-      const replacement = render(request);
+      const replacement = render(request, child);
+      const ownedHtmlId = nodeHtmlId(child);
+      if (replacement[0]) transferTargetAttrs(child, replacement[0], vfile);
+      finalize?.(replacement, child, ownedHtmlId);
       children.splice(index, 1, ...replacement);
       index += replacement.length - 1;
     } else {
-      replaceRequests(child, render);
+      replaceRequests(child, render, finalize, vfile);
     }
   }
 }
 
-/** The heading baseline already chosen by MyST for this page. */
-function pageHeadingBaseline(tree: any): number {
-  let baseline: number | undefined;
-  walkNodes(tree, (node) => {
-    if (node.type === 'heading' && typeof node.depth === 'number') {
-      baseline = baseline == null ? node.depth : Math.min(baseline, node.depth);
-    }
-  });
-  // A normal titled MyST page starts body headings at h2. This is the only
-  // case where the processed tree cannot tell us the host's chosen baseline.
-  return baseline ?? 2;
+function nodeHtmlId(node: any): string | undefined {
+  if (typeof node?.html_id === 'string' && node.html_id) return node.html_id;
+  return typeof node?.identifier === 'string' && isTargetIdentifierNode(node)
+    ? createHtmlId(node.identifier)
+    : undefined;
 }
 
-function existingHtmlIds(tree: any): Set<string> {
-  const ids = new Set<string>();
-  walkNodes(tree, (node) => {
-    if (typeof node.html_id === 'string' && node.html_id) ids.add(node.html_id);
+type HtmlIdReservations = Map<string, number>;
+
+function addHtmlId(reserved: HtmlIdReservations, htmlId: string): void {
+  reserved.set(htmlId, (reserved.get(htmlId) ?? 0) + 1);
+}
+
+function releaseHtmlId(reserved: HtmlIdReservations, htmlId?: string): void {
+  if (!htmlId) return;
+  const count = reserved.get(htmlId) ?? 0;
+  if (count <= 1) reserved.delete(htmlId);
+  else reserved.set(htmlId, count - 1);
+}
+
+/** Shift late headings by the exact amount MyST applied to their request marker. */
+function normalizeReplacementHeadings(nodes: any[], sourceNode: any, vfile?: any): void {
+  const marker = (sourceNode?.children ?? []).find(
+    (child: any) => typeof child?.data?.astraHeadingMarker === 'number',
+  );
+  const rawDepth = marker?.data?.astraHeadingMarker;
+  if (typeof rawDepth !== 'number' || typeof marker?.depth !== 'number') return;
+  const delta = marker.depth - rawDepth;
+  let clamped = false;
+  walkNodes(nodes, (node) => {
+    if (node.type !== 'heading' || typeof node.depth !== 'number') return;
+    const shifted = node.depth + delta;
+    const depth = Math.max(1, Math.min(6, shifted));
+    clamped ||= depth !== shifted;
+    node.depth = depth;
   });
+  if (clamped) {
+    reportWarn(
+      vfile,
+      'ASTRA replacement heading depth exceeds h6 — clamping to h6',
+      sourceNode,
+    );
+  }
+}
+
+/** Host IDs win even when their nodes only have an identifier so far. */
+function existingHtmlIds(tree: any): HtmlIdReservations {
+  const ids: HtmlIdReservations = new Map();
+  const collect = (node: any): void => {
+    if (Array.isArray(node)) {
+      node.forEach(collect);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const htmlId = nodeHtmlId(node);
+    if (htmlId) addHtmlId(ids, htmlId);
+    // A request's target belongs to the authored page, but its empty heading
+    // proxy disappears with the request and must not reserve anything.
+    if (node.data?.astraRequest) return;
+    if (Array.isArray(node.children)) node.children.forEach(collect);
+  };
+  collect(tree);
   return ids;
 }
 
@@ -1248,18 +1346,21 @@ function existingHtmlIds(tree: any): Set<string> {
  * Make ids introduced by one replacement unique without renaming any anchor
  * that MyST already published for the host page.
  */
-function reserveReplacementHtmlIds(nodes: any[], reserved: Set<string>): any[] {
+function reserveReplacementHtmlIds(
+  nodes: any[],
+  reserved: HtmlIdReservations,
+): any[] {
   walkNodes(nodes, (node) => {
-    if (typeof node.html_id !== 'string' || !node.html_id) return;
-    const original = node.html_id;
+    const original = nodeHtmlId(node);
+    if (!original) return;
     let candidate = original;
     let suffix = 1;
-    while (reserved.has(candidate)) {
+    while ((reserved.get(candidate) ?? 0) > 0) {
       candidate = `${original}-${suffix}`;
       suffix += 1;
     }
     node.html_id = candidate;
-    reserved.add(candidate);
+    addHtmlId(reserved, candidate);
   });
   return nodes;
 }
@@ -1329,20 +1430,31 @@ const resolvedAnalysisTransform = {
     } catch (error) {
       const messages = formatProjectError(error);
       messages.forEach((message) => reportError(vfile, `astra project: ${message}`));
-      replaceRequests(tree, (request) => failedRequest(request, messages[0] ?? 'cannot load project'));
+      replaceRequests(
+        tree,
+        (request) => failedRequest(request, messages[0] ?? 'cannot load project'),
+        undefined,
+        vfile,
+      );
       return;
     }
     const prose = createProseParser(vfile, {
       macros: pageMathMacros(project.root, vfile),
-      firstDepth: pageHeadingBaseline(tree),
     });
     const analysisHrefs = pageHrefs(project);
     const reservedHtmlIds = existingHtmlIds(tree);
-    replaceRequests(tree, (request) =>
-      reserveReplacementHtmlIds(
-        renderRequest(request, project, prose, vfile, analysisHrefs),
-        reservedHtmlIds,
-      ));
+    replaceRequests(
+      tree,
+      (request, sourceNode) =>
+        renderRequest(request, project, prose, vfile, analysisHrefs, sourceNode),
+      (replacement, sourceNode, ownedHtmlId) => {
+        releaseHtmlId(reservedHtmlIds, ownedHtmlId);
+        normalizeReplacementHeadings(replacement, sourceNode, vfile);
+        headingLabelTransform({ type: 'root', children: replacement });
+        reserveReplacementHtmlIds(replacement, reservedHtmlIds);
+      },
+      vfile,
+    );
     const activeScope = scopeForFile(project, prose, vfile);
     (tree.children ??= []).push(
       ...publicationCarriers(project, activeScope),

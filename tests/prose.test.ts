@@ -59,6 +59,36 @@ describe('parseProseBlocks (via myst-parser)', () => {
     expect(admonitions).toHaveLength(1);
   });
 
+  it('replays MyST HTML reconstruction for late prose', () => {
+    const out = parseProseBlocks('A <strong>late **HTML** fragment</strong>.');
+    expect(collectNodes(out, 'html')).toHaveLength(0);
+    expect(collectNodes(out, 'strong')).not.toHaveLength(0);
+  });
+
+  it.each([
+    ['MDAST imports', '```{mdast} snippets.json#example\n```'],
+    ['includes', '```{include} shared.md\n```'],
+    ['raw directives', '```{raw} html\n<strong>unsafe</strong>\n```'],
+    ['executable code', '```{code-cell} python\nprint(1)\n```'],
+    ['inline execution', '{eval}`1 + 1`'],
+    [
+      'execution in code metadata',
+      '+++ {"caption":"{eval}`1 + 1`"}\n```python\nx = 1\n```',
+    ],
+  ])('explicitly rejects late %s that require an earlier host stage', (_name, md) => {
+    const file = new VFile({ path: 'article.md' });
+    const out = parseProseBlocks(md, file);
+    expect(file.messages).toHaveLength(1);
+    expect(file.messages[0]?.fatal).toBe(true);
+    expect(String(file.messages[0])).toContain('document-stage plugins');
+    expect(out).toMatchObject([{ type: 'code', lang: 'markdown', value: md }]);
+    expect(collectNodes(out, 'mdast')).toHaveLength(0);
+    expect(collectNodes(out, 'include')).toHaveLength(0);
+    expect(collectNodes(out, 'raw')).toHaveLength(0);
+    expect(collectNodes(out, 'inlineExpression')).toHaveLength(0);
+    expect(collectNodes(out, 'outputs')).toHaveLength(0);
+  });
+
   it('renders display math before late component prose reaches the theme', () => {
     const [math] = parseProseBlocks('$$\nx^2 + y^2\n$$');
     expect(math).toMatchObject({ type: 'math', value: 'x^2 + y^2' });

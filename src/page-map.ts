@@ -10,7 +10,6 @@
 
 import {
   existsSync,
-  readFileSync,
   statSync,
 } from 'node:fs';
 import {
@@ -20,12 +19,12 @@ import {
   isAbsolute,
   join,
   relative,
+  resolve,
   sep,
 } from 'node:path';
 import { slugToUrl } from 'myst-common';
-import { parse as parseYaml } from 'yaml';
 import type { AnalysisIndex } from '@astra-spec/sdk';
-import { rawPageFrontmatter } from './myst-config.js';
+import { effectiveMystConfig, rawPageFrontmatter } from './myst-config.js';
 
 export type AstraScopeValue = string | string[];
 
@@ -45,23 +44,30 @@ export function rawAstraScope(path: string | undefined): AstraScopeValue | undef
 
 function configuredPages(
   root: string,
-): { toc: unknown[]; folders: boolean } | undefined {
-  for (const filename of ['myst.yml', 'myst.yaml']) {
-    try {
-      const parsed = parseYaml(readFileSync(join(root, filename), 'utf-8'));
-      const toc = parsed?.project?.toc;
-      if (Array.isArray(toc)) {
-        return {
-          toc,
-          folders: parsed?.site?.options?.folders === true,
-        };
-      }
-    } catch {
-      // MyST owns config diagnostics. Without a readable TOC there is no
-      // explicit route that this adapter can safely publish.
+): { toc: unknown[]; folders: boolean; projectSlug?: string } | undefined {
+  const config = effectiveMystConfig(root);
+  const toc = config?.project?.toc;
+  const site = config?.site;
+  const options = site?.options;
+  const projects = Array.isArray(site?.projects) ? site.projects : [];
+  const projectSlug = projects.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const project = candidate as Record<string, unknown>;
+    if (typeof project.path !== 'string' || typeof project.slug !== 'string') return [];
+    return resolve(root, project.path) === resolve(root) ? [project.slug] : [];
+  })[0];
+  return Array.isArray(toc)
+    ? {
+      toc,
+      folders: Boolean(
+        options &&
+        typeof options === 'object' &&
+        !Array.isArray(options) &&
+        (options as Record<string, unknown>).folders === true,
+      ),
+      ...(projectSlug ? { projectSlug } : {}),
     }
-  }
-  return undefined;
+    : undefined;
 }
 
 function tocFiles(entries: unknown[], files: string[] = []): string[] {
@@ -89,12 +95,21 @@ const SOURCE_EXTENSIONS = ['.md', '.ipynb', '.tex', '.myst.json'] as const;
 
 function resolvePageFile(root: string, configured: string): string | undefined {
   const direct = isAbsolute(configured) ? configured : join(root, configured);
+  try {
+    if (existsSync(direct)) {
+      // MyST rejects a TOC file entry that names a directory instead of
+      // continuing on to an inferred extension.
+      return statSync(direct).isFile() ? direct : undefined;
+    }
+  } catch {
+    return undefined;
+  }
   // MyST accepts extensionless file entries, including dotted basenames such
-  // as `reconstruction.features`; try the configured path, then its supported
-  // source extensions rather than treating the final dot as an extension.
+  // as `reconstruction.features`; try its supported source extensions rather
+  // than treating the final dot as an extension.
   const candidates = [
-    direct,
     ...SOURCE_EXTENSIONS.map((extension) => `${direct}${extension}`),
+    ...SOURCE_EXTENSIONS.map((extension) => `${direct}${extension.toUpperCase()}`),
   ];
   for (const candidate of candidates) {
     try {
@@ -114,6 +129,8 @@ function resolvePageFile(root: string, configured: string): string | undefined {
  */
 export function sourceStem(path: string): string {
   const name = basename(path);
+  // Match MyST's parseFilePath: known compound extensions are case-sensitive;
+  // otherwise node:path strips only the final extension.
   const extension = SOURCE_EXTENSIONS.find((candidate) => name.endsWith(candidate));
   if (extension) return name.slice(0, -extension.length);
   const fallbackExtension = extname(name);
@@ -156,10 +173,9 @@ function pageSlug(
   return slug;
 }
 
-function hrefForSlug(slug: string): string {
+function hrefForSlug(slug: string, projectSlug?: string): string {
   // MyST owns the slug → route rule; only the leading slash is ours.
-  const path = slugToUrl(slug);
-  return path ? `/${path}` : '/';
+  return slugToUrl(`/${projectSlug ? `${projectSlug}/` : ''}${slug}`) ?? '/';
 }
 
 /**
@@ -226,8 +242,11 @@ export function analysisPageHrefs(
     const file = resolvePageFile(root, configured);
     if (!file) return;
     const href = position === 0
-      ? '/'
-      : hrefForSlug(pageSlug(root, file, config.folders, seenSlugs));
+      ? hrefForSlug('', config.projectSlug)
+      : hrefForSlug(
+        pageSlug(root, file, config.folders, seenSlugs),
+        config.projectSlug,
+      );
     // Slug every configured page in TOC order, including non-ASTRA pages, so
     // duplicate-name suffixes stay identical to MyST's route assignment.
     const analysisPath = pageAnalysisPath(file, index, position === 0);

@@ -89,6 +89,15 @@ project-wide cross-references. Figures and tables are numbered by MyST as usual:
 {ref}`fig-hubble`
 ```
 
+## Markdown inside ASTRA fields
+
+Descriptions, rationales, finding notes, and other ASTRA prose fields support
+normal MyST structure, inline markup, math, directives such as admonitions, and
+HTML. Features that require MyST's earlier host session — `{mdast}`, `{include}`,
+`{raw}`, `{code-cell}`, and `{eval}` — must instead be authored on the report
+page. The plugin reports an error if one appears inside an ASTRA field, so
+strict builds cannot silently publish unresolved content.
+
 ## Errors
 
 A directive whose path cannot be resolved (unknown id, wrong scope, or an inactive conditional record) renders an **error admonition** in place, naming the path and the reason — the rest of the page builds normally.

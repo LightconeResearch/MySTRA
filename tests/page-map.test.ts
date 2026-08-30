@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -112,6 +113,98 @@ site:
     );
   });
 
+  it('prefixes routes with the current MyST site-project slug', () => {
+    const root = project();
+    writeFileSync(join(root, 'index.md'), '# Root');
+    writeFileSync(join(root, 'stage.md'), '# Stage');
+    writeFileSync(
+      join(root, 'myst.yml'),
+      `version: 1
+project:
+  toc:
+    - file: index.md
+    - file: stage.md
+site:
+  projects:
+    - path: .
+      slug: report
+`,
+    );
+
+    expect([...analysisPageHrefs(root, index('$', 'stage'))]).toEqual([
+      ['$', '/report/'],
+      ['stage', '/report/stage'],
+    ]);
+  });
+
+  it('inherits the TOC and folder routes through extended MyST config', () => {
+    const root = project();
+    writeFileSync(join(root, 'index.md'), '# Root');
+    mkdirSync(join(root, 'chapters'));
+    writeFileSync(
+      join(root, 'chapters', 'overview.md'),
+      '---\nastra_scope: stage\n---\n# Stage\n',
+    );
+    writeFileSync(
+      join(root, 'toc.yml'),
+      `version: 1
+project:
+  toc:
+    - file: index.md
+    - file: chapters/overview.md
+`,
+    );
+    writeFileSync(
+      join(root, 'site.yml'),
+      `version: 1
+extends: toc.yml
+site:
+  options:
+    folders: true
+`,
+    );
+    writeFileSync(
+      join(root, 'myst.yml'),
+      `version: 1
+extend: site.yml
+`,
+    );
+
+    expect(analysisPageHrefs(root, index('$', 'stage')).get('stage')).toBe(
+      '/chapters/overview',
+    );
+  });
+
+  it('inherits routes from the remote config copy resolved by MyST', () => {
+    const root = project();
+    const url = 'https://configs.example.test/site-base.yml';
+    const hash = createHash('md5').update(url).digest('hex');
+    writeFileSync(join(root, 'index.md'), '# Root');
+    mkdirSync(join(root, 'chapters'));
+    writeFileSync(
+      join(root, 'chapters', 'overview.md'),
+      '---\nastra_scope: stage\n---\n# Stage\n',
+    );
+    mkdirSync(join(root, '_build', 'cache'), { recursive: true });
+    writeFileSync(
+      join(root, '_build', 'cache', `config-item-${hash}.yml`),
+      `version: 1
+project:
+  toc:
+    - file: index.md
+    - file: chapters/overview.md
+site:
+  options:
+    folders: true
+`,
+    );
+    writeFileSync(join(root, 'myst.yml'), `version: 1\nextend: ${url}\n`);
+
+    expect(analysisPageHrefs(root, index('$', 'stage')).get('stage')).toBe(
+      '/chapters/overview',
+    );
+  });
+
   it('matches MyST basename routes for pages outside the project root', () => {
     const container = project();
     const root = join(container, 'site');
@@ -171,6 +264,55 @@ project:
 
     const hrefs = analysisPageHrefs(root, index('$', 'stage.inner'));
     expect(hrefs.get('stage.inner')).toBe('/stage-inner');
+  });
+
+  it('uses MyST extension precedence before trying uppercase variants', () => {
+    const root = project();
+    writeFileSync(join(root, 'index.md'), '# Root');
+    writeFileSync(
+      join(root, 'stage.ipynb'),
+      JSON.stringify({
+        metadata: { astra_scope: 'notebook' },
+        cells: [],
+        nbformat: 4,
+        nbformat_minor: 5,
+      }),
+    );
+    writeFileSync(
+      join(root, 'stage.MD'),
+      '---\nastra_scope: uppercase\n---\n# Uppercase\n',
+    );
+    writeFileSync(
+      join(root, 'myst.yml'),
+      `version: 1
+project:
+  toc:
+    - file: index.md
+    - file: stage
+`,
+    );
+
+    const hrefs = analysisPageHrefs(root, index('$', 'notebook', 'uppercase'));
+    expect(hrefs.get('notebook')).toBe('/stage');
+    expect(hrefs.has('uppercase')).toBe(false);
+  });
+
+  it('does not infer an extension when the TOC entry names a directory', () => {
+    const root = project();
+    writeFileSync(join(root, 'index.md'), '# Root');
+    mkdirSync(join(root, 'stage'));
+    writeFileSync(join(root, 'stage.md'), '# Stage');
+    writeFileSync(
+      join(root, 'myst.yml'),
+      `version: 1
+project:
+  toc:
+    - file: index.md
+    - file: stage
+`,
+    );
+
+    expect(analysisPageHrefs(root, index('$', 'stage')).has('stage')).toBe(false);
   });
 
   it('omits hrefs when host-owned TOC pattern expansion prevents proof', () => {

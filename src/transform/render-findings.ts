@@ -56,7 +56,7 @@ export function renderFinding(
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
   if (has('notes') && finding.notes) {
-    nodes.push(...prose.blocks(finding.notes));
+    nodes.push(...prose.blocks(finding.notes, 4));
   }
 
   // Scope

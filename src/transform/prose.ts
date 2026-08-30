@@ -6,17 +6,22 @@
  * `myst-parser`, so MySTRA stays MyST-native and emits the same `mdast` themes
  * consume.
  *
- * Prose is plain MyST Markdown. ASTRA does not define an in-prose element
- * reference syntax (RFC-0002 left prose fields free-form); referencing is done
- * from the report side via the `{astra}` role/directive surfaces.
+ * Prose is MyST Markdown, except for host-session features (MDAST imports,
+ * includes, raw directives, and execution) that cannot run after MyST reaches
+ * document plugins. ASTRA does not define an in-prose element reference syntax
+ * (RFC-0002 left prose fields free-form); referencing is done from the report
+ * side via the `{astra}` role/directive surfaces.
  */
 
 import { mystParse } from 'myst-parser';
 import {
   basicTransformations,
+  htmlTransform,
   inlineMathSimplificationTransform,
   mathTransform,
+  reconstructHtmlTransform,
 } from 'myst-transforms';
+import { fileError } from 'myst-common';
 import { VFile } from 'vfile';
 import type { MystMathMacros } from '../myst-config.js';
 
@@ -25,6 +30,71 @@ import type { MystMathMacros } from '../myst-config.js';
 export interface ProseTransformOptions {
   macros?: MystMathMacros;
   firstDepth?: number;
+}
+
+type UnsupportedProse = 'mdast' | 'include' | 'raw' | 'execution';
+type UnsupportedProseMatch = { kind: UnsupportedProse; node: any };
+
+function unsupportedProseNode(node: any): UnsupportedProseMatch | undefined {
+  if (node?.type === 'mdast' || (node?.type === 'mystDirective' && node.name === 'mdast')) {
+    return { kind: 'mdast', node };
+  }
+  if (node?.type === 'include' || (node?.type === 'mystDirective' && node.name === 'include')) {
+    return { kind: 'include', node };
+  }
+  if (node?.type === 'raw' || (node?.type === 'mystDirective' && node.name === 'raw')) {
+    return { kind: 'raw', node };
+  }
+  if (
+    node?.type === 'inlineExpression' ||
+    (node?.type === 'code' && node.executable === true) ||
+    (node?.type === 'block' && node.kind === 'notebook-code') ||
+    (node?.type === 'mystDirective' && node.name === 'code-cell') ||
+    (node?.type === 'mystRole' && node.name === 'eval')
+  ) {
+    return { kind: 'execution', node };
+  }
+  if (!Array.isArray(node?.children)) return undefined;
+  for (const child of node.children) {
+    const unsupported = unsupportedProseNode(child);
+    if (unsupported) return unsupported;
+  }
+  return undefined;
+}
+
+function unsupportedMessage(kind: UnsupportedProse): string {
+  const construct = kind === 'mdast'
+    ? 'the {mdast} directive'
+    : kind === 'include'
+      ? 'the {include} directive'
+      : kind === 'raw'
+        ? 'the {raw} directive'
+        : 'executable code or {eval}';
+  return (
+    `ASTRA component prose cannot use ${construct}: MyST runs that feature before ` +
+    'document-stage plugins. Move it to the host page instead.'
+  );
+}
+
+function parseHtml(content: string, file: VFile): any {
+  const tree = mystParse(content, { vfile: file });
+  reconstructHtmlTransform(tree);
+  htmlTransform(tree);
+  return tree;
+}
+
+function unsupportedFallback(
+  md: string,
+  file: VFile,
+  unsupported: UnsupportedProseMatch,
+): any {
+  fileError(file, unsupportedMessage(unsupported.kind), {
+    node: unsupported.node,
+    source: 'mystra',
+  });
+  // A strict build fails on the diagnostic. Non-strict renderers still get a
+  // safe, readable representation rather than an unresolved MyST node.
+  return { type: 'root', children: [{ type: 'code', lang: 'markdown', value: md }] };
 }
 
 /**
@@ -42,6 +112,10 @@ function parseAndTransform(
   options: ProseTransformOptions,
 ): any {
   const parsed = mystParse(md, { vfile: file });
+  const unsupported = unsupportedProseNode(parsed);
+  if (unsupported) return unsupportedFallback(md, file, unsupported);
+  reconstructHtmlTransform(parsed);
+  htmlTransform(parsed);
   const sentinel: any = {
     type: 'block',
     children: parsed.children ?? [],
@@ -51,9 +125,13 @@ function parseAndTransform(
     children: [sentinel],
   };
   basicTransformations(fragment, file, {
-    parser: (content: string) => mystParse(content, { vfile: file }),
+    parser: (content: string) => parseHtml(content, file),
     ...(options.firstDepth == null ? {} : { firstDepth: options.firstDepth }),
   });
+  // Basic transforms parse block metadata and can therefore introduce a role
+  // or directive that was not present as a node in the initial parse.
+  const introduced = unsupportedProseNode(fragment);
+  if (introduced) return unsupportedFallback(md, file, introduced);
   inlineMathSimplificationTransform(fragment, { replaceSymbol: false });
   mathTransform(fragment, file, { macros: options.macros });
   return { type: 'root', children: sentinel.children };
@@ -123,7 +201,7 @@ function extractInline(node: any): any[] {
 
 /** The parser pair threaded through the render helpers. */
 export interface ProseParser {
-  blocks(md: string | undefined): any[];
+  blocks(md: string | undefined, firstDepth?: number): any[];
   inline(md: string | undefined): any[];
 }
 
@@ -136,7 +214,10 @@ export function createProseParser(
   options: ProseTransformOptions = {},
 ): ProseParser {
   return {
-    blocks: (md) => parseProseBlocks(md, file, options),
+    blocks: (md, firstDepth) => parseProseBlocks(md, file, {
+      ...options,
+      ...(firstDepth == null ? {} : { firstDepth }),
+    }),
     inline: (md) => parseProseInline(md, file, options),
   };
 }

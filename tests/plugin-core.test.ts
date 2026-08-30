@@ -45,9 +45,17 @@ decisions:
         insights: [prior_result]
       grid:
         label: Grid search
+        description: |
+          ## Grid details
   hidden_method:
     label: Hidden method
     when: [method.mcmc]
+    default: only
+    options:
+      only:
+        label: Only option
+  foo_bar:
+    label: Collision example
     default: only
     options:
       only:
@@ -131,6 +139,7 @@ analyses:
 const UNIVERSE = `id: baseline
 decisions:
   method: grid
+  foo_bar: only
 analyses:
   sub:
     decisions:
@@ -162,7 +171,7 @@ beforeAll(() => {
   writeFileSync(join(root, 'results', 'baseline', 'sub.sub_table.csv'), CSV);
   writeFileSync(join(root, 'sub.md'), '# Sub');
   writeFileSync(
-    join(root, 'myst.yml'),
+    join(root, 'base.yml'),
     `version: 1
 project:
   math:
@@ -170,6 +179,12 @@ project:
   toc:
     - file: index.md
     - file: sub.md
+`,
+  );
+  writeFileSync(
+    join(root, 'myst.yml'),
+    `version: 1
+extend: base.yml
 `,
   );
   writeFileSync(
@@ -271,6 +286,10 @@ describe('syntax boundary', () => {
       { roles: plugin.roles as any },
     ) as Node;
     const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
     await (plugin.transforms[0] as any).plugin()(tree, vfile);
     expect(textContent(tree)).toContain('19.88 ± 0.17');
   });
@@ -311,10 +330,13 @@ describe('syntax boundary', () => {
     expect(find(carrier, (node) => node.type === 'mystRole')).toBeUndefined();
     expect(find(carrier, (node) => node.identifier === 'late-rationale')).toMatchObject({
       type: 'heading',
-      depth: 2,
+      depth: 4,
       label: 'late-rationale',
       html_id: 'late-rationale-1',
     });
+    expect(find(carrier, (node) =>
+      node.type === 'heading' && textContent(node) === 'Fit method',
+    )).toMatchObject({ depth: 3, identifier: 'fit-method' });
     expect(find(tree, (node) =>
       node.type === 'heading' &&
       node.identifier === 'late-rationale' &&
@@ -335,6 +357,160 @@ describe('syntax boundary', () => {
     expect(vfile.messages.some((message) =>
       /Undefined control sequence/.test(String(message)),
     )).toBe(false);
+  });
+
+  it('uses MyST heading normalization from a title-only nested page', async () => {
+    const tree = mystParse(':::{astra} decisions.method\n:::', {
+      directives: plugin.directives as any,
+    }) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+
+    // The removed page title leaves no host heading to scan. The request's
+    // structural proxy is normalized by the actual host pass instead.
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 3,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const carrier = find(tree, (node) => node.data?.astra?.kind === 'decision')!;
+    expect(find(carrier, (node) =>
+      node.type === 'heading' && textContent(node) === 'Fit method',
+    )?.depth).toBe(3);
+    expect(find(carrier, (node) => node.identifier === 'late-rationale')?.depth).toBe(4);
+    expect(find(tree, (node) => node.data?.astraHeadingMarker)).toBeUndefined();
+  });
+
+  it('normalizes mixed decision and standalone-option headings together', async () => {
+    const tree = mystParse(
+      ':::{astra} decisions.method\n:::\n\n:::{astra} decisions.method.grid\n:::',
+      { directives: plugin.directives as any },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 3,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const decision = find(tree, (node) => node.data?.astra?.kind === 'decision')!;
+    const option = find(tree, (node) => node.data?.astra?.kind === 'option')!;
+    const detailDepths: number[] = [];
+    walk(tree, (node) => {
+      if (node.identifier === 'grid-details') detailDepths.push(node.depth);
+    });
+    expect(find(decision, (node) => textContent(node) === 'Fit method')?.depth).toBe(3);
+    expect(find(decision, (node) => node.identifier === 'grid-details')?.depth).toBe(4);
+    expect(find(option, (node) => textContent(node).startsWith('Grid search'))?.depth).toBe(4);
+    expect(detailDepths).toEqual([4, 5]);
+  });
+
+  it('preserves a standard MyST target on the rendered directive carrier', async () => {
+    const tree = mystParse(
+      '(custom-target)=\n:::{astra} decisions.method\n:::',
+      { directives: plugin.directives as any },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const carrier = find(tree, (node) => node.data?.astra?.kind === 'decision')!;
+    expect(carrier).toMatchObject({
+      identifier: 'custom-target',
+      label: 'custom-target',
+      html_id: 'custom-target',
+    });
+  });
+
+  it('reserves DOM IDs for late identifier-only carriers', async () => {
+    const tree = mystParse(
+      '(decision-foo-bar)=\nHost target.\n\n:::{astra} decisions.foo_bar\n:::',
+      { directives: plugin.directives as any },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const host = find(tree, (node) => node.identifier === 'decision-foo-bar')!;
+    const carrier = find(tree, (node) => node.identifier === 'decision-foo_bar')!;
+    expect(host.html_id).toBe('decision-foo-bar');
+    expect(carrier.html_id).toBe('decision-foo-bar-1');
+  });
+
+  it('reserves later authored request targets before replacing earlier requests', async () => {
+    const tree = mystParse(
+      ':::{astra} decisions.foo_bar\n:::\n\n(decision-foo-bar)=\n:::{astra} decisions.method\n:::',
+      { directives: plugin.directives as any },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const generated = find(tree, (node) => node.identifier === 'decision-foo_bar')!;
+    const authored = find(tree, (node) =>
+      node.data?.astra?.kind === 'decision' && node.identifier === 'decision-foo-bar',
+    )!;
+    expect(generated.html_id).toBe('decision-foo-bar-1');
+    expect(authored.html_id).toBe('decision-foo-bar');
+  });
+
+  it('does not reserve identifiers carried by non-target link nodes', async () => {
+    const linked: Node = {
+      type: 'paragraph',
+      children: [{
+        type: 'link',
+        identifier: 'decision-foo-bar',
+        url: '#elsewhere',
+        children: [{ type: 'text', value: 'elsewhere' }],
+      }],
+    };
+    const { tree } = await transform([linked, ...directive('decisions.foo_bar')]);
+
+    const carrier = find(tree, (node) => node.identifier === 'decision-foo_bar')!;
+    expect(carrier.html_id).toBe('decision-foo-bar');
+  });
+
+  it('reports deferred semantic errors at the authored role position', async () => {
+    const tree = mystParse(
+      'Opening paragraph.\n\n{astra:value}`outputs.missing`',
+      { roles: plugin.roles as any },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const diagnostic = vfile.messages.find((message) => /no output/.test(String(message)))!;
+    expect(diagnostic.line).toBe(3);
+    expect(diagnostic.column).toBe(1);
+  });
+
+  it('reports deferred directive errors at the authored block position', async () => {
+    const tree = mystParse(
+      'Opening paragraph.\n\n:::{astra} outputs.missing\n:::',
+      { directives: plugin.directives as any },
+    ) as Node;
+    const vfile = new VFile({ path: join(root, 'index.md') });
+    basicTransformations(tree, vfile, {
+      parser: (content: string) => mystParse(content, { vfile }),
+      firstDepth: 2,
+    });
+    await (plugin.transforms[0] as any).plugin()(tree, vfile);
+
+    const diagnostic = vfile.messages.find((message) => /no output/.test(String(message)))!;
+    expect(diagnostic.line).toBe(3);
+    expect(diagnostic.column).toBe(1);
   });
 
   it('falls back to project math macros when the page has no override', async () => {
@@ -491,6 +667,22 @@ describe('inline roles', () => {
       analysisPath: 'unmapped',
     });
     expect(unmapped.data.astra).not.toHaveProperty('href');
+  });
+
+  it('recomputes analysis routes when page mappings change in a live session', async () => {
+    const mapped = (await renderRole('astra', 'sub'))[0]!;
+    expect(mapped.data.astra.href).toBe('/sub');
+
+    writeFileSync(
+      join(root, 'sub.md'),
+      '---\nastra_scope: unmapped\n---\n# Sub\n',
+    );
+    try {
+      const remapped = (await renderRole('astra', 'sub'))[0]!;
+      expect(remapped.data.astra).not.toHaveProperty('href');
+    } finally {
+      writeFileSync(join(root, 'sub.md'), '# Sub');
+    }
   });
 
   it('renders DOI-backed citation nodes', async () => {
