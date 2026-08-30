@@ -13,26 +13,25 @@ The `{astra}` directive embeds any addressable element, child, or collection as 
 |---|---|
 | `decisions.<id>` | The decision: label, rationale, and its options as tabs, with the universe's selection marked |
 | `decisions.<id>.<option>` | One option: label, description, supporting insights |
-| `outputs.<id>` | The output — a real figure, table, or metric — with its provenance |
+| `outputs.<id>` | The active output — a real figure, table, or metric when materialized |
 | `findings.<id>` | The finding: claim + notes + scope + evidence |
 | `findings.<id>.<evidence>` | One evidence record |
 | `prior_insights.<id>` | The prior insight as a "see also" admonition with its evidence |
 | `inputs.<id>` | The input as a one-row registry table |
-| `<sub-analysis>` | A navigation card linking to the sub-analysis page |
-| `universes.<id>` | A table of the universe's decision → selected-option pairs |
-| `inputs`, `outputs`, `decisions`, `findings`, `prior_insights`, `analyses`, `universes` | The whole collection — a registry |
+| `<sub-analysis>` | A neutral summary card for the sub-analysis |
+| `inputs`, `outputs`, `decisions`, `findings`, `prior_insights`, `analyses` | The whole collection — a registry |
 
 Examples:
 
 ```markdown
 :::{astra} outputs.hubble_diagram
-:::                                   # the figure (or table / metric), with provenance
+:::                                   # the figure (or table / metric)
 
 :::{astra} findings.signal_detected
 :::                                   # claim + notes + scope + evidence
 
 :::{astra} reconstruction
-:::                                   # a nav card linking to the sub-analysis page
+:::                                   # a sub-analysis summary card
 
 :::{astra} outputs
 :::                                   # a whole collection → the outputs registry
@@ -40,6 +39,18 @@ Examples:
 :::{astra} reconstruction.inputs
 :::                                   # the inputs registry for a sub-analysis
 ```
+
+A bare sub-analysis target still renders a summary card. It does not guess a
+page URL: site navigation belongs to MyST's table of contents. An inline
+sub-analysis reference can expose a link when exactly one concrete TOC page is
+mapped to that analysis; see [multi-page reports](multi-page.md).
+
+Universe files still select decisions, conditional records, and artifact
+bindings for the entire rendered publication. They are resolution inputs,
+rather than records or collections, so `universes` and `universes.<id>` are not
+addressable `{astra}` paths. The rendered decisions and outputs already reflect
+the selected universe; see
+[project root and universe](../reference/configuration.md#project-root-and-universe).
 
 ## Options
 
@@ -65,14 +76,28 @@ Options follow MyST's `:key: value` form:
 :::
 ```
 
-## Universes
-
-`:::{astra} universes.<id>` embeds a **selection table** — the decision → selected-option pairs of the project's universe (the first `.yaml` file in `universes/`).
-
 ## Cross-referencing an embedded block
 
-Every embedded element carries a stable anchor `<kind>-<id>` (`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …), so you can point at it from anywhere with plain MyST links (`[](#output-hubble_diagram)`) or `{astra:ref}`. Figures and tables are numbered by MyST as usual.
+Use the directive's `:label:` option and MyST's standard `{ref}` role for
+project-wide cross-references. Figures and tables are numbered by MyST as usual:
+
+```markdown
+:::{astra} outputs.hubble_diagram
+:label: fig-hubble
+:::
+
+{ref}`fig-hubble`
+```
+
+## Markdown inside ASTRA fields
+
+Descriptions, rationales, finding notes, and other ASTRA prose fields support
+normal MyST structure, inline markup, math, directives such as admonitions, and
+HTML. Features that require MyST's earlier host session — `{mdast}`, `{include}`,
+`{raw}`, `{code-cell}`, and `{eval}` — must instead be authored on the report
+page. The plugin reports an error if one appears inside an ASTRA field, so
+strict builds cannot silently publish unresolved content.
 
 ## Errors
 
-A directive whose path cannot be resolved (unknown id, wrong scope, unmet `when:` condition on a decision) renders an **error admonition** in place, naming the path and the reason — the rest of the page builds normally.
+A directive whose path cannot be resolved (unknown id, wrong scope, or an inactive conditional record) renders an **error admonition** in place, naming the path and the reason — the rest of the page builds normally.

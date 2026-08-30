@@ -13,13 +13,13 @@ consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 :::
 ```
 
-→ the decision links to its full record, the value is interpolated live from the result table (uncertainty included), the prior insight renders as a citation, and the figure is pulled in with its provenance. Edit `astra.yaml` and rerun the analysis; the report updates itself.
+→ the decision links to its full record, the value is interpolated live from the result table (uncertainty included), the prior insight renders as a citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml` and rerun the analysis; the report updates itself.
 
 [:lucide-rocket: **Get started**](getting-started.md){ .md-button .md-button--primary }
 [:lucide-book-open: Authoring guide](authoring/index.md){ .md-button }
 
 !!! warning "Alpha development"
-    MySTRA is in active, **pre-1.0 development**. The plugin vocabulary, the resolved-store shape, and the public API may change without notice between releases, and there are rough edges. Pin a specific release tag in your `myst.yml` rather than tracking `latest`, and expect breaking changes. Feedback and issues are very welcome on the [GitHub repo](https://github.com/LightconeResearch/MySTRA/issues).
+    MySTRA is in active, **pre-1.0 development**. The plugin vocabulary, publication-carrier contract, and public API may change without notice between releases, and there are rough edges. Pin a specific release tag in your `myst.yml` rather than tracking `latest`, and expect breaking changes. Feedback and issues are very welcome on the [GitHub repo](https://github.com/LightconeResearch/MySTRA/issues).
 
 ## Why MySTRA?
 
@@ -66,9 +66,11 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     outputs:
       - id: alpha_table
         type: table
+        format: csv
         description: Best-fit BAO dilation parameters per tracer.
       - id: bao_fit_plot
         type: figure
+        format: png
         description: Correlation function and best-fit model.
 
     decisions:
@@ -82,6 +84,8 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     findings:
       bao_detected:
         claim: The BAO feature is detected at high significance.
+        created_at: "2026-01-15T00:00:00Z"
+        evidence: []
     ```
 
 === "Run it (`myst.yml`)"

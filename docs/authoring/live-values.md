@@ -11,12 +11,16 @@
 
 Edit `astra.yaml` or rerun the analysis, rebuild, and every number in the prose updates itself.
 
+The neutral text is also self-describing for rich themes: its ASTRA metadata
+retains the owning record path plus the selected decision option, table
+column/filter, or parsed metric unit when available.
+
 ## Options
 
 | Option | Meaning |
 |---|---|
 | `col=<column>` | The column to read (required for table outputs). |
-| `where="<key>=<val> …"` | Row filters — space- or comma-separated `key=value` pairs; every pair must match, case-insensitively. Alias: `filter=`. |
+| `where="<key>=<val> …"` | Row filters — space- or comma-separated `key=value` pairs; every pair must match, case-insensitively. |
 | `pm=true` | Also render the uncertainty: `<col>_std` for tables, the metric's own uncertainty for metrics. |
 | `err=<column>` | Explicit uncertainty column (instead of the `<col>_std` convention). |
 | `sig=<N>` | Significant figures for the value (default 4; uncertainties render with 2). |

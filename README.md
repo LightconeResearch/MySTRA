@@ -46,7 +46,7 @@ consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 
 → the decision links to its full record, the value is interpolated live from
 the result table (uncertainty included), the prior insight renders as a
-citation, and the figure is pulled in with its provenance. Edit `astra.yaml`
+citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml`
 and rerun the analysis; the report updates itself.
 
 **[Full documentation →](https://lightconeresearch.github.io/MySTRA/)**
@@ -114,7 +114,7 @@ myst start        # → http://localhost:3000
 
 That's it — no custom server and no build step of your own. MySTRA reads
 `astra.yaml` from the working directory — run `myst` from the ASTRA project
-root — and resolves the first universe in `universes/`.
+root — and delegates universe selection and full-project resolution to the SDK.
 
 For a five-minute walk-through, see
 [getting started](https://lightconeresearch.github.io/MySTRA/getting-started/).
@@ -146,12 +146,12 @@ reconstruction                          the sub-analysis itself
 outputs                                 a whole collection (a registry)
 ```
 
-Collections are the `astra.yaml` keys: `inputs`, `outputs`, `decisions`,
-`findings`, `prior_insights` (hyphen alias `prior-insights`), `analyses`,
-`universes`. A sub-analysis id may be written directly (the `analyses.` prefix is
+Collections are the addressable `astra.yaml` keys: `inputs`, `outputs`,
+`decisions`, `findings`, `prior_insights`, and `analyses`. A sub-analysis id may
+be written directly (the `analyses.` prefix is
 implied) and nests to any depth (`clustering.correlation.outputs.xi`). Paths
 always resolve from the **root analysis**, so a path means the same thing on
-every page (a leading `/` is tolerated).
+every page. Malformed or non-canonical paths are rejected rather than normalized.
 
 ### Inline references — the `{astra}` role
 
@@ -162,13 +162,11 @@ which confirms {astra}`findings.signal_detected`.
 {astra}`our preferred method <decisions.algorithm>`     # custom display text
 ```
 
-Each renders as a neutral text label (a rich theme adds a kind glyph and a hover
-preview card). A few specialised variants follow MyST's colon convention
+Each renders as a neutral text label (a rich theme adds a kind glyph and a record
+dialog). A few specialised variants follow MyST's colon convention
 (`{cite:p}` / `{cite:t}`):
 
 ```markdown
-{astra:ref}`outputs.hubble_diagram`                     # "Figure 3" (like {ref}; supports %s)
-{astra:ref}`see Fig. %s <outputs.hubble_diagram>`       # ({astra:numref} works as an alias)
 {astra:cite}`prior_insights.recon_sharpens_bao`         # "(Chen et al., 2024)"  — parenthetical
 {astra:cite:t}`prior_insights.recon_sharpens_bao`       # "Chen et al. (2024)"   — textual
 ```
@@ -179,13 +177,13 @@ preview card). A few specialised variants follow MyST's colon convention
 :::{astra} decisions.algorithm
 :::                                   # the decision + its tabbed options
 :::{astra} outputs.hubble_diagram
-:::                                   # the figure (or table / metric), with provenance
+:::                                   # the figure (or table / metric)
 :::{astra} findings.signal_detected
 :::                                   # claim + notes + scope + evidence
 :::{astra} prior_insights.recon_sharpens_bao
 :::                                   # the prior insight as an admonition
 :::{astra} reconstruction
-:::                                   # a nav card linking to the sub-analysis page
+:::                                   # a neutral sub-analysis summary card
 :::{astra} outputs
 :::                                   # a whole collection → the outputs registry
 :::{astra} reconstruction.inputs
@@ -222,13 +220,16 @@ metric output interpolates its scalar directly with no options; a
 
 ### Native cross-references
 
-Every embedded element carries a stable MyST anchor `<kind>-<id>`
-(`output-hubble_diagram`, `decision-algorithm`, `finding-signal_detected`, …),
-so plain MyST links work against it from anywhere in the project:
+Give an embedded block an explicit `:label:` and use MyST's standard `{ref}`
+role. This keeps project-wide anchor naming in the document, where MyST can
+validate it, instead of inventing an unscoped ASTRA identifier:
 
 ```markdown
-[](#output-hubble_diagram)              # auto-filled, numbered link text
-[the diagram](#output-hubble_diagram)   # custom text
+:::{astra} outputs.hubble_diagram
+:label: fig-hubble
+:::
+
+{ref}`fig-hubble`
 ```
 
 Everything else — prose, math, figures you author yourself, the table of
@@ -244,9 +245,10 @@ On the stock `book-theme` with no stylesheet, the document is already clean and
 readable: decisions are dropdowns, outputs are real figures/tables, findings and
 prior insights are cards, numbers show their value. **No user CSS required.**
 
-A dedicated MyST theme can go further — kind glyphs, per-kind colours, hover
-preview cards — driven by the stable `astra-*` classes and the resolved data
-store the plugin bakes into every page. Building one? The contract is documented
+A dedicated MyST theme can go further — kind glyphs, per-kind colours, record
+dialogs, and shared ASTRA UI — driven by the stable `astra-*` classes,
+explicit record/analysis identity, and SDK publication bundle the plugin bakes
+into every page. Building one? The contract is documented
 in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
 
 ## What MyST handles for you
@@ -265,7 +267,7 @@ Working on the plugin itself (not needed to *use* it):
 npm install
 npm run build    # type-check + compile
 npm run bundle   # bundle the single-file plugin → dist/mystra.mjs
-npm test         # plugin-emission + store + parser tests
+npm test         # SDK boundary + plugin-emission + parser tests
 ```
 
 ## License

@@ -185,8 +185,7 @@ export function carrierDiv(children: any[], identifier: string) {
 
 /**
  * A hidden carrier `<div style="display:none">` — invisible on every theme, but
- * its subtree and `data` survive into the build for a rich theme to read. Used
- * for the resolved-store and auto-emitted insight-target carriers.
+ * its subtree and `data` survive into the build for a rich theme to read.
  */
 export function hiddenDiv(cls: string, children: any[] = []) {
   return { type: 'div' as const, class: cls, style: { display: 'none' }, children };
@@ -206,26 +205,43 @@ export function walkNodes(node: any, visit: (n: any) => void): void {
   if (Array.isArray(node.children)) for (const c of node.children) walkNodes(c, visit);
 }
 
-// ── ASTRA store-driven reference ──
+// ── ASTRA reference metadata ──
 
 /** Generic inline `span` with a class and children. */
 function span(cls: string, children: any[]) {
   return { type: 'span' as const, class: cls, children };
 }
 
-/**
- * A store-driven inline ASTRA reference: a neutral `astra-ref` span whose text
- * is the label and whose `data.astra` carries the join key (`kind`/`id`/`path`)
- * a rich theme uses to look the element up in the resolved store carrier
- * (`.astra-store`) and render its card — the same key→table join MyST uses for
- * citations. On a bare theme the span degrades to the plain label text. `kind`
- * maps to a store table: decision→decisions, output→outputs, finding→findings,
- * prior_insight→prior_insights, analysis→subanalyses (`value` is self-describing).
- */
-export function refNode(kind: string, id: string, path: string, label: string, subtype?: string) {
+export interface AstraNodeIdentity {
+  /** The presentation surface represented by this node. */
+  kind: string;
+  /** Local authored id (a child id for option/evidence surfaces). */
+  id: string;
+  /** SDK record address. Never used for analysis navigation targets. */
+  canonicalPath?: string;
+  /** SDK analysis address (`$` for root). Never used as a record address. */
+  analysisPath?: string;
+  /** Host-provided route for an analysis page, when one is configured. */
+  href?: string;
+}
+
+/** A neutral inline ASTRA reference with explicit record/analysis identity. */
+export function refNode(
+  kind: string,
+  id: string,
+  label: string,
+  subtype?: string,
+  identity?: Omit<AstraNodeIdentity, 'kind' | 'id'>,
+) {
   const mods = subtype ? [kind, subtype] : [kind];
   const cls = ['astra-ref', ...mods.map((k) => `astra-ref--${k}`)].join(' ');
   const node: any = span(cls, [text(label)]);
-  node.data = { astra: { kind, id, path } };
+  node.data = {
+    astra: {
+      kind,
+      id,
+      ...identity,
+    },
+  };
   return node;
 }

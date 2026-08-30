@@ -1,6 +1,6 @@
 # Multi-page reports
 
-A report can mirror the analysis tree: one page for the root analysis, and one page per sub-analysis. Pages are ordinary MyST pages — you list them in `myst.yml`'s `toc:` — and MySTRA maps each page to an ASTRA **scope** that determines which elements the page's [resolved store](../reference/theming.md) contains.
+A report can mirror the analysis tree: one page for the root analysis, and one page per sub-analysis. Pages are ordinary MyST pages — you list them in `myst.yml`'s `toc:` — and MySTRA maps each page to an active ASTRA **scope** for rich-theme context.
 
 ## The dotted-filename convention
 
@@ -45,17 +45,18 @@ astra_scope:
 
 Use `astra_scope: ""` to map a page onto the **root** analysis.
 
-A page that maps to no valid scope (e.g. an appendix about something else entirely) simply gets no ASTRA scope: roles and directives still work — they resolve from the root — but the per-page store is skipped. If such a page contains astra elements, the build warns that rich themes will render them as neutral fallbacks; an explicit `astra_scope` that names an unknown scope is reported as an error.
+A page whose filename does not name an analysis (for example, an appendix) uses the root as its active scope. An explicit `astra_scope` that names an unknown analysis is reported as an error and also falls back to the root. The complete [publication bundle](../reference/theming.md) is available on every page either way.
 
 ## What the scope changes — and what it doesn't
 
 - **Roles and directives always resolve from the root analysis**, on every page. `` {astra}`reconstruction.outputs.xi` `` means the same thing everywhere.
-- **The scope only selects the page's [resolved store](../reference/theming.md)** — which elements a rich theme can join against on that page.
-- **Cross-page links work through plain MyST anchors:** every placed block carries a `<kind>-<id>` identifier, and MyST resolves `[](#output-xi)` project-wide to whichever page embeds it.
+- **The scope selects `activeAnalysisPath` in the [publication bundle](../reference/theming.md)** — rich themes can use it as page context. The bundle itself always contains the complete resolved project.
+- **Analysis-reference links come only from this configured page map.** If exactly one concrete `file:` entry in `project.toc` maps to a sub-analysis, `` {astra}`reconstruction` `` exposes that page's MyST route to a rich theme. Unlisted, multiply mapped, or pattern-expanded pages remain unlinked; MySTRA never turns an analysis id into a guessed URL.
+- **Cross-page links remain ordinary MyST:** give a placed block an explicit `:label:` and reference that label with `{ref}`.
 
-## Navigation between pages
+## Sub-analysis summaries
 
-Embed a sub-analysis by its bare path to get a navigation card linking to its page, or embed the whole `analyses` registry for one card per sub-analysis:
+Embed a sub-analysis by its bare path to get a neutral summary card, or embed the whole `analyses` registry for one card per sub-analysis. Summary cards remain neutral content; page navigation itself stays in MyST's table of contents:
 
 ```markdown
 :::{astra} reconstruction
@@ -67,4 +68,4 @@ Embed a sub-analysis by its bare path to get a navigation card linking to its pa
 
 ## Results for sub-analyses
 
-A sub-analysis that declares `path: ./analyses/<sub>` in `astra.yaml` roots its own `results/<universe>/` tree there; MySTRA resolves each scope's artifacts from the right base automatically. Nothing to configure on the report side.
+Artifact paths come directly from the SDK's deterministic bindings, including inline and path-backed sub-analyses. MySTRA does not scan result directories or reconstruct that convention itself. Nothing is configured on the report side.

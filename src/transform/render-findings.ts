@@ -8,15 +8,12 @@
  * mdast `data` slot for consumers that want to compose grouping or
  * relations.
  *
- * No implicit relational inference. Earlier versions emitted
- * crossReferences to "tag-overlapping" decisions — same shape as
- * the deleted TAG_TO_SECTION ontology, just inverted. Relations
- * between elements are narrated in the report, where the author
- * references both sides explicitly; the renderer doesn't
- * synthesise them.
+ * Relations between elements are narrated in the report, where the author
+ * references both sides explicitly; the renderer does not infer them from
+ * overlapping tags.
  */
 
-import type { Insight, Output } from '@astra-spec/sdk';
+import type { ResolvedInsight, ResolvedOutput } from '@astra-spec/sdk';
 import {
   carrierDiv,
   heading,
@@ -24,29 +21,30 @@ import {
   text,
   emphasis,
 } from './ast-helpers.js';
-import type { ArtifactResolver } from '../loader.js';
 import type { ProseParser } from './prose.js';
-import { renderEvidenceBlock } from './render-evidence.js';
+import {
+  renderEvidenceBlock,
+  type ArtifactResolver,
+} from './render-evidence.js';
 
 export function renderFinding(
-  finding: Insight,
+  finding: ResolvedInsight,
   index: number,
   findingId: string,
   results: ArtifactResolver,
-  outputs: Map<string, Output>,
+  outputs: ReadonlyMap<string, ResolvedOutput>,
   prose: ProseParser,
-  opts?: {
-    /** Parts to render (of notes / scope / evidence); all when absent. The
-     *  claim heading — the finding's identifier carrier — is always kept. */
-    parts?: Set<string>;
+  opts: {
+    /** Parts to render (of notes / scope / evidence). The claim heading —
+     *  the finding's identifier carrier — is always kept. */
+    parts: Set<string>;
     /** Absolute artifact path → servable URL, for figure evidence. */
-    resultUrl?: (absPath: string) => string;
+    resultUrl: (absPath: string) => string;
     /** The page's vfile, for broken-reference diagnostics. */
     vfile?: any;
   },
 ): any[] {
-  const parts = opts?.parts;
-  const has = (part: string) => !parts || parts.has(part);
+  const has = (part: string) => opts.parts.has(part);
   const nodes: any[] = [];
 
   // Finding heading: claim parsed as inline Markdown so emphasis and
@@ -58,7 +56,7 @@ export function renderFinding(
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
   if (has('notes') && finding.notes) {
-    nodes.push(...prose.blocks(finding.notes));
+    nodes.push(...prose.blocks(finding.notes, 4));
   }
 
   // Scope
@@ -71,8 +69,8 @@ export function renderFinding(
     for (const evidence of finding.evidence ?? []) {
       nodes.push(
         ...renderEvidenceBlock(evidence, results, outputs, prose, {
-          resultUrl: opts?.resultUrl,
-          vfile: opts?.vfile,
+          resultUrl: opts.resultUrl,
+          vfile: opts.vfile,
         }),
       );
     }

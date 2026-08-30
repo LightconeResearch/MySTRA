@@ -4,7 +4,7 @@
  * Every MySTRA warning/error goes through MyST's per-file message channel when
  * a vfile is available — the build output attributes it to the page and strict
  * mode gates on it. Plugin surfaces (directive, roles, transform) thread their
- * vfile down through the loader and renderers so no diagnostic bypasses the
+ * vfile down through project resolution and rendering so no diagnostic bypasses the
  * channel. The console fallback in this module is the single escape hatch for
  * vfile-less programmatic callers (tests, the library exports).
  */

@@ -9,11 +9,11 @@ Everything else — prose, math, figures you author yourself, the table of conte
 | I want to… | Use | Example |
 |---|---|---|
 | Mention an element in a sentence | [`{astra}` role](inline-references.md) | `` {astra}`decisions.algorithm` `` |
-| Refer to a figure by number ("Figure 3") | [`{astra:ref}`](inline-references.md#numbered-references-astraref) | `` {astra:ref}`outputs.hubble_diagram` `` |
+| Refer to a placed figure by number | Explicit `:label:` + MyST [`{ref}`](https://mystmd.org/guide/cross-references) | `` {ref}`fig-hubble` `` |
 | Cite the literature behind an insight | [`{astra:cite}` / `{astra:cite:t}`](inline-references.md#citations-astracite-and-astracitet) | `` {astra:cite}`prior_insights.recon` `` |
 | Put a measured number in prose | [`{astra:value}`](live-values.md) | `` {astra:value col=alpha pm=true}`outputs.table` `` |
 | Embed a figure, decision, finding, … as a block | [`{astra}` directive](block-embeds.md) | `:::{astra} outputs.hubble_diagram` |
-| Link to a placed block with plain MyST syntax | its `<kind>-<id>` [anchor](block-embeds.md#cross-referencing-an-embedded-block) | `[](#output-hubble_diagram)` |
+| Link to a placed block | its explicit [`:label:`](block-embeds.md#cross-referencing-an-embedded-block) | `` {ref}`fig-hubble` `` |
 | Split the report along sub-analyses | [Multi-page reports](multi-page.md) | `reconstruction.md` |
 
 ## The golden rule
@@ -37,10 +37,11 @@ the {astra}`decisions.algorithm.multigrid` option follows
 ## Results
 
 The fit yields $\alpha =$ {astra:value col=alpha where="tracer=elg1" pm=true}`outputs.alpha_table`
-({astra:ref}`see Fig. %s <outputs.bao_fit_plot>`).
+({ref}`fig-bao`).
 
 :::{astra} outputs.bao_fit_plot
 :caption: Correlation function and best-fit model, post-reconstruction.
+:label: fig-bao
 :::
 
 ## Findings

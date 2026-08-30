@@ -7,7 +7,7 @@ We adopt the {astra}`decisions.algorithm` and report {astra}`outputs.hubble_diag
 which confirms {astra}`findings.signal_detected`.
 ```
 
-Each reference renders as a neutral text label — the element's `label:` (or its id, humanised) — so the sentence reads naturally on any theme. A [rich theme](../reference/theming.md) upgrades the same token with a kind glyph and a hover preview card; the Markdown does not change.
+Each reference renders as a neutral text label — the element's `label:` (or its id, humanised) — so the sentence reads naturally on any theme. A [rich theme](../reference/theming.md) upgrades the same token with a kind glyph and a record dialog; the Markdown does not change.
 
 ## Custom display text
 
@@ -32,16 +32,19 @@ Any [path](paths.md) works — elements, children, and sub-analyses:
 {astra}`reconstruction.outputs.xi`              an element inside a sub-analysis
 ```
 
-## Numbered references — `{astra:ref}`
+## Numbered references
 
-A few specialised variants follow MyST's colon convention (`{cite:p}` / `{cite:t}`). `{astra:ref}` produces a native numbered cross-reference — "Figure 3" — to an output that is [placed as a block](block-embeds.md) somewhere in the report:
+For a numbered reference to a placed figure or table, give the block an explicit
+`:label:` and use MyST's standard `{ref}` role. MyST then owns validation,
+numbering, and cross-page resolution:
 
 ```markdown
-{astra:ref}`outputs.hubble_diagram`                # "Figure 3" (like {ref})
-{astra:ref}`see Fig. %s <outputs.hubble_diagram>`  # custom text; %s is the number
-```
+:::{astra} outputs.hubble_diagram
+:label: fig-hubble
+:::
 
-MyST fills in the number during its own reference resolution, exactly as it numbers a plain `[](#some-figure)` link — the role is sugar for writing `[Fig. %s](#output-hubble_diagram)` without knowing the anchor convention. The target must actually be embedded on some page — a numbered reference to an output that is never placed has nothing to point at. `{astra:numref}` is accepted as an alias (mirroring MyST, where `numref` is itself an alias of `{ref}`).
+{ref}`fig-hubble`
+```
 
 ## Citations — `{astra:cite}` and `{astra:cite:t}`
 
