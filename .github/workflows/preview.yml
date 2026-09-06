@@ -1,0 +1,28 @@
+name: Preview
+
+# Renders the DESI demo paper with this pull request's MySTRA through astra-ui's
+# reusable preview workflow and posts the Vercel URL as a sticky comment. The
+# build, deploy and screenshot steps live in LightconeResearch/astra-ui
+# (packages/preview); this file only supplies the ref to substitute.
+#
+# Deploying needs the VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID secrets;
+# without them (and for pull requests from forks) the site is uploaded as a
+# workflow artifact instead.
+
+on:
+  pull_request:
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    uses: LightconeResearch/astra-ui/.github/workflows/preview.yml@main
+    with:
+      mystra: ${{ github.event.pull_request.head.sha }}
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
