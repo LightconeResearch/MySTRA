@@ -5,7 +5,7 @@
   "type": "module",
   "license": "BSD-3-Clause",
   "private": true,
-  "comment": "Not an npm package — MyST loads the bundled dist/mystra.mjs by URL (see scripts/bundle.mjs). `main`/`exports` are for local programmatic use of the library exports only.",
+  "comment": "Not an npm package \u2014 MyST loads the bundled dist/mystra.mjs by URL (see scripts/bundle.mjs). `main`/`exports` are for local programmatic use of the library exports only.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -45,7 +45,7 @@
     "url": "https://github.com/LightconeResearch/MySTRA"
   },
   "dependencies": {
-    "@astra-spec/sdk": "git+https://github.com/LightconeResearch/astra-typescript.git#c49a2932e48ea80c7a0b0db3a7e747f71cc46e0b",
+    "@astra-spec/sdk": "git+https://github.com/LightconeResearch/astra-typescript.git#d8ef3bf7e3c28086e38222925107ada0e8f1ef85",
     "myst-common": "^1.9.5",
     "myst-parser": "^1.7.1",
     "myst-transforms": "1.3.49",
