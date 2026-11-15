@@ -8,7 +8,7 @@ If you'd rather see the authoring vocabulary first, jump to the [authoring guide
 
 MySTRA renders reports *on top of* an ASTRA analysis, so you need:
 
-1. **An ASTRA project** — a directory with an `astra.yaml`, optionally one or more universe files in `universes/`, and (for figures/tables/values) materialised results in `results/`. Without a universe file, the SDK uses the decisions' authored defaults. New to ASTRA? Start with the [ASTRA getting-started guide](https://astra-spec.org/latest/getting-started/) first.
+1. **An ASTRA 0.1 project** — a folder in a Git repository with an `astra.yaml`, authored universe entries, tracked inputs and materialized results. Git must be available on PATH. New to ASTRA? Start with the [ASTRA getting-started guide](https://astra-spec.org/latest/getting-started/) first.
 2. **The MyST CLI** (`mystmd`), which needs Node ≥ 20:
 
     === "npm"
@@ -57,9 +57,7 @@ MySTRA expects the standard ASTRA conventions:
 
 ```
 my-analysis/
-├── astra.yaml          Analysis specification (decisions, findings, outputs, …)
-├── universes/
-│   └── baseline.yaml   Decision selections for the baseline universe
+├── astra.yaml          Analysis specification, including universes
 ├── results/
 │   └── baseline/<output-id>.png               Materialised result artifacts
 ├── myst.yml            Registers the plugin; lists pages
@@ -100,10 +98,10 @@ Run the stock MyST CLI from the project directory:
 myst start        # → http://localhost:3000
 ```
 
-That's it — no custom server and no build step of your own. MySTRA reads `astra.yaml` from the working directory and delegates full validation, universe selection, and resolution to the SDK. With multiple universe files, the SDK selects the first `.yaml` or `.yml` filename in lexical order; with none, it uses authored defaults.
+MySTRA reads `astra.yaml` from the working directory and resolves all universes through the native TypeScript SDK. Page presentation defaults to the first authored root universe; set `astra_universe: universes.baseline` in page frontmatter to choose explicitly. See [configuration](reference/configuration.md#project-root-and-universe).
 
 !!! note "Editing `astra.yaml` while the server runs"
-    `myst start` watches your Markdown files, not the ASTRA spec. Whenever MyST does render a page, the plugin compares every file, directory listing, missing artifact, and metadata entry the SDK read before reusing its resolved bundle. A re-render is still triggered by a Markdown change, so after editing `astra.yaml`, re-save any `.md` page (or restart the server) to see the update.
+    `myst start` watches your Markdown files, not the ASTRA spec. Whenever MyST renders a page, the plugin obtains fresh reports and result bytes; only concurrent work is shared. A re-render is still triggered by a Markdown change, so after editing `astra.yaml`, re-save any `.md` page (or restart the server) to see the update.
 
 ## Build for publication
 

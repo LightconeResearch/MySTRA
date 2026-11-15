@@ -3,15 +3,14 @@
  *
  * A *path* is a dot-separated route through the analysis tree — the same
  * structure as `astra.yaml`, and the same dotted spelling the spec itself uses
- * for element references (`when: decision.option`, `from: scope.id`, recipe
- * placeholders `{inputs.id}`, and RFC-0002's `<sub>.<id>` addressing). Dots
+ * for declaration routes and recipe placeholders such as `{inputs.id}`. Dots
  * address elements; slashes are reserved for files. Paths always resolve from
  * the root analysis:
  *
  *   outputs.hubble_diagram                    an output in the root analysis
  *   decisions.algorithm.gp                    a child (one Option of a Decision)
  *   decisions.algorithm.options.gp            … the explicit long form
- *   findings.sig.fig1                         a child (one Evidence of a Finding)
+ *   findings.sig.0                         a child (one Evidence of a Finding)
  *   reconstruction.outputs.xi                 a sub-analysis (the `analyses.` is implied)
  *   analyses.reconstruction.outputs.xi        … the explicit long form
  *   reconstruction                            the sub-analysis itself
@@ -83,29 +82,16 @@ export interface AstraPath {
 }
 
 /**
- * Return the SDK canonical path for the record addressed by an authored path.
- * Analysis paths are navigation targets rather than records; child
- * option/evidence paths resolve to their owning record.
- */
-export function canonicalRecordPath(path: AstraPath): string | null {
-  if (
-    !path.collection ||
-    !path.id ||
-    path.collection === 'analyses'
-  ) {
-    return null;
-  }
-  return [...path.scope, path.collection, path.id].join('.');
-}
-
-/**
  * Split a role/directive body into its display-text override and the path,
  * following MyST's `text <target>` convention (as used by `{ref}`):
  *
  *   "our preferred method <decisions.algorithm>"  → { display: "our preferred method", path: "decisions.algorithm" }
  *   "outputs.hubble_diagram"                       → { display: null, path: "outputs.hubble_diagram" }
  */
-export function splitDisplay(body: string): { display: string | null; path: string } {
+export function splitDisplay(body: string): {
+  display: string | null;
+  path: string;
+} {
   const m = /^(.*?)<([^>]*)>\s*$/.exec(body ?? '');
   if (m) return { display: m[1].trim() || null, path: m[2].trim() };
   return { display: null, path: (body ?? '').trim() };
@@ -136,9 +122,6 @@ export function parseAstraPath(raw: string): AstraPath {
   if (segs.includes('prior-insights')) {
     throw new Error('use the canonical collection name "prior_insights"');
   }
-  if (segs.includes('universes')) {
-    throw new Error('universes are resolution inputs, not addressable records');
-  }
 
   const scope: string[] = [];
   let collection: Collection | null = null;
@@ -148,6 +131,9 @@ export function parseAstraPath(raw: string): AstraPath {
   let i = 0;
   while (i < segs.length) {
     const seg = segs[i];
+    if (seg === 'universes') {
+      throw new Error('universes are selected with the universe option, not addressable as records');
+    }
     const col = canonicalCollection(seg);
 
     if (col === 'analyses') {
@@ -155,9 +141,6 @@ export function parseAstraPath(raw: string): AstraPath {
       // it's the final segment); a trailing bare `analyses` is the registry.
       if (i + 1 < segs.length) {
         const analysisId = segs[i + 1];
-        if (canonicalCollection(analysisId) || CHILD_COLLECTIONS.has(analysisId)) {
-          throw new Error(`missing analysis id after "analyses" in "${raw}"`);
-        }
         if (i + 2 === segs.length) {
           collection = 'analyses';
           id = analysisId;
@@ -182,14 +165,18 @@ export function parseAstraPath(raw: string): AstraPath {
       if (i < segs.length) {
         const expectedChild = CHILD_BY_COLLECTION[collection];
         if (!expectedChild) {
-          throw new Error(`unexpected segment "${segs[i]}" after ${collection}.${id}`);
+          throw new Error(
+            `unexpected segment "${segs[i]}" after ${collection}.${id}`,
+          );
         }
         if (CHILD_COLLECTIONS.has(segs[i])) {
           // Explicit long form: `…options.<id>` / `…evidence.<id>`.
           const cc = segs[i] as ChildCollection;
           const cid = segs[i + 1];
           if (cc !== expectedChild) {
-            throw new Error(`${collection}.${id} has "${expectedChild}", not "${cc}"`);
+            throw new Error(
+              `${collection}.${id} has "${expectedChild}", not "${cc}"`,
+            );
           }
           if (!cid) throw new Error(`missing ${cc} id in "${raw}"`);
           if (i + 2 !== segs.length) {
@@ -220,6 +207,13 @@ export function parseAstraPath(raw: string): AstraPath {
     id = scope.pop()!;
   }
 
+  if (
+    child?.collection === 'evidence' &&
+    (!/^(0|[1-9]\d*)$/.test(child.id) ||
+      !Number.isSafeInteger(Number(child.id)))
+  ) {
+    throw new Error('evidence is addressed by its zero-based array index');
+  }
   return { scope, collection, id, child };
 }
 
@@ -233,4 +227,9 @@ export function parseAstraPath(raw: string): AstraPath {
 export function pathIdentifier(p: AstraPath): string | null {
   if (!p.collection || !p.id || p.collection === 'analyses') return null;
   return `${KIND_BY_COLLECTION[p.collection]}-${p.id}`;
+}
+
+/** Local authored ID used only for labels and in-page anchors, never identity. */
+export function localId(element: { ref: string }): string {
+  return element.ref.slice(element.ref.lastIndexOf('.') + 1);
 }

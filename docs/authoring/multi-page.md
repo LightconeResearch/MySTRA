@@ -50,7 +50,7 @@ A page whose filename does not name an analysis (for example, an appendix) uses 
 ## What the scope changes — and what it doesn't
 
 - **Roles and directives always resolve from the root analysis**, on every page. `` {astra}`reconstruction.outputs.xi` `` means the same thing everywhere.
-- **The scope selects `activeAnalysisPath` in the [publication bundle](../reference/theming.md)** — rich themes can use it as page context. The bundle itself always contains the complete resolved project.
+- **The scope selects `activeAnalysisKey` in the [publication bundle](../reference/theming.md)** — rich themes can use it as page context. The bundle itself always contains the complete resolved project.
 - **Analysis-reference links come only from this configured page map.** If exactly one concrete `file:` entry in `project.toc` maps to a sub-analysis, `` {astra}`reconstruction` `` exposes that page's MyST route to a rich theme. Unlisted, multiply mapped, or pattern-expanded pages remain unlinked; MySTRA never turns an analysis id into a guessed URL.
 - **Cross-page links remain ordinary MyST:** give a placed block an explicit `:label:` and reference that label with `{ref}`.
 
@@ -68,4 +68,4 @@ Embed a sub-analysis by its bare path to get a neutral summary card, or embed th
 
 ## Results for sub-analyses
 
-Artifact paths come directly from the SDK's deterministic bindings, including inline and path-backed sub-analyses. MySTRA does not scan result directories or reconstruct that convention itself. Nothing is configured on the report side.
+Result content comes through the SDK's repository-aware `readResults` API. Sub-analyses are folder declarations and can be pinned to commits. MySTRA never reconstructs result paths; see [configuration](../reference/configuration.md#result-content).

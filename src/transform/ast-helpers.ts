@@ -219,10 +219,14 @@ export interface AstraNodeIdentity {
   id: string;
   /** SDK record address. Never used for analysis navigation targets. */
   canonicalPath?: string;
-  /** SDK analysis address (`$` for root). Never used as a record address. */
+  /** SDK analysis address (`""` for root). Never used as a record address. */
   analysisPath?: string;
   /** Host-provided route for an analysis page, when one is configured. */
   href?: string;
+  /** Zero-based index into the owning insight evidence array. */
+  evidenceIndex?: number;
+  /** Explicit universe context for this authored reference. */
+  universe?: string;
 }
 
 /** A neutral inline ASTRA reference with explicit record/analysis identity. */

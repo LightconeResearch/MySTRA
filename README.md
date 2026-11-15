@@ -77,7 +77,7 @@ focus on the argument.
 
 | Concern | Single source of truth |
 |---|---|
-| **Data** — what a decision/output/finding *is* | `astra.yaml` (+ `universes/`, `results/`) |
+| **Data** — what a decision/output/finding *is* | `astra.yaml` (including `universes`, plus `results/`) |
 | **Composition** — what appears, where, in what order | your `index.md` |
 | **Presentation** — how it looks | the MyST theme |
 
@@ -114,10 +114,12 @@ myst start        # → http://localhost:3000
 
 That's it — no custom server and no build step of your own. MySTRA reads
 `astra.yaml` from the working directory — run `myst` from the ASTRA project
-root — and delegates universe selection and full-project resolution to the SDK.
+root. Node.js 20+ and Git are required; Python is not. The SDK resolves all universes together, and page presentation defaults to the first authored root universe. Set `astra_universe: universes.baseline` in page frontmatter or the `universe` role/directive option to choose explicitly.
 
 For a five-minute walk-through, see
 [getting started](https://lightconeresearch.github.io/MySTRA/getting-started/).
+
+This branch targets ASTRA 0.1 and publication transport v2. Its SDK dependency is a pinned Git commit until the 0.2 candidate is published; `npm ci` builds it without Python. Pre-0.1 analyses are unsupported.
 
 ## Authoring
 
@@ -138,7 +140,7 @@ the first collection keyword fixes the target.
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
 decisions.algorithm.gp                  a child — one option of a decision
-findings.sig.fig1                       a child — one evidence record of a finding
+findings.sig.0                       a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis
@@ -179,7 +181,7 @@ dialog). A few specialised variants follow MyST's colon convention
 :::{astra} outputs.hubble_diagram
 :::                                   # the figure (or table / metric)
 :::{astra} findings.signal_detected
-:::                                   # claim + notes + scope + evidence
+:::                                   # claim + description + scope + evidence
 :::{astra} prior_insights.recon_sharpens_bao
 :::                                   # the prior insight as an admonition
 :::{astra} reconstruction
@@ -196,8 +198,8 @@ Options follow MyST's `:key: value` form:
 |---|---|
 | `:label:` | Cross-reference label for the rendered block (manage the anchor yourself). |
 | `:caption:` | Caption text (figure / table outputs). |
-| `:compact:` | Findings: claim + notes + scope only (no evidence figures). |
-| `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, notes, scope, evidence`). |
+| `:compact:` | Findings: claim + description + scope only (no evidence figures). |
+| `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, description, scope, evidence`). |
 | `:class:` | Extra CSS class(es) on the rendered block. |
 
 ### Live values — never hard-type a measured number

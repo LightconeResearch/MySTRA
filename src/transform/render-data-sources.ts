@@ -8,14 +8,9 @@
  * exists whether or not any evidence references the output.
  */
 
-import type { ResolvedInput, ResolvedOutput } from '@astra-spec/sdk';
-import {
-  table,
-  tableRow,
-  tableCell,
-  text,
-  strong,
-} from './ast-helpers.js';
+import type { Input, Output } from '@astra-spec/sdk';
+import { localId } from '../path.js';
+import { table, tableRow, tableCell, text, strong } from './ast-helpers.js';
 import type { ProseParser } from './prose.js';
 
 /**
@@ -31,13 +26,13 @@ import type { ProseParser } from './prose.js';
  */
 function renderRegistryTable(
   kind: 'Input' | 'Output',
-  items: Array<ResolvedInput | ResolvedOutput>,
+  items: readonly (Input | Output)[],
   prose: ProseParser,
 ): any {
   const headerRow = tableRow(
     [
       tableCell([text(kind)], true),
-      tableCell([text('Type')], true),
+      tableCell([text(kind === 'Input' ? 'Path' : 'Type')], true),
       tableCell([text('Description')], true),
     ],
     true,
@@ -46,11 +41,11 @@ function renderRegistryTable(
   const dataRows = items.map((item) => {
     const descCell = prose.inline(item.description);
     const row: any = tableRow([
-      tableCell([strong([text(item.label ?? item.id)])]),
-      tableCell([text(item.type)]),
+      tableCell([strong([text(item.label ?? localId(item))])]),
+      tableCell([text('type' in item ? String(item.type) : item.path)]),
       tableCell(descCell.length > 0 ? descCell : [text('')]),
     ]);
-    row.identifier = `${kind.toLowerCase()}-${item.id}`;
+    row.identifier = `${kind.toLowerCase()}-${localId(item)}`;
     row.label = row.identifier;
     return row;
   });
@@ -61,7 +56,10 @@ function renderRegistryTable(
 // Callers filter out the empty case so the page doesn't render a stray
 // "no inputs" sentence without a section heading to anchor it.
 
-export function renderInputsTable(inputs: ResolvedInput[], prose: ProseParser): any {
+export function renderInputsTable(
+  inputs: readonly Input[],
+  prose: ProseParser,
+): any {
   return renderRegistryTable('Input', inputs, prose);
 }
 
@@ -70,6 +68,9 @@ export function renderInputsTable(inputs: ResolvedInput[], prose: ProseParser): 
  * by `output-<id>`, regardless of whether the artifact has been produced or
  * any finding references it via evidence.
  */
-export function renderOutputsTable(outputs: ResolvedOutput[], prose: ProseParser): any {
+export function renderOutputsTable(
+  outputs: readonly Output[],
+  prose: ProseParser,
+): any {
   return renderRegistryTable('Output', outputs, prose);
 }

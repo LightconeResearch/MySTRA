@@ -16,7 +16,7 @@
  *     > "quoted text"
  */
 
-import type { ResolvedEvidence, ResolvedOutput } from '@astra-spec/sdk';
+import type { Evidence, Output } from '@astra-spec/sdk';
 import {
   paragraph,
   text,
@@ -46,6 +46,8 @@ export type ArtifactResolver = (outputPath: string) => string | undefined;
 
 /** Options threaded from the plugin surfaces into evidence rendering. */
 export interface EvidenceRenderOptions {
+  /** Actual bytes for an opaque cited result ID, separate from output refs. */
+  resultPath: (resultId: string) => string | undefined;
   /** Absolute artifact path → servable URL (the plugin passes a
    *  source-page-relative mapping so MyST's asset pipeline copies the file). */
   resultUrl: (absPath: string) => string;
@@ -56,7 +58,7 @@ export interface EvidenceRenderOptions {
 /**
  * Render a single evidence item as AST nodes.
  *
- * `outputs` is the host analysis's id→Output map; artifact
+ * `outputs` is the result-ID→Output map; artifact
  * evidence dispatches on the referenced output's `type`. Broken
  * references (artifact id not declared) warn through the vfile
  * channel rather than silently rendering nothing.
@@ -66,9 +68,8 @@ export interface EvidenceRenderOptions {
  * MySTRA no longer carries its own DOI resolver/cache.
  */
 export function renderEvidenceBlock(
-  evidence: ResolvedEvidence,
-  results: ArtifactResolver,
-  outputs: ReadonlyMap<string, ResolvedOutput>,
+  evidence: Evidence,
+  outputs: ReadonlyMap<string, Output>,
   prose: ProseParser,
   opts: EvidenceRenderOptions,
 ): any[] {
@@ -76,7 +77,7 @@ export function renderEvidenceBlock(
     return renderLiteratureEvidence(evidence);
   }
   if (evidence.artifact) {
-    return renderArtifactEvidence(evidence, results, outputs, prose, opts);
+    return renderArtifactEvidence(evidence, outputs, prose, opts);
   }
   return [];
 }
@@ -95,7 +96,7 @@ function pendingOutput(artifactId: string): any {
  * can support multiple findings.
  */
 function figureBlock(
-  output: ResolvedOutput,
+  output: Output,
   artifactId: string,
   url: string,
   prose: ProseParser,
@@ -138,7 +139,7 @@ function renderDoiEvidence(doi: string, quote?: { exact: string }): any[] {
   return [paragraph([formatCiteNode(doi)])];
 }
 
-function renderLiteratureEvidence(evidence: ResolvedEvidence): any[] {
+function renderLiteratureEvidence(evidence: Evidence): any[] {
   return renderDoiEvidence(evidence.doi!, evidence.quote);
 }
 
@@ -156,13 +157,13 @@ function renderLiteratureEvidence(evidence: ResolvedEvidence): any[] {
  * admonition as evidence rendering.
  */
 export function renderOneOutput(
-  output: ResolvedOutput,
+  output: Output,
   artifactId: string,
   results: ArtifactResolver,
   prose: ProseParser,
-  opts: EvidenceRenderOptions,
+  opts: Omit<EvidenceRenderOptions, 'resultPath'>,
 ): any[] {
-  const resultPath = results(output.canonicalPath);
+  const resultPath = results(output.ref);
   const identifier = `output-${artifactId}`;
   if (!resultPath) {
     // Keep the identifier-bearing carrier even before the artifact is
@@ -222,7 +223,7 @@ export function renderOneOutput(
  * falls back to the tabular rendering the other inline artifact types use.
  */
 function metricFallback(
-  output: ResolvedOutput,
+  output: Output,
   artifactId: string,
   resultPath: string,
   vfile?: any,
@@ -245,50 +246,41 @@ function metricFallback(
 }
 
 function renderArtifactEvidence(
-  evidence: ResolvedEvidence,
-  results: ArtifactResolver,
-  outputs: ReadonlyMap<string, ResolvedOutput>,
+  evidence: Evidence,
+  outputs: ReadonlyMap<string, Output>,
   prose: ProseParser,
   opts: EvidenceRenderOptions,
 ): any[] {
-  const nodes: any[] = [];
-  const artifactId = evidence.artifact!;
-  const output = outputs.get(evidence.resolvedOutputPath!)!;
-
-  if (!output.active) return nodes;
-
-  const resultPath = results(output.canonicalPath);
-  if (!resultPath) {
-    // Output is declared but the artifact file hasn't been produced
-    // yet. Render a "Pending Output" admonition so the page makes
-    // the absence visible.
-    nodes.push(pendingOutput(artifactId));
-    return nodes;
-  }
-
-  // Output declared and produced — dispatch on Output.type. label /
-  // description on the resolved Output carry its caption metadata.
-  switch (output.type) {
-    case 'figure':
-      nodes.push(
-        ...figureBlock(output, artifactId, opts.resultUrl(resultPath), prose),
-      );
-      break;
-    case 'table':
-      nodes.push(...renderTableArtifact(output, artifactId, resultPath, opts.vfile));
-      break;
-    case 'metric':
-    case 'data':
-    case 'report':
-      nodes.push(...renderInlineArtifact(output, artifactId, resultPath, evidence, opts.vfile));
-      break;
-  }
-
-  return nodes;
+  if (!evidence.cites?.length) return [pendingOutput(evidence.artifact!)];
+  return evidence.cites.flatMap((resultId) => {
+    const output = outputs.get(resultId);
+    const resultPath = opts.resultPath(resultId);
+    if (!output || !resultPath) return [pendingOutput(evidence.artifact!)];
+    const artifactId = evidence.artifact!;
+    switch (output.type) {
+      case 'figure':
+        return figureBlock(
+          output,
+          artifactId,
+          opts.resultUrl(resultPath),
+          prose,
+        );
+      case 'table':
+        return renderTableArtifact(output, artifactId, resultPath, opts.vfile);
+      default:
+        return renderInlineArtifact(
+          output,
+          artifactId,
+          resultPath,
+          evidence,
+          opts.vfile,
+        );
+    }
+  });
 }
 
 function renderTableArtifact(
-  output: ResolvedOutput,
+  output: Output,
   artifactId: string,
   resultPath: string,
   vfile?: any,
@@ -302,10 +294,10 @@ function renderTableArtifact(
 }
 
 function renderInlineArtifact(
-  output: ResolvedOutput,
+  output: Output,
   artifactId: string,
   resultPath: string,
-  evidence?: ResolvedEvidence,
+  evidence?: Evidence,
   vfile?: any,
 ): any[] {
   // Metric / data / report types use the file extension as a hint
@@ -412,7 +404,7 @@ export function tableNodeFromData(data: TableData): any {
  * not at the body returned here.
  */
 export function renderInsightEvidence(
-  insight: { evidence?: ResolvedEvidence[] },
+  insight: { evidence?: readonly Evidence[] },
 ): any[] {
   const nodes: any[] = [];
 

@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "docs": "uvx zensical serve",
     "docs:build": "uvx zensical build --strict",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test:bundle": "npm run bundle && node scripts/check-bundle.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -44,7 +45,7 @@
     "url": "https://github.com/LightconeResearch/MySTRA"
   },
   "dependencies": {
-    "@astra-spec/sdk": "^0.1.1",
+    "@astra-spec/sdk": "git+https://github.com/LightconeResearch/astra-typescript.git#de6b3700aa33449461d107262cb8c2485bdf6f62",
     "myst-common": "^1.9.5",
     "myst-parser": "^1.7.1",
     "myst-transforms": "1.3.49",
