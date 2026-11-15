@@ -1,7 +1,9 @@
 /** Native SDK boundary for MyST: reports, lookup maps and immutable assets. */
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import { join, resolve as resolvePath } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import {
   InvalidAnalysisError,
   indexResolvedAnalysis,
@@ -13,7 +15,7 @@ import {
 import {
   resolve,
   status,
-  readResults,
+  resultResources,
   type NodeSourceOptions,
 } from '@astra-spec/sdk/node';
 
@@ -45,27 +47,34 @@ async function resolveFresh(
   const report = await status(root, options);
   const index = indexResolvedAnalysis(analysis);
   const resources = new Map<string, PublicationResource>();
-  // One SDK resolution yields all available content across universes and tries
-  // later places when the first one is absent, without retaining all bytes.
-  for await (const { result, bytes } of readResults(root, options)) {
-    const cacheToken = createHash('sha256').update(bytes).digest('hex');
-    const output = index.elementByRef.get(result.output);
-    const format =
-      output?.collection === 'outputs' ? output.element.format : 'bin';
-    const extension = format.replace(/[^a-zA-Z0-9._-]/g, '_') || 'bin';
-    const directory = join(root, '_build', 'astra-resources');
-    await mkdir(directory, { recursive: true });
-    const path = join(directory, `${cacheToken}.${extension}`);
-    // Publish complete immutable content atomically; another page or build
-    // may already be serving the same hash while this one refreshes.
-    const temporary = `${path}.${randomUUID()}.tmp`;
+  const directory = join(root, '_build', 'astra-resources');
+  await mkdir(directory, { recursive: true });
+  for await (const resource of resultResources(root, options)) {
+    const hash = createHash('sha256');
+    const temporary = join(directory, `${randomUUID()}.tmp`);
     try {
-      await writeFile(temporary, bytes);
+      await pipeline(
+        resource.chunks(),
+        async function* (chunks: AsyncIterable<Uint8Array>) {
+          for await (const chunk of chunks) {
+            hash.update(chunk);
+            yield chunk;
+          }
+        },
+        createWriteStream(temporary, { flags: 'wx' }),
+      );
+      const cacheToken = hash.digest('hex');
+      const output = index.elementByRef.get(resource.result.output);
+      const format = output?.collection === 'outputs'
+        ? output.element.format
+        : 'bin';
+      const extension = format.replace(/[^a-zA-Z0-9._-]/g, '_') || 'bin';
+      const path = join(directory, `${cacheToken}.${extension}`);
       await rename(temporary, path);
+      resources.set(resource.result.id, { path, cacheToken });
     } finally {
       await rm(temporary, { force: true });
     }
-    resources.set(result.id, { path, cacheToken });
   }
   return { root, analysis, status: report, index, resources };
 }

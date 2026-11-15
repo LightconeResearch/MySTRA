@@ -27,6 +27,8 @@ inputs:
     label: Raw catalog
     description: The *raw* input catalog.
 decisions:
+  route:
+    options: {a: {}, b: {}}
   method:
     label: Fit method
     rationale: |
@@ -55,6 +57,14 @@ decisions:
       only:
         label: Only option
 prior_insights:
+  unmaterialized:
+    claim: The quoted observation remains available.
+    evidence:
+      - artifact: hidden_metric
+        quote: {exact: This quoted observation survives missing content.}
+  contextual:
+    claim: The selected branch supports this insight.
+    evidence: [{artifact: chosen}]
   prior_result:
     label: Prior result
     claim: Earlier work established the effect.
@@ -63,6 +73,19 @@ prior_insights:
         quote:
           exact: The effect is established.
 outputs:
+  once_a:
+    type: metric
+    format: json
+    label: First branch
+    recipe: {command: 'metric > {output}'}
+  once_b:
+    type: metric
+    format: json
+    label: Second branch
+    recipe: {command: 'metric > {output}'}
+  chosen:
+    switch: route
+    cases: {a: once_a, b: once_b}
   scatter_plot:
     type: figure
     format: png
@@ -116,6 +139,12 @@ outputs:
     inputs: [sub.sub_table]
     recipe: {command: 'cat {inputs.sub.sub_table} > {output}'}
 findings:
+  contextual:
+    claim: Evidence follows the evaluation universe.
+    evidence:
+      - artifact: chosen
+      - artifact: chosen#baseline
+      - artifact: hidden_metric
   signal:
     label: Signal detected
     claim: We detect the signal at high significance.
@@ -132,12 +161,14 @@ universes:
   baseline:
     decisions:
       method: grid
+      route: a
       foo_bar: only
       sub.local_method: beta
   alternate:
     derived_from: baseline
     decisions:
       method: mcmc
+      route: b
 `;
 
 const SUB_ANALYSIS = `spec_version: "0.1.0"
@@ -197,6 +228,8 @@ beforeAll(async () => {
   );
   mkdirSync(join(root, 'results', 'baseline'), { recursive: true });
   writeFileSync(join(root, 'results', 'collision_test.json'), '{\"value\":42}');
+  writeFileSync(join(root, 'results', 'once_a.json'), '{\"value\":11}');
+  writeFileSync(join(root, 'results', 'once_b.json'), '{\"value\":22}');
   writeFileSync(join(root, 'results', 'baseline', 'scatter_plot.png'), 'PNG');
   writeFileSync(join(root, 'results', 'baseline', 'measurements.csv'), CSV);
   writeFileSync(
@@ -648,9 +681,54 @@ describe('neutral block rendering from the resolved SDK model', () => {
     expect(
       textContent(await renderDirective('decisions.method.grid')),
     ).toContain('Grid search');
-    expect(textContent(await renderDirective('findings.signal.0'))).toContain(
-      'scatter_plot',
-    );
+    expect(find(await renderDirective('findings.signal.0'), (node) => node.type === 'image')).toBeDefined();
+  });
+
+  it('selects switch evidence by evaluation universe even when targets are built once', async () => {
+    const project = await loadResolvedProject(root);
+    expect(project.index.resultById.get('once_a')?.universe).toBeUndefined();
+    expect(project.index.resultById.get('once_b')?.universe).toBeUndefined();
+    const baseline = textContent(await renderDirective('findings.contextual.0'));
+    expect(baseline).toContain('11');
+    expect(baseline).not.toContain('22');
+    const alternate = textContent(await renderDirective('findings.contextual.0', {universe: 'universes.alternate'}));
+    expect(alternate).toContain('22');
+    expect(alternate).not.toContain('11');
+  });
+
+  it('preserves explicitly pinned evidence and concrete unplanned output labels', async () => {
+    const pinned = textContent(await renderDirective('findings.contextual.1', {universe: 'universes.alternate'}));
+    expect(pinned).toContain('11');
+    expect(pinned).not.toContain('22');
+    const pending = await renderDirective('findings.contextual.2');
+    expect(textContent(pending)).toContain('Output "Hidden metric" has not been produced yet');
+    expect(pending[0].data.astra).toMatchObject({canonicalPath: 'findings.contextual', evidenceIndex: 2});
+  });
+
+  it('preserves an artifact quote once in a prior insight without available result bytes', async () => {
+    const nodes = await renderDirective('prior_insights.unmaterialized');
+    const text = textContent(nodes);
+    expect(text.split('This quoted observation survives missing content.')).toHaveLength(2);
+    expect(find(nodes, (node) => node.type === 'blockquote')).toBeDefined();
+    expect(text).toContain('Output "Hidden metric" has not been produced yet');
+  });
+
+  it('retains request universe and evidence identity on artifact citation references', async () => {
+    const [reference] = await renderRole('astra:cite', 'findings.contextual.1', {universe: 'universes.alternate'});
+    expect(reference.data.astra).toMatchObject({
+      canonicalPath: 'findings.contextual', evidenceIndex: 1, universe: 'universes.alternate',
+    });
+  });
+
+  it('uses the same contextual evidence selection for findings, prior insights and page defaults', async () => {
+    const prior = textContent(await renderDirective('prior_insights.contextual', {universe: 'universes.alternate'}));
+    expect(prior).toContain('22');
+    expect(prior).not.toContain('11');
+    writeFileSync(join(root, 'contextual.md'), '---\nastra_universe: universes.alternate\n---\n# Contextual');
+    const {tree} = await transform(directive('findings.contextual.0'), 'contextual.md');
+    const rendered = textContent(tree.children[0]);
+    expect(rendered).toContain('22');
+    expect(rendered).not.toContain('11');
   });
 
   it('resolves nested analysis paths and registries', async () => {

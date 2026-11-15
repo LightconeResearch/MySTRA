@@ -53,7 +53,6 @@ import { headingLabelTransform } from 'myst-transforms';
 import type {
   Analysis,
   Decision,
-  Evidence,
   Insight,
   Output,
   Input,
@@ -96,8 +95,9 @@ import {
 import { renderFinding } from './transform/render-findings.js';
 import {
   renderOneOutput,
-  renderInsightEvidence,
+  renderEvidenceBlock,
   type ArtifactResolver,
+  type EvidenceRenderOptions,
 } from './transform/render-evidence.js';
 import {
   renderInputsTable,
@@ -130,7 +130,6 @@ interface Scope {
   prose: ProseParser;
   records: ReadonlyMap<string, Insight>;
   outputsById: ReadonlyMap<string, Output>;
-  outputsByResultId: ReadonlyMap<string, Output>;
   decisionsById: ReadonlyMap<string, Decision>;
   findingsById: ReadonlyMap<string, Insight>;
   insightsById: ReadonlyMap<string, Insight>;
@@ -138,6 +137,15 @@ interface Scope {
   tabItem: ReturnType<typeof makeTabItem>;
   resultUrl: (absPath: string) => string;
   vfile?: any;
+}
+
+function evidenceOptions(scope: Scope): EvidenceRenderOptions {
+  return {
+    universe: scope.universe,
+    resultPath: (resultId) => scope.project.resources.get(resultId)?.path,
+    resultUrl: scope.resultUrl,
+    vfile: scope.vfile,
+  };
 }
 
 function citedDois(project: ResolvedProject): readonly string[] {
@@ -207,7 +215,6 @@ function resolveScope(
   ) {
     throw new Error(`unknown universe "${universe}"`);
   }
-  const outputs = new Map<string, Output>();
   const records = new Map<string, Insight>();
   for (const entry of project.index.elementByRef.values()) {
     if (
@@ -215,10 +222,6 @@ function resolveScope(
       entry.collection === 'prior_insights'
     )
       records.set(entry.element.ref, entry.element);
-  }
-  for (const result of project.analysis.results) {
-    const output = project.index.elementByRef.get(result.output);
-    if (output?.collection === 'outputs') outputs.set(result.id, output.element);
   }
   return {
     project,
@@ -236,7 +239,6 @@ function resolveScope(
     outputsById: new Map(
       analysis.outputs.map((output) => [localId(output), output]),
     ),
-    outputsByResultId: outputs,
     decisionsById: new Map(
       analysis.decisions.map((decision) => [localId(decision), decision]),
     ),
@@ -424,13 +426,11 @@ function renderFindingParts(
       finding,
       index ?? findings.findIndex((item) => localId(item) === id) + 1,
       id,
-      scope.outputsByResultId,
+      scope.project.index,
       scope.prose,
       {
         parts: findingParts(options),
-        resultPath: (resultId) => scope.project.resources.get(resultId)?.path,
-        resultUrl: scope.resultUrl,
-        vfile: scope.vfile,
+        ...evidenceOptions(scope),
       },
     ),
     { kind: 'finding', id, canonicalPath: finding.ref },
@@ -445,14 +445,16 @@ function renderFindingParts(
 function renderPriorInsightBlock(
   id: string,
   insight: Insight,
-  prose: ProseParser,
+  scope: Scope,
 ): any {
   const titleBits = ['Prior insight'];
   if (insight.label) titleBits.push(insight.label);
   else if (insight.scope) titleBits.push(insight.scope);
   const body = [
-    paragraph(prose.inline(insight.claim)),
-    ...renderInsightEvidence(insight),
+    paragraph(scope.prose.inline(insight.claim)),
+    ...insight.evidence.flatMap((_, evidenceIndex) =>
+      renderEvidenceBlock(scope.project.index, insight, evidenceIndex, scope.prose, evidenceOptions(scope)),
+    ),
   ];
   const node: any = admonition(
     'seealso',
@@ -541,8 +543,7 @@ function renderOneEvidence(p: AstraPath, scope: Scope): any[] {
     throw new Error(
       `no evidence "${p.child!.id}" on ${p.collection} "${p.id}"`,
     );
-  // Reuse the per-insight evidence renderer for a single record.
-  const nodes = renderInsightEvidence({ evidence: [ev as Evidence] });
+  const nodes = renderEvidenceBlock(scope.project.index, owner, evidenceIndex, scope.prose, evidenceOptions(scope));
   if (nodes[0]) {
     stampAstra(nodes[0], {
       kind: 'evidence',
@@ -655,7 +656,7 @@ function renderRegistry(collection: Collection, scope: Scope): any[] {
     }
     case 'prior_insights': {
       const nodes = scope.analysis.prior_insights.map((insight) =>
-        renderPriorInsightBlock(localId(insight), insight, scope.prose),
+        renderPriorInsightBlock(localId(insight), insight, scope),
       );
       return nodes.length
         ? nodes
@@ -710,7 +711,7 @@ function renderElement(
     case 'prior_insights': {
       const insight = scope.insightsById.get(id);
       if (!insight) throw new Error(`no prior_insight "${id}" in this scope`);
-      return [renderPriorInsightBlock(id, insight, scope.prose)];
+      return [renderPriorInsightBlock(id, insight, scope)];
     }
     case 'inputs':
       return renderOneInput(id, scope);
@@ -1261,7 +1262,7 @@ function renderCiteRequest(
   const { display, path } = splitDisplay(request.body);
   try {
     const p = parseAstraPath(path);
-    const scope = resolveScope(project, p.scope, prose, vfile);
+    const scope = resolveScope(project, p.scope, prose, vfile, request.options?.universe);
     if (p.collection !== 'findings' && p.collection !== 'prior_insights') {
       throw new Error('astra:cite expects a finding or prior_insight path');
     }
@@ -1275,7 +1276,11 @@ function renderCiteRequest(
           ref.id,
           ref.label,
           ref.subtype,
-          canonicalPath ? { canonicalPath } : undefined,
+          canonicalPath ? {
+            canonicalPath,
+            ...(scope.universe ? { universe: scope.universe } : {}),
+            ...(p.child?.collection === 'evidence' ? { evidenceIndex: Number(p.child.id) } : {}),
+          } : undefined,
         ),
       ];
     }

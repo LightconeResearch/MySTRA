@@ -68,4 +68,4 @@ Embed a sub-analysis by its bare path to get a neutral summary card, or embed th
 
 ## Results for sub-analyses
 
-Result content comes through the SDK's repository-aware `readResults` API. Sub-analyses are folder declarations and can be pinned to commits. MySTRA never reconstructs result paths; see [configuration](../reference/configuration.md#result-content).
+Result content comes through the SDK's repository-aware `resultResources` API. Sub-analyses are folder declarations and can be pinned to commits. MySTRA never reconstructs result paths; see [configuration](../reference/configuration.md#result-content).

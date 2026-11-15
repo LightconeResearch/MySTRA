@@ -13,7 +13,7 @@
  * overlapping tags.
  */
 
-import type { Insight, Output } from '@astra-spec/sdk';
+import type { Insight, ResolvedAnalysisIndex } from '@astra-spec/sdk';
 import {
   carrierDiv,
   heading,
@@ -28,12 +28,13 @@ export function renderFinding(
   finding: Insight,
   index: number,
   findingId: string,
-  outputs: ReadonlyMap<string, Output>,
+  analysisIndex: ResolvedAnalysisIndex,
   prose: ProseParser,
   opts: {
     /** Parts to render (of description / scope / evidence). The claim heading —
      *  the finding's identifier carrier — is always kept. */
     parts: Set<string>;
+    universe?: string;
     resultPath: (resultId: string) => string | undefined;
     /** Absolute artifact path → servable URL, for figure evidence. */
     resultUrl: (absPath: string) => string;
@@ -63,9 +64,10 @@ export function renderFinding(
 
   // Evidence blocks (figures, tables, artifact references)
   if (has('evidence')) {
-    for (const evidence of finding.evidence ?? []) {
+    for (const [evidenceIndex] of finding.evidence.entries()) {
       nodes.push(
-        ...renderEvidenceBlock(evidence, outputs, prose, {
+        ...renderEvidenceBlock(analysisIndex, finding, evidenceIndex, prose, {
+          universe: opts.universe,
           resultPath: opts.resultPath,
           resultUrl: opts.resultUrl,
           vfile: opts.vfile,

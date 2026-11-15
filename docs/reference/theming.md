@@ -108,8 +108,9 @@ only when the result ID is known and its token matches `resources[resultId]`.
 The report's `Place.file_path` describes a repository or commit tree and is not
 a browser URL. Never construct an asset URL from it.
 
-The plugin reads actual content with the SDK's `readResults`, trying the result's
-places until bytes are available. It publishes immutable, content-hashed files
+The plugin reads actual content with the SDK's lazy `resultResources` handles,
+trying the result's places until bytes are available. It streams chunks into a
+temporary file while hashing, then atomically publishes content-hashed files
 under `_build/astra-resources/`. This handles historical commit trees and
 large-file stand-ins without reading the wrong worktree file.
 
@@ -120,11 +121,18 @@ report for provenance indicators.
 
 ## Evidence and citations
 
-Evidence identity is an insight ref plus array index. `Evidence.cites` contains
-its effective result IDs and can be empty when no result is planned. Its
-`artifact` field retains the authored address even then. All citations in the
-public report are retained; the report does not expose enough switch information
-for a general per-universe evidence filter.
+Evidence identity is an insight ref plus array index. Use
+`getEvidenceBindings(index, insightRef, evidenceIndex, universe)` to select the
+SDK's effective bindings for the evaluation universe. Each binding retains its
+concrete `output`, optional planned `result`, evaluation `universe` and
+`target_universe` where applicable. Explicitly pinned evidence remains selected
+regardless of the page universe. A once-built target can be selected by a switch
+in one universe and a different once-built target in another.
+
+Use `binding.output` for record lookup and `binding.result` for resource lookup.
+An unplanned output can remain addressable without a result. The aggregate
+`Evidence.cites` list is retained in the raw report, but does not determine
+contextual rendering. No authored switch or pin grammar needs reimplementation.
 
 MySTRA registers literature DOIs with MyST in a hidden `astra-cites` carrier for
 both narrative and parenthetical citations. The host's citation/reference data

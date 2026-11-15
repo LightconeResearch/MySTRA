@@ -1,22 +1,11 @@
-/**
- * Renders evidence blocks.
- *
- * Source-of-truth split:
- *   - DOI evidence: cited via the citation pipeline (cite + hover
- *     metadata if cached; plain DOI link otherwise).
- *   - Artifact evidence: looks up the referenced output in the
- *     analysis's `outputs` map. The output's `type` drives how the
- *     artifact renders; `label` and `description` carry the
- *     caption-equivalent metadata. There is no separate
- *     figure/table selector on Evidence — those would conflate the
- *     'what kind' concern that already lives on the resolved Output.
- *
- *   Citations as:
- *     **Author et al. (Year)** — [DOI](link)
- *     > "quoted text"
- */
-
-import type { Evidence, Output } from '@astra-spec/sdk';
+/** Render DOI citations and contextual artifact evidence from SDK bindings. */
+import {
+  getEvidenceBindings,
+  type Evidence,
+  type Insight,
+  type Output,
+  type ResolvedAnalysisIndex,
+} from '@astra-spec/sdk';
 import {
   paragraph,
   text,
@@ -42,10 +31,11 @@ import { fileExt, parseTableData, type TableData } from './parse-table-data.js';
 import { reportWarn } from '../diagnostics.js';
 
 /** Resolve an SDK output canonical path to an absolute artifact path. */
-export type ArtifactResolver = (outputPath: string) => string | undefined;
+export type ArtifactResolver = (outputRef: string) => string | undefined;
 
 /** Options threaded from the plugin surfaces into evidence rendering. */
 export interface EvidenceRenderOptions {
+  universe?: string;
   /** Actual bytes for an opaque cited result ID, separate from output refs. */
   resultPath: (resultId: string) => string | undefined;
   /** Absolute artifact path → servable URL (the plugin passes a
@@ -58,26 +48,52 @@ export interface EvidenceRenderOptions {
 /**
  * Render a single evidence item as AST nodes.
  *
- * `outputs` is the result-ID→Output map; artifact
- * evidence dispatches on the referenced output's `type`. Broken
- * references (artifact id not declared) warn through the vfile
- * channel rather than silently rendering nothing.
+ * The SDK selects effective bindings in the evaluation universe, retaining
+ * explicit pins and concrete outputs even when no result is planned.
  *
  * DOI evidence renders as a plain DOI link. Resolving the citation
  * (author–year text, a reference list) is delegated to MyST natively;
  * MySTRA no longer carries its own DOI resolver/cache.
  */
 export function renderEvidenceBlock(
-  evidence: Evidence,
-  outputs: ReadonlyMap<string, Output>,
+  index: ResolvedAnalysisIndex,
+  insight: Insight,
+  evidenceIndex: number,
   prose: ProseParser,
   opts: EvidenceRenderOptions,
 ): any[] {
+  const evidence = insight.evidence[evidenceIndex];
+  if (!evidence) return [];
   if (evidence.doi) {
     return renderLiteratureEvidence(evidence);
   }
   if (evidence.artifact) {
-    return renderArtifactEvidence(evidence, outputs, prose, opts);
+    const bindings = getEvidenceBindings(
+      index, insight.ref, evidenceIndex, opts.universe,
+    ) ?? [];
+    const nodes = bindings.flatMap((binding) => {
+      const entry = binding.output
+        ? index.elementByRef.get(binding.output)
+        : undefined;
+      const output = entry?.collection === 'outputs' ? entry.element : undefined;
+      const path = binding.result ? opts.resultPath(binding.result) : undefined;
+      if (!output || !path) {
+        return [pendingOutput(output?.label ?? evidence.artifact!)];
+      }
+      switch (output.type) {
+        case 'figure':
+          return figureBlock(output, evidence.artifact!, opts.resultUrl(path), prose);
+        case 'table':
+          return renderTableArtifact(output, evidence.artifact!, path, opts.vfile);
+        default:
+          return renderInlineArtifact(output, evidence.artifact!, path, opts.vfile);
+      }
+    });
+    if (!bindings.length) nodes.push(pendingOutput(evidence.artifact));
+    if (evidence.quote) {
+      nodes.unshift(blockquote([paragraph([text(evidence.quote.exact)])]));
+    }
+    return nodes;
   }
   return [];
 }
@@ -147,7 +163,7 @@ function renderLiteratureEvidence(evidence: Evidence): any[] {
  * Render a single Output as a standalone block (not as evidence under a
  * finding). The `{astra}` directive uses this for addressed outputs.
  *
- * Differences from `renderArtifactEvidence`:
+ * Differences from evidence rendering:
  *   - The figure container carries the `output-<id>` identifier.
  *   - The figure image URL is built via `resultUrl`, which emits the
  *     source-page-relative path MyST hands to its asset pipeline.
@@ -205,7 +221,7 @@ export function renderOneOutput(
     default: {
       // data / report: render inline, then tag the first node as the
       // `output-<id>` carrier.
-      const nodes = renderInlineArtifact(output, artifactId, resultPath, undefined, opts.vfile);
+      const nodes = renderInlineArtifact(output, artifactId, resultPath, opts.vfile);
       if (nodes.length > 0 && !nodes[0].identifier) {
         nodes[0].identifier = identifier;
         nodes[0].label = identifier;
@@ -245,40 +261,6 @@ function metricFallback(
   return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, vfile);
 }
 
-function renderArtifactEvidence(
-  evidence: Evidence,
-  outputs: ReadonlyMap<string, Output>,
-  prose: ProseParser,
-  opts: EvidenceRenderOptions,
-): any[] {
-  if (!evidence.cites?.length) return [pendingOutput(evidence.artifact!)];
-  return evidence.cites.flatMap((resultId) => {
-    const output = outputs.get(resultId);
-    const resultPath = opts.resultPath(resultId);
-    if (!output || !resultPath) return [pendingOutput(evidence.artifact!)];
-    const artifactId = evidence.artifact!;
-    switch (output.type) {
-      case 'figure':
-        return figureBlock(
-          output,
-          artifactId,
-          opts.resultUrl(resultPath),
-          prose,
-        );
-      case 'table':
-        return renderTableArtifact(output, artifactId, resultPath, opts.vfile);
-      default:
-        return renderInlineArtifact(
-          output,
-          artifactId,
-          resultPath,
-          evidence,
-          opts.vfile,
-        );
-    }
-  });
-}
-
 function renderTableArtifact(
   output: Output,
   artifactId: string,
@@ -297,30 +279,19 @@ function renderInlineArtifact(
   output: Output,
   artifactId: string,
   resultPath: string,
-  evidence?: Evidence,
   vfile?: any,
 ): any[] {
   // Metric / data / report types use the file extension as a hint
-  // for tabular display; otherwise emit a labelled reference and
-  // (when present) the author's quote as a blockquote.
+  // for tabular display; otherwise emit a labelled reference.
   const ext = fileExt(resultPath);
   if (ext === 'json' || ext === 'csv') {
     return renderTabularFile(resultPath, artifactId, output.label ?? artifactId, vfile);
   }
 
-  const nodes: any[] = [];
-  const refParts: any[] = [
+  return [paragraph([
     text('Output: '),
     inlineCode(output.label ?? artifactId),
-  ];
-  if (evidence?.quote) {
-    refParts.push(text(` — "${evidence.quote.exact}"`));
-  }
-  nodes.push(paragraph(refParts));
-  if (evidence?.quote) {
-    nodes.push(blockquote([paragraph([text(evidence.quote.exact)])]));
-  }
-  return nodes;
+  ])];
 }
 
 /**
@@ -385,41 +356,4 @@ export function tableNodeFromData(data: TableData): any {
     );
   }
   return table([headerRow, ...rows]);
-}
-
-/**
- * Render the evidence body of an insight (caller has already
- * emitted the heading carrying the `<kind>-<id>` identifier). Each
- * piece of evidence is either an attributed quote-with-citation or
- * a bare citation / artifact reference, depending on populated fields.
- *
- *   > "quoted text from paper"
- *   — https://doi.org/…           ← plain DOI link (MyST resolves citations)
- *   > "another quote"
- *   — https://doi.org/…
- *
- * Used by render-findings.ts and the plugin's prior-insight directive;
- * each provides its own carrier heading. Cross-references from
- * option tabs / decisions / narrative point at those carrier ids,
- * not at the body returned here.
- */
-export function renderInsightEvidence(
-  insight: { evidence?: readonly Evidence[] },
-): any[] {
-  const nodes: any[] = [];
-
-  for (const ev of insight.evidence ?? []) {
-    if (ev.doi) {
-      nodes.push(...renderDoiEvidence(ev.doi, ev.quote));
-    } else if (ev.artifact) {
-      if (ev.quote) {
-        nodes.push(blockquote([paragraph([text(ev.quote.exact)])]));
-        nodes.push(paragraph([text('— '), inlineCode(ev.artifact)]));
-      } else {
-        nodes.push(paragraph([text('From output: '), inlineCode(ev.artifact)]));
-      }
-    }
-  }
-
-  return nodes;
 }

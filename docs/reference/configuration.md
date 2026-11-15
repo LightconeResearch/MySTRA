@@ -50,11 +50,12 @@ text rather than a partial publication payload when resolution fails.
 
 ## Result content
 
-The SDK owns result planning and repository-relative places. MySTRA reads actual
-bytes through `readResults`, including historical commit trees and large-file
-stand-ins. It tries each place until content is available, then materializes an
-immutable content-hashed file under `_build/astra-resources/` for MyST's asset
-pipeline. It never scans result directories or derives result paths itself.
+The SDK owns result planning and repository-relative places. MySTRA streams actual
+bytes through `resultResources`, including historical commit trees and large-file
+stand-ins. It tries each place until content is available, streams chunks to a
+temporary file while hashing, then atomically materializes a content-hashed file
+under `_build/astra-resources/` for MyST's asset pipeline. It never scans result
+directories or derives result paths itself.
 
 Resources for all resolved universes are included in publication v2. Rich themes
 can switch universes with SDK selectors and the resource map, without a server
