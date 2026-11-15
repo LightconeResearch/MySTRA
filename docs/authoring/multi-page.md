@@ -16,7 +16,7 @@ A page's scope is derived from its file name: each `.`-separated segment is one 
 version: 1
 project:
   plugins:
-    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
     - file: reconstruction.md

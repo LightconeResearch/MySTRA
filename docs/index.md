@@ -19,7 +19,7 @@ consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 [:lucide-book-open: Authoring guide](authoring/index.md){ .md-button }
 
 !!! warning "Alpha development"
-    MySTRA is in active, **pre-1.0 development**. The plugin vocabulary, publication-carrier contract, and public API may change without notice between releases, and there are rough edges. Pin a specific release tag in your `myst.yml` rather than tracking `latest`, and expect breaking changes. Feedback and issues are very welcome on the [GitHub repo](https://github.com/LightconeResearch/MySTRA/issues).
+    MySTRA is in active, **pre-1.0 development**. The plugin vocabulary, publication-carrier contract, and public API may change without notice between releases, and there are rough edges. Pin a specific release tag in your `myst.yml` rather than tracking `latest`, and expect breaking changes. Feedback and issues are very welcome on the [GitHub repo](https://github.com/astra-project/MySTRA/issues).
 
 ## Why MySTRA?
 
@@ -94,7 +94,7 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     version: 1
     project:
       plugins:
-        - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+        - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
       toc:
         - file: index.md
     site:
@@ -111,5 +111,5 @@ MySTRA writes only the ASTRA→AST bridge and leans on the stock `myst` engine f
 
 ---
 
-[:simple-github: GitHub](https://github.com/LightconeResearch/MySTRA){ .md-button }
+[:simple-github: GitHub](https://github.com/astra-project/MySTRA){ .md-button }
 [:lucide-file-code: ASTRA specification](https://astra-spec.org/){ .md-button }

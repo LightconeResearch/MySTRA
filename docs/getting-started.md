@@ -35,7 +35,7 @@ In your ASTRA project directory, create a `myst.yml` that points at the latest r
 version: 1
 project:
   plugins:
-    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
 site:
@@ -48,7 +48,7 @@ The `…/releases/latest/download/…` URL always tracks the newest release; MyS
     MySTRA is pre-1.0 and the vocabulary may change between releases. For anything you intend to keep building, pin a specific version by swapping `latest` for a tag:
 
     ```yaml
-    - https://github.com/LightconeResearch/MySTRA/releases/download/v0.0.1/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/download/v0.0.1/mystra.mjs
     ```
 
 ## Project layout

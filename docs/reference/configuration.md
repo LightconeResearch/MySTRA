@@ -11,7 +11,7 @@ MyST loads the single plugin file referenced in its configuration:
 version: 1
 project:
   plugins:
-    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
 site:
@@ -20,9 +20,8 @@ site:
 
 Use a specific release URL for reproducible publications. While reviewing the
 0.1 migration, build this branch with `npm ci && npm run bundle` and point
-`project.plugins` at the local `dist/mystra.mjs`. The SDK dependency is pinned to
-a Git commit until its 0.2 candidate is published; `npm ci` builds that dependency
-from committed schema data.
+`project.plugins` at the local `dist/mystra.mjs`. The SDK dependency is the
+published `@astra-spec/sdk@0.2.0-rc1` package.
 
 ## Project root and universe
 

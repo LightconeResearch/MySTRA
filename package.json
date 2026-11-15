@@ -42,10 +42,10 @@
   "homepage": "https://astra-spec.org/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LightconeResearch/MySTRA"
+    "url": "https://github.com/astra-project/MySTRA"
   },
   "dependencies": {
-    "@astra-spec/sdk": "git+https://github.com/astra-project/astra-typescript.git#d8ef3bf7e3c28086e38222925107ada0e8f1ef85",
+    "@astra-spec/sdk": "0.2.0-rc1",
     "myst-common": "^1.9.5",
     "myst-parser": "^1.7.1",
     "myst-transforms": "1.3.49",

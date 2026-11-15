@@ -7,7 +7,7 @@
 Pull your decisions, outputs, findings, and live numbers in *by reference*.
 One source of truth, no copy-pasted values, no figures that drift out of sync.
 
-[![Docs](https://img.shields.io/badge/docs-online-3178C6.svg)](https://lightconeresearch.github.io/MySTRA/)
+[![Docs](https://img.shields.io/badge/docs-online-3178C6.svg)](https://astra-project.github.io/MySTRA/)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](./LICENSE)
 [![MyST](https://img.shields.io/badge/MyST-plugin-DE5C42.svg)](https://mystmd.org/)
 [![status](https://img.shields.io/badge/status-alpha-orange.svg)](#)
@@ -49,7 +49,7 @@ the result table (uncertainty included), the prior insight renders as a
 citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml`
 and rerun the analysis; the report updates itself.
 
-**[Full documentation →](https://lightconeresearch.github.io/MySTRA/)**
+**[Full documentation →](https://astra-project.github.io/MySTRA/)**
 
 ## Contents
 
@@ -95,7 +95,7 @@ release artifact and list your pages:
 version: 1
 project:
   plugins:
-    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
 site:
@@ -117,9 +117,9 @@ That's it — no custom server and no build step of your own. MySTRA reads
 root. Node.js 20+ and Git are required; Python is not. The SDK resolves all universes together, and page presentation defaults to the first authored root universe. Set `astra_universe: universes.baseline` in page frontmatter or the `universe` role/directive option to choose explicitly.
 
 For a five-minute walk-through, see
-[getting started](https://lightconeresearch.github.io/MySTRA/getting-started/).
+[getting started](https://astra-project.github.io/MySTRA/getting-started/).
 
-This branch targets ASTRA 0.1 and publication transport v2. Its SDK dependency is a pinned Git commit until the 0.2 candidate is published; `npm ci` builds it without Python. Pre-0.1 analyses are unsupported.
+This branch targets ASTRA 0.1 and publication transport v2. It uses the published `@astra-spec/sdk@0.2.0-rc1` package without Python. Pre-0.1 analyses are unsupported.
 
 ## Authoring
 
@@ -236,9 +236,9 @@ validate it, instead of inventing an unscoped ASTRA identifier:
 
 Everything else — prose, math, figures you author yourself, the table of
 contents, multi-page structure — is ordinary MyST. The
-[authoring guide](https://lightconeresearch.github.io/MySTRA/authoring/) covers
+[authoring guide](https://astra-project.github.io/MySTRA/authoring/) covers
 each surface in depth, including
-[multi-page reports](https://lightconeresearch.github.io/MySTRA/authoring/multi-page/)
+[multi-page reports](https://astra-project.github.io/MySTRA/authoring/multi-page/)
 that mirror your sub-analyses.
 
 ## Themes
@@ -251,7 +251,7 @@ A dedicated MyST theme can go further — kind glyphs, per-kind colours, record
 dialogs, and shared ASTRA UI — driven by the stable `astra-*` classes,
 explicit record/analysis identity, and SDK publication bundle the plugin bakes
 into every page. Building one? The contract is documented
-in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
+in [theming](https://astra-project.github.io/MySTRA/reference/theming/).
 
 ## What MyST handles for you
 
