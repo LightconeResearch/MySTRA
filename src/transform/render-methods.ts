@@ -40,11 +40,6 @@ export type TabItemFn = (
   selected?: boolean,
 ) => any;
 
-/** A declared decision remains renderable even when the universe does not use it. */
-export function isDecisionRendered(decision: Decision): boolean {
-  return decision.options.length > 0;
-}
-
 /**
  * The "Supporting insight(s): a, b" paragraph of SDK-backed `astra-ref`
  * tokens for an option's cited prior insights, or `null` when none resolve.

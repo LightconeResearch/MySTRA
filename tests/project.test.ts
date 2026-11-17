@@ -2,6 +2,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   stat,
   utimes,
@@ -10,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { validate } from '@astra-spec/sdk/node';
@@ -30,7 +31,7 @@ function analysis(label = 'Cache One'): string {
 label: ${label}
 outputs:
   result:
-    type: data
+    type: report
     format: txt
     recipe: {command: 'echo artifact > {output}'}
 universes:
@@ -151,6 +152,38 @@ describe('loadResolvedProject', () => {
     );
   });
 
+  it('keeps an already published copy and its modification time', async () => {
+    await mkdir(join(root, 'results'), { recursive: true });
+    await writeFile(join(root, 'results', 'result.txt'), 'artifact');
+    const first = (await loadResolvedProject(root)).resources.get('result')!;
+    const published = new Date('2020-01-01T00:00:00Z');
+    await utimes(first.path, published, published);
+    const second = (await loadResolvedProject(root)).resources.get('result')!;
+    expect(second.path).toBe(first.path);
+    // MyST names its static copy from path, size and mtime: a new mtime would
+    // publish the same bytes again.
+    expect((await stat(second.path)).mtime).toEqual(published);
+    expect(await readdir(join(root, '_build', 'astra-resources'))).toEqual([
+      basename(first.path),
+    ]);
+  });
+
+  it('neither reads nor publishes data bytes but keeps their result places', async () => {
+    await writeFile(
+      join(root, 'astra.yaml'),
+      analysis().replace('type: report', 'type: data'),
+    );
+    await mkdir(join(root, 'results'), { recursive: true });
+    await writeFile(join(root, 'results', 'result.txt'), 'dataset');
+    const project = await loadResolvedProject(root);
+    expect(project.resources.size).toBe(0);
+    expect(
+      project.analysis.results.find((item) => item.id === 'result')?.places[0]
+        ?.file_path,
+    ).toBe('results/result.txt');
+    expect(await readdir(join(root, '_build', 'astra-resources'))).toEqual([]);
+  });
+
   it('uses a later available result place when the first alias has no bytes', async () => {
     await mkdir(join(root, 'stage'));
     await writeFile(join(root, 'stage', 'astra.yaml'), `spec_version: "0.1.0"
@@ -235,7 +268,7 @@ describe('formatProjectError', () => {
   it('formats validation diagnostics with their source pointers and codes', async () => {
     await writeFile(
       join(root, 'astra.yaml'),
-      analysis().replace('type: data', 'type: impossible'),
+      analysis().replace('type: report', 'type: impossible'),
     );
     let failure: unknown;
     try {

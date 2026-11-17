@@ -45,8 +45,15 @@ const analysis: ResolvedAnalysis = {
       outputs: [
         {
           ref: 'outputs.large',
-          type: 'data',
+          type: 'table',
           format: 'bin',
+          tags: [],
+          decisions: [],
+        },
+        {
+          ref: 'outputs.dataset',
+          type: 'data',
+          format: 'parquet',
           tags: [],
           decisions: [],
         },
@@ -152,5 +159,15 @@ describe('publication resource streaming', () => {
       `${resource.cacheToken}.bin`,
     ]);
     expect(read).not.toHaveBeenCalled();
+  });
+
+  it('asks the SDK to skip data results before it looks for their bytes', async () => {
+    sdk.resultResources.mockImplementation(async function* () {});
+    await loadResolvedProject(root);
+    const [, options] = sdk.resultResources.mock.calls[0]!;
+    expect(options.filter(result)).toBe(true);
+    expect(
+      options.filter({ ...result, id: 'dataset', output: 'outputs.dataset' }),
+    ).toBe(false);
   });
 });

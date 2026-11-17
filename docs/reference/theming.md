@@ -30,9 +30,14 @@ is in the node's children. Keep those children when a rich lookup fails.
 
 The block classes are `astra-decision`, `astra-output`, `astra-input`,
 `astra-finding`, `astra-prior-insight`, `astra-option`, `astra-subanalysis`, and
-`astra-outputs` for the output registry. Output classes also include
-`astra-output--<type>`. Custom `:label:` and `:class:` options do not change SDK
-identity. Finding and decision tags remain in `node.data.tags`.
+`astra-inputs` / `astra-outputs` for the input and output registries. Output
+classes also include `astra-output--<type>`. Custom `:label:` and `:class:`
+options do not change SDK identity. Finding and decision tags remain in
+`node.data.tags`.
+
+Every placed element of a block carries the block's universe, including each
+record of a registry and each registry row, so a carrier can be rendered without
+its siblings.
 
 ## Publication transport v2
 
@@ -113,6 +118,11 @@ trying the result's places until bytes are available. It streams chunks into a
 temporary file while hashing, then atomically publishes content-hashed files
 under `_build/astra-resources/`. This handles historical commit trees and
 large-file stand-ins without reading the wrong worktree file.
+
+Results of `data` outputs never have a resource: no page displays a dataset, so
+its bytes are neither read nor published. The result remains in
+`analysis.results`, and its places' `file_path` values name where the file lives.
+Show that path as text if useful, not as a link.
 
 Resource availability and provenance are independent. A file without a record
 can be published even while its status is `missing` and its recorded-byte state

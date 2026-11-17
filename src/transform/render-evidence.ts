@@ -5,6 +5,7 @@ import {
   type Insight,
   type Output,
   type ResolvedAnalysisIndex,
+  type Result,
 } from '@astra-spec/sdk';
 import {
   paragraph,
@@ -29,9 +30,7 @@ import { readMetric } from './parse-metric.js';
 import type { ProseParser } from './prose.js';
 import { fileExt, parseTableData, type TableData } from './parse-table-data.js';
 import { reportWarn } from '../diagnostics.js';
-
-/** Resolve an SDK output canonical path to an absolute artifact path. */
-export type ArtifactResolver = (outputRef: string) => string | undefined;
+import { publishesBytes } from '../project.js';
 
 /** Options threaded from the plugin surfaces into evidence rendering. */
 export interface EvidenceRenderOptions {
@@ -76,7 +75,13 @@ export function renderEvidenceBlock(
         ? index.elementByRef.get(binding.output)
         : undefined;
       const output = entry?.collection === 'outputs' ? entry.element : undefined;
-      const path = binding.result ? opts.resultPath(binding.result) : undefined;
+      const result = binding.result
+        ? index.resultById.get(binding.result)
+        : undefined;
+      if (output && result && !publishesBytes(output)) {
+        return [dataReference(output, evidence.artifact!, result)];
+      }
+      const path = result ? opts.resultPath(result.id) : undefined;
       if (!output || !path) {
         return [pendingOutput(output?.label ?? evidence.artifact!)];
       }
@@ -96,6 +101,18 @@ export function renderEvidenceBlock(
     return nodes;
   }
   return [];
+}
+
+/**
+ * A data output's bytes are never read or published, so it is named by the
+ * file at its result's default place instead.
+ */
+function dataReference(output: Output, artifactId: string, result: Result): any {
+  const file = result.places[0]?.file_path;
+  return paragraph([
+    strong([text(`${output.label ?? artifactId}: `)]),
+    file ? inlineCode(file) : text('data output'),
+  ]);
 }
 
 /** The "declared but not produced yet" admonition, shared by every surface. */
@@ -167,7 +184,8 @@ function renderLiteratureEvidence(evidence: Evidence): any[] {
  *   - The figure container carries the `output-<id>` identifier.
  *   - The figure image URL is built via `resultUrl`, which emits the
  *     source-page-relative path MyST hands to its asset pipeline.
- *   - There is no Evidence, so metric/data/report render without a quote.
+ *   - There is no Evidence, so metric/report render without a quote.
+ *   - A data output names its result's file instead of reading it.
  *
  * A declared-but-unproduced output renders the same "Pending Output"
  * admonition as evidence rendering.
@@ -175,12 +193,15 @@ function renderLiteratureEvidence(evidence: Evidence): any[] {
 export function renderOneOutput(
   output: Output,
   artifactId: string,
-  results: ArtifactResolver,
+  result: Result | undefined,
   prose: ProseParser,
-  opts: Omit<EvidenceRenderOptions, 'resultPath'>,
+  opts: EvidenceRenderOptions,
 ): any[] {
-  const resultPath = results(output.ref);
   const identifier = `output-${artifactId}`;
+  if (result && !publishesBytes(output)) {
+    return [carrierDiv([dataReference(output, artifactId, result)], identifier)];
+  }
+  const resultPath = result ? opts.resultPath(result.id) : undefined;
   if (!resultPath) {
     // Keep the identifier-bearing carrier even before the artifact is
     // produced, because the resolved record still exists for rich themes.
@@ -219,8 +240,8 @@ export function renderOneOutput(
       // replaces the fallback wholesale.
       return [carrierDiv(metricFallback(output, artifactId, resultPath, opts.vfile), identifier)];
     default: {
-      // data / report: render inline, then tag the first node as the
-      // `output-<id>` carrier.
+      // report: render inline, then tag the first node as the `output-<id>`
+      // carrier.
       const nodes = renderInlineArtifact(output, artifactId, resultPath, opts.vfile);
       if (nodes.length > 0 && !nodes[0].identifier) {
         nodes[0].identifier = identifier;
@@ -281,7 +302,7 @@ function renderInlineArtifact(
   resultPath: string,
   vfile?: any,
 ): any[] {
-  // Metric / data / report types use the file extension as a hint
+  // Metric / report types use the file extension as a hint
   // for tabular display; otherwise emit a labelled reference.
   const ext = fileExt(resultPath);
   if (ext === 'json' || ext === 'csv') {

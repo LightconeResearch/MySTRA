@@ -139,6 +139,11 @@ outputs:
     format: txt
     inputs: [sub.sub_table]
     recipe: {command: 'cat {inputs.sub.sub_table} > {output}'}
+  catalog:
+    type: data
+    format: csv
+    label: Source catalogue
+    recipe: {command: 'catalog > {output}'}
 findings:
   contextual:
     claim: Evidence follows the evaluation universe.
@@ -154,6 +159,9 @@ findings:
       - artifact: scatter_plot
         quote:
           exact: A clear peak appears.
+  catalogued:
+    claim: The catalogue is kept as data.
+    evidence: [{artifact: catalog}]
 analyses:
   sub: {path: sub}
   outputs: {path: collision}
@@ -231,6 +239,7 @@ beforeAll(async () => {
   writeFileSync(join(root, 'results', 'collision_test.json'), '{\"value\":42}');
   writeFileSync(join(root, 'results', 'once_a.json'), '{\"value\":11}');
   writeFileSync(join(root, 'results', 'once_b.json'), '{\"value\":22}');
+  writeFileSync(join(root, 'results', 'catalog.csv'), CSV);
   writeFileSync(join(root, 'results', 'baseline', 'scatter_plot.png'), 'PNG');
   writeFileSync(join(root, 'results', 'baseline', 'measurements.csv'), CSV);
   writeFileSync(
@@ -646,6 +655,65 @@ describe('neutral block rendering from the resolved SDK model', () => {
     ).toContain('has not been produced yet');
   });
 
+  it('names data output files without reading or publishing their bytes', async () => {
+    const project = await loadResolvedProject(root);
+    const result = project.analysis.results.find((item) => item.output === 'outputs.catalog')!;
+    expect(result.places[0]?.file_path).toBe('results/catalog.csv');
+    expect(project.resources.has(result.id)).toBe(false);
+
+    const block = await renderDirective('outputs.catalog');
+    const carrier = find(block, (node) => node.identifier === 'output-catalog')!;
+    expect(carrier.class).toContain('astra-output--data');
+    expect(textContent(carrier)).toBe('Source catalogue: ');
+    expect(find(carrier, (node) => node.type === 'inlineCode')?.value).toBe(
+      'results/catalog.csv',
+    );
+    expect(find(block, (node) => node.type === 'table')).toBeUndefined();
+
+    const evidence = await renderDirective('findings.catalogued.0');
+    expect(find(evidence, (node) => node.type === 'inlineCode')?.value).toBe(
+      'results/catalog.csv',
+    );
+    expect(textContent(evidence)).not.toContain('has not been produced');
+
+    const [value] = await renderRole('astra:value', 'outputs.catalog', { col: 'value' });
+    expect(value.value).toContain('"catalog" is a data output');
+
+    // The published reports still carry the result and its place.
+    const publication = findAstraPublication((await transform([])).tree)!;
+    expect(publication.index.resultById.get(result.id)?.places[0]?.file_path).toBe(
+      'results/catalog.csv',
+    );
+    expect(publication.resources[result.id]).toBeUndefined();
+    expect(publication.artifactUrls.has(result.id)).toBe(false);
+  });
+
+  it('places every registry record in an explicitly requested universe', async () => {
+    const registries = [
+      ['decisions', 'decision'],
+      ['findings', 'finding'],
+      ['prior_insights', 'prior_insight'],
+      ['analyses', 'analysis'],
+      ['outputs', 'output'],
+    ] as const;
+    for (const [registry, kind] of registries) {
+      const nodes = await renderDirective(registry, { universe: 'universes.alternate' });
+      const placed: Node[] = [];
+      walk(nodes, (node) => {
+        const astra = astraNodeMetadata(node);
+        if (!astra) return;
+        expect(astra.universe, `${registry} ${String(astra.ref ?? astra.id)}`).toBe(
+          'universes.alternate',
+        );
+        if (astra.kind === kind) placed.push(node);
+      });
+      expect(placed.length, registry).toBeGreaterThan(1);
+      for (const node of placed) {
+        if (node.identifier) expect(node.identifier).toBe(`${kind}-${node.data.astra.id}`);
+      }
+    }
+  });
+
   it('renders math in late output-caption overrides', async () => {
     const figure = await renderDirective('outputs.scatter_plot', {
       caption: 'Fit residual $\\Delta x$ by sample.',
@@ -821,6 +889,7 @@ describe('neutral block rendering from the resolved SDK model', () => {
       kind: 'output',
       id: 'scatter_plot',
       ref: 'outputs.scatter_plot',
+      universe: 'universes.baseline',
     });
   });
 });

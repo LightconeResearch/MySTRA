@@ -1,15 +1,17 @@
 /** Native SDK boundary for MyST: reports, lookup maps and immutable assets. */
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { access, mkdir, rename, rm } from 'node:fs/promises';
 import { join, resolve as resolvePath } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import {
   InvalidAnalysisError,
   indexResolvedAnalysis,
   type Diagnostic,
+  type Output,
   type ResolvedAnalysis,
   type ResolvedAnalysisIndex,
+  type Result,
   type StatusReport,
 } from '@astra-spec/sdk';
 import {
@@ -31,7 +33,30 @@ export interface ResolvedProject {
   analysis: ResolvedAnalysis;
   status: StatusReport;
   index: ResolvedAnalysisIndex;
+  /** Bytes of every result whose output a page can display, by result ID. */
   resources: ReadonlyMap<string, PublicationResource>;
+}
+
+/**
+ * Whether a page reads and publishes this output's result bytes. `data`
+ * outputs are datasets no page displays: their results keep their places in
+ * the reports, but their bytes are neither read nor copied into the site.
+ */
+export function publishesBytes(output: Pick<Output, 'type'>): boolean {
+  return output.type !== 'data';
+}
+
+/**
+ * Keep the first copy of a content-addressed file. A later copy has the same
+ * bytes, and MyST names its own static copy from path, size and modification
+ * time, so replacing the file would publish every result again on each pass.
+ */
+async function publishOnce(temporary: string, path: string): Promise<void> {
+  try {
+    await access(path);
+  } catch {
+    await rename(temporary, path);
+  }
 }
 
 // Share concurrent page work only. A later document pass resolves again: Git
@@ -49,7 +74,13 @@ async function resolveFresh(
   const resources = new Map<string, PublicationResource>();
   const directory = join(root, '_build', 'astra-resources');
   await mkdir(directory, { recursive: true });
-  for await (const resource of resultResources(root, options)) {
+  // The SDK applies the filter before it looks for content, so data files are
+  // never opened.
+  const filter = (result: Result): boolean => {
+    const output = index.elementByRef.get(result.output);
+    return output?.collection === 'outputs' && publishesBytes(output.element);
+  };
+  for await (const resource of resultResources(root, { ...options, filter })) {
     const hash = createHash('sha256');
     const temporary = join(directory, `${randomUUID()}.tmp`);
     try {
@@ -70,7 +101,7 @@ async function resolveFresh(
         : 'bin';
       const extension = format.replace(/[^a-zA-Z0-9._-]/g, '_') || 'bin';
       const path = join(directory, `${cacheToken}.${extension}`);
-      await rename(temporary, path);
+      await publishOnce(temporary, path);
       resources.set(resource.result.id, { path, cacheToken });
     } finally {
       await rm(temporary, { force: true });

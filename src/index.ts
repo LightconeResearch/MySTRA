@@ -63,6 +63,7 @@ import type {
 import {
   formatProjectError,
   loadResolvedProject,
+  publishesBytes,
   type ResolvedProject,
 } from './project.js';
 import { analysisPageHrefs, rawAstraScope, scopeSegments } from './page-map.js';
@@ -96,14 +97,12 @@ import {
 } from './publication.js';
 import {
   renderDecision,
-  isDecisionRendered,
   supportingInsightsParagraph,
 } from './transform/render-methods.js';
 import { renderFinding } from './transform/render-findings.js';
 import {
   renderOneOutput,
   renderEvidenceBlock,
-  type ArtifactResolver,
   type EvidenceRenderOptions,
 } from './transform/render-evidence.js';
 import {
@@ -133,7 +132,6 @@ interface Scope {
   root: string;
   analysis: Analysis;
   universe?: string;
-  results: ArtifactResolver;
   prose: ProseParser;
   records: ReadonlyMap<string, Insight>;
   outputsById: ReadonlyMap<string, Output>;
@@ -237,12 +235,6 @@ function resolveScope(
     universe,
     prose,
     records,
-    results: (reference) => {
-      const result = universe
-        ? selectResult(project.index, reference, universe)
-        : getResult(project.index, reference);
-      return result ? project.resources.get(result.id)?.path : undefined;
-    },
     outputsById: new Map(
       analysis.outputs.map((output) => [localId(output), output]),
     ),
@@ -645,12 +637,9 @@ function renderRegistry(collection: Collection, scope: Scope): any[] {
     case 'decisions': {
       const nodes: any[] = [];
       for (const decision of scope.analysis.decisions) {
-        if (!isDecisionRendered(decision)) continue;
         nodes.push(...renderDecisionBlock(localId(decision), decision, scope));
       }
-      return nodes.length
-        ? nodes
-        : [errorNode('no rendered decisions in this scope')];
+      return nodes.length ? nodes : [errorNode('no decisions in this scope')];
     }
     case 'findings': {
       const nodes: any[] = [];
@@ -691,21 +680,22 @@ function renderElement(
     case 'decisions': {
       const decision = scope.decisionsById.get(id);
       if (!decision) throw new Error(`no decision "${id}" in this scope`);
-      if (!isDecisionRendered(decision)) {
-        throw new Error(inactiveUnderUniverse('decision', id, scope));
-      }
       return renderDecisionBlock(id, decision, scope);
     }
     case 'outputs': {
       const output = scope.outputsById.get(id);
       if (!output) throw new Error(`no output "${id}" in this scope`);
-      if (!selectedResult(scope, output)) {
+      const result = selectedResult(scope, output);
+      if (!result) {
         throw new Error(inactiveUnderUniverse('output', id, scope));
       }
-      const nodes = renderOneOutput(output, id, scope.results, scope.prose, {
-        resultUrl: scope.resultUrl,
-        vfile: scope.vfile,
-      });
+      const nodes = renderOneOutput(
+        output,
+        id,
+        result,
+        scope.prose,
+        evidenceOptions(scope),
+      );
       if (options.caption) applyCaption(nodes, scope, options.caption);
       return tagComponent(
         nodes,
@@ -1176,13 +1166,29 @@ function renderDirectiveRequest(
     nodes = renderRegistry(p.collection, scope);
   }
   applyBlockOptions(nodes, p, request.options);
-  if (nodes[0] && scope.universe)
-    stampAstra(nodes[0], {
-      kind: nodes[0].data?.astra?.kind ?? p.collection,
-      id: p.child?.id ?? p.id ?? p.collection,
-      universe: scope.universe,
-    });
+  if (scope.universe) placeInUniverse(nodes, p, scope.universe);
   return nodes;
+}
+
+/**
+ * Give every placed element of a block the universe it was rendered in. A
+ * registry places one carrier per record, and each must carry the universe
+ * itself: a theme reads a carrier without its siblings. Identity already
+ * stamped on a node is kept.
+ */
+function placeInUniverse(nodes: any[], p: AstraPath, universe: string): void {
+  walkNodes(nodes, (node) => {
+    const astra = node.data?.astra;
+    if (astra && typeof astra === 'object' && astra.universe === undefined) {
+      node.data = { ...node.data, astra: { ...astra, universe } };
+    }
+  });
+  // A registry table has no record identity of its own; its universe still
+  // selects the results of the rows it lists.
+  const first = nodes[0];
+  if (!p.id && first && !first.data?.astra) {
+    stampAstra(first, { kind: p.collection!, id: p.collection!, universe });
+  }
 }
 
 function renderAstraRefRequest(
@@ -1353,10 +1359,14 @@ function renderValue(
     }
     const output = scope.outputsById.get(id);
     if (!output || !elementRef) return fail(`no output "${id}"`);
-    if (!selectedResult(scope, output)) {
+    const result = selectedResult(scope, output);
+    if (!result) {
       return fail(inactiveUnderUniverse('output', id, scope));
     }
-    const absolutePath = scope.results(elementRef);
+    if (!publishesBytes(output)) {
+      return fail(`"${id}" is a data output; values read metric or table outputs`);
+    }
+    const absolutePath = scope.project.resources.get(result.id)?.path;
     if (!absolutePath) {
       reportWarn(
         vfile,

@@ -119,7 +119,7 @@ root. Node.js 20+ and Git are required; Python is not. The SDK resolves all univ
 For a five-minute walk-through, see
 [getting started](https://astra-project.github.io/MySTRA/getting-started/).
 
-This branch targets ASTRA 0.1 and publication transport v2. It uses the published `@astra-spec/sdk@0.2.0-rc1` package without Python. Pre-0.1 analyses are unsupported.
+MySTRA reads ASTRA 0.1 analyses; earlier spec versions are unsupported.
 
 ## Authoring
 
@@ -140,7 +140,7 @@ the first collection keyword fixes the target.
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
 decisions.algorithm.gp                  a child — one option of a decision
-findings.sig.0                       a child — one evidence record of a finding
+findings.sig.0                          a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis

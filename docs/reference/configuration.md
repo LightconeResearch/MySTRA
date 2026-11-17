@@ -18,10 +18,11 @@ site:
   template: book-theme
 ```
 
-Use a specific release URL for reproducible publications. While reviewing the
-0.1 migration, build this branch with `npm ci && npm run bundle` and point
-`project.plugins` at the local `dist/mystra.mjs`. The SDK dependency is the
-published `@astra-spec/sdk@0.2.0-rc1` package.
+The `…/releases/latest/download/…` URL tracks the newest stable release. For a
+reproducible publication, pin a release by swapping `latest` for its tag (for
+example `download/v0.1.0/`). MyST fetches and caches the file on the first build.
+All other `myst.yml` settings are
+[standard MyST project configuration](https://mystmd.org/guide/frontmatter).
 
 ## Project root and universe
 
@@ -49,12 +50,20 @@ text rather than a partial publication payload when resolution fails.
 
 ## Result content
 
-The SDK owns result planning and repository-relative places. MySTRA streams actual
-bytes through `resultResources`, including historical commit trees and large-file
-stand-ins. It tries each place until content is available, streams chunks to a
-temporary file while hashing, then atomically materializes a content-hashed file
-under `_build/astra-resources/` for MyST's asset pipeline. It never scans result
-directories or derives result paths itself.
+The SDK owns result planning and repository-relative places. MySTRA streams the
+actual bytes of every result a page can display (figures, tables, metrics and
+reports) through `resultResources`, including historical commit trees and
+large-file stand-ins. It tries each place until content is available, streams
+chunks to a temporary file while hashing, then atomically materializes a
+content-hashed file under `_build/astra-resources/` for MyST's asset pipeline.
+Unchanged bytes keep their existing file, so MyST does not copy them again. It
+never scans result directories or derives result paths itself.
+
+`data` outputs are datasets that no page displays, so MySTRA neither reads nor
+publishes their bytes. Their results stay in the published reports with their
+places, and a placed data output, or evidence citing one, renders as its label
+and the file path of its result. `{astra:value}` reads metric and table outputs,
+not data outputs.
 
 Resources for all resolved universes are included in publication v2. Rich themes
 can switch universes with SDK selectors and the resource map, without a server

@@ -10,7 +10,7 @@
  *   outputs.hubble_diagram                    an output in the root analysis
  *   decisions.algorithm.gp                    a child (one Option of a Decision)
  *   decisions.algorithm.options.gp            … the explicit long form
- *   findings.sig.0                         a child (one Evidence of a Finding)
+ *   findings.sig.0                            a child (one Evidence of a Finding)
  *   reconstruction.outputs.xi                 a sub-analysis (the `analyses.` is implied)
  *   analyses.reconstruction.outputs.xi        … the explicit long form
  *   reconstruction                            the sub-analysis itself

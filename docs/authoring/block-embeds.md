@@ -13,7 +13,7 @@ The `{astra}` directive embeds any addressable element, child, or collection as 
 |---|---|
 | `decisions.<id>` | The decision: label, rationale, and its options as tabs, with the universe's selection marked |
 | `decisions.<id>.<option>` | One option: label, description, supporting insights |
-| `outputs.<id>` | The active output — a real figure, table, or metric when materialized |
+| `outputs.<id>` | The active output — a real figure, table, metric, or report when materialized; a `data` output names its result's file instead |
 | `findings.<id>` | The finding: claim + description + scope + evidence |
 | `findings.<id>.<evidence>` | One evidence record |
 | `prior_insights.<id>` | The prior insight as a "see also" admonition with its evidence |

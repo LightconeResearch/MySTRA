@@ -6,7 +6,7 @@ A **path** is a dot-separated route through the analysis tree — the same struc
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
 decisions.algorithm.gp                  a child — one option of a decision
-findings.sig.0                       a child — one evidence record of a finding
+findings.sig.0                          a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis
@@ -46,8 +46,8 @@ Two element kinds have addressable children — decisions have **options**, find
 
 ```
 decisions.<id>.<option-id>              one option of a decision
-findings.<id>.<index>             one evidence record of a finding
-prior_insights.<id>.<index>       one evidence record of a prior insight
+findings.<id>.<index>                   one evidence record of a finding
+prior_insights.<id>.<index>             one evidence record of a prior insight
 
 decisions.<id>.options.<option-id>      … the explicit long forms
 findings.<id>.evidence.<index>
