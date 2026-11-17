@@ -25,8 +25,9 @@ column/filter, or parsed metric unit when available.
 | `col=<column>` | The column to read (required for table outputs). |
 | `where="<key>=<val> …"` | Row filters — space- or comma-separated `key=value` pairs; every pair must match, case-insensitively. |
 | `pm=true` | Also render the uncertainty: `<col>_std` for tables, the metric's own uncertainty for metrics. |
-| `err=<column>` | Explicit uncertainty column (instead of the `<col>_std` convention). |
+| `err=<column>` | Explicit uncertainty column, instead of the `<col>_std` convention. Implies `pm=true`. |
 | `sig=<N>` | Significant figures for the value (default 4; uncertainties render with 2). |
+| `universe=<ref>` | Universe to read, as a complete ref such as `universes.alternate`. Defaults to the page's universe; see [configuration](../reference/configuration.md#project-root-and-universe). |
 
 Option values without spaces can be unquoted (`col=alpha`); quote anything with spaces (`where="tracer=lrg3 recon=Post"`).
 
@@ -42,7 +43,7 @@ The LRG3 bin gives $D_V/r_d =$
 {astra:value col=DV_over_rd where="tracer=lrg3" pm=true}`outputs.bao_distance_table`.
 ```
 
-The filter must select **exactly the row you mean** — if no row matches, the role renders an inline error naming the filter, so a stale filter is visible in the preview rather than silently wrong.
+The filter should select **exactly the row you mean**. When several rows match, the first one is used. If no row matches, the role renders an inline error naming the filter, so a stale filter is visible in the preview rather than silently wrong.
 
 ## Metric outputs
 
