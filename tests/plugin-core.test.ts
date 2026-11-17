@@ -18,6 +18,7 @@ import plugin, {
   clearResolvedProjectCache,
   loadResolvedProject,
 } from '../src/index.js';
+import { astraNodeMetadata, findAstraPublication } from '../src/publication.js';
 
 const ANALYSIS = `spec_version: "0.1.0"
 label: Test analysis
@@ -1001,6 +1002,27 @@ describe('publication contract', () => {
       analysis: { schema_version: 'astra-tools.resolved-analysis.v1' },
       status: { schema_version: 'astra-tools.status-report.v1' },
     });
+  });
+
+  it('decodes with the shared publication decoder, resources and placements included', async () => {
+    const project = await loadResolvedProject(root);
+    const { tree } = await transform(directive('outputs.scatter_plot'));
+    const publication = findAstraPublication(tree);
+    expect(publication?.activeAnalysis.key).toBe('');
+    expect(publication?.universe).toBe('universes.baseline');
+    expect(publication?.document).toEqual(project.analysis);
+    expect(publication?.resources).toEqual(
+      Object.fromEntries(
+        [...project.resources].map(([id, resource]) => [id, { cacheToken: resource.cacheToken }]),
+      ),
+    );
+    // Every routed resource is joined back to its result through its static link.
+    expect(publication?.artifactUrls.size).toBeGreaterThan(0);
+    expect([...(publication?.artifactUrls.keys() ?? [])].sort()).toEqual(
+      Object.keys(publication?.resources ?? {}).sort(),
+    );
+    const placed = find(tree, (node) => astraNodeMetadata(node)?.ref === 'outputs.scatter_plot');
+    expect(astraNodeMetadata(placed)).toMatchObject({ kind: 'output', ref: 'outputs.scatter_plot' });
   });
 
   it('uses the same active scope for every supported MyST source extension', async () => {

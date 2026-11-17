@@ -1,0 +1,25 @@
+name: Continuous release
+
+# Publishes review builds of @astra-spec/mystra for commits and pull requests,
+# so a theme can pin this branch's publication contract before a release:
+#   https://pkg.pr.new/astra-project/MySTRA/@astra-spec/mystra@<commit>
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `npm pack` runs the package's prepack (build + bundle).
+      - run: npx pkg-pr-new publish . --comment=update --no-compact

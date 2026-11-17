@@ -85,8 +85,15 @@ import {
   refNode,
   text,
   walkNodes,
-  type AstraNodeIdentity,
 } from './transform/ast-helpers.js';
+import {
+  ASTRA_PUBLICATION_CLASS,
+  ASTRA_PUBLICATION_SCHEMA_VERSION,
+  ASTRA_RESOURCES_CLASS,
+  type AstraArtifactData,
+  type AstraNodeIdentity,
+  type AstraPublicationData,
+} from './publication.js';
 import {
   renderDecision,
   isDecisionRendered,
@@ -1116,25 +1123,6 @@ const valueRole = {
 
 // ── Async resolution + publication transform ────────────────────────────
 
-export const ASTRA_PUBLICATION_SCHEMA_VERSION =
-  'astra-publication-bundle.v2' as const;
-
-/** The versioned data payload carried by `div.astra-publication-bundle`. */
-export interface AstraPublicationData {
-  schemaVersion: typeof ASTRA_PUBLICATION_SCHEMA_VERSION;
-  activeAnalysisKey: string;
-  universe?: string;
-  analysis: ResolvedAnalysis;
-  status: StatusReport;
-  resources: Readonly<Record<string, { cacheToken: string }>>;
-}
-
-/** Artifact identity attached to static resource links for MyST's asset pipeline. */
-export interface AstraArtifactData {
-  resultId: string;
-  cacheToken: string;
-}
-
 /**
  * Resolve the page's active analysis. Unknown conventional basenames fall back
  * to the root because the publication bundle is project-wide; an invalid
@@ -1610,7 +1598,7 @@ function publicationCarriers(
   activeScope: Scope,
 ): any[] {
   const artifactUrl = activeScope.resultUrl;
-  const carrier: any = hiddenDiv('astra-publication-bundle');
+  const carrier: any = hiddenDiv(ASTRA_PUBLICATION_CLASS);
   const publication: AstraPublicationData = {
     schemaVersion: ASTRA_PUBLICATION_SCHEMA_VERSION,
     activeAnalysisKey: activeScope.analysis.key,
@@ -1642,7 +1630,7 @@ function publicationCarriers(
   }));
   const nodes: any[] = [carrier];
   if (resources.length) {
-    nodes.push(hiddenDiv('astra-publication-resources', resources));
+    nodes.push(hiddenDiv(ASTRA_RESOURCES_CLASS, resources));
   }
   const dois = citedDois(project);
   if (dois.length) {

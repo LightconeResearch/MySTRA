@@ -56,29 +56,27 @@ planned results across universes. `activeAnalysisKey` and `universe` are page
 presentation context. A placement's `data.astra.universe` overrides the page's
 universe. No re-resolution is needed when a browser switches universes.
 
-Use the SDK's public decoders and index:
+Decode it with the contract module MySTRA publishes on npm. It depends only on
+the SDK, so a theme can import it without MyST's build-time packages:
 
 ```ts
 import {
-  parseResolvedAnalysis,
-  parseStatusReport,
-  indexResolvedAnalysis,
-  selectResult,
-} from '@astra-spec/sdk/reports';
+  astraNodeMetadata,
+  findAstraPublication,
+  type AstraPublication,
+} from '@astra-spec/mystra/publication';
 
-const analysis = parseResolvedAnalysis(candidate.analysis);
-const status = parseStatusReport(candidate.status);
-const index = indexResolvedAnalysis(analysis);
-const active = index.analysisByKey.get(candidate.activeAnalysisKey);
-const result = candidate.universe
-  ? selectResult(index, output.ref, candidate.universe)
-  : undefined;
-const provenance = result ? status.statuses[result.id] : undefined;
+// The first valid carrier in document order, decoded with the SDK's parsers and
+// indexed; resource links are joined back to result IDs; undefined otherwise.
+const publication = findAstraPublication(mdast);
+const placed = astraNodeMetadata(node); // a node's data.astra, fields still unknown
 ```
 
-Validate the outer version, string context fields and resource metadata before
-using this data. Check the active key and universe exist in the index. Do not
-accept pre-v2 payloads as though they matched the new report model.
+The decoder validates the outer version, the context fields and the resource
+metadata, checks that the active key and universe exist in the index, and does
+not accept pre-v2 payloads. The module also exports the payload, placement and
+artifact types (`AstraPublicationData`, `AstraNodeData`, `AstraArtifactData`) and
+the carrier class names, so a theme never restates them.
 
 Analyses form a graph: use the SDK's cycle-safe graph walkers and indexes rather
 than recursive tree assumptions. A varying result belongs to the analysis owning
@@ -103,8 +101,10 @@ MySTRA separately emits hidden `div.astra-publication-resources` links:
 }
 ```
 
-MyST copies these resources into the site and rewrites the URLs. Accept a URL
-only when the result ID is known and its token matches `resources[resultId]`.
+MyST copies these resources into the site and rewrites the URLs.
+`findAstraPublication` accepts a URL only when the link immediately follows the
+carrier, the result ID is known, its token matches `resources[resultId]`, and the
+URL is site-relative or HTTP(S); the result is `publication.artifactUrls`.
 The report's `Place.file_path` describes a repository or commit tree and is not
 a browser URL. Never construct an asset URL from it.
 

@@ -87,9 +87,9 @@ decisions of its own.
 
 ## Quick start
 
-MyST loads a plugin from a single bundled `.mjs` file referenced by URL — there
-is nothing to `npm install`. Point your ASTRA project's `myst.yml` at the latest
-release artifact and list your pages:
+MyST loads a plugin from a single bundled `.mjs` file referenced by URL — an
+ASTRA project has nothing to `npm install`. Point your ASTRA project's `myst.yml`
+at the latest release artifact and list your pages:
 
 ```yaml
 version: 1
@@ -250,8 +250,9 @@ prior insights are cards, numbers show their value. **No user CSS required.**
 A dedicated MyST theme can go further — kind glyphs, per-kind colours, record
 dialogs, and shared ASTRA UI — driven by the stable `astra-*` classes,
 explicit record/analysis identity, and SDK publication bundle the plugin bakes
-into every page. Building one? The contract is documented
-in [theming](https://astra-project.github.io/MySTRA/reference/theming/).
+into every page. Building one? Install `@astra-spec/mystra` and import its
+types and decoder from `@astra-spec/mystra/publication`; the contract is
+documented in [theming](https://astra-project.github.io/MySTRA/reference/theming/).
 
 ## What MyST handles for you
 
