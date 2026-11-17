@@ -7,6 +7,10 @@ name: Release
 #   https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
 # (or a specific tag in place of `latest`).
 #
+# A prerelease tag (`v0.1.0rc1`, `v0.1.0-rc.1`, ...) is published under npm's
+# `next` dist-tag and as a GitHub prerelease, so neither `npm install` nor the
+# `releases/latest` URL above picks it up.
+#
 # npm publishing uses OIDC trusted publishing (no NPM_TOKEN). The trusted
 # publisher is registered on npmjs.com against this repository and this
 # workflow's filename, so renaming release.yml breaks publishing.
@@ -34,13 +38,24 @@ jobs:
       - run: npm ci
       - run: npm test
       # The tag is the version; package.json's version is not edited by hand.
+      # npm normalizes a PEP 440 tag such as 0.1.0rc1 to 0.1.0-rc1, so the
+      # prerelease check reads the normalized version, not the tag.
       - name: Set version from release tag
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+        id: version
+        run: |
+          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+          version="$(node -p "require('./package.json').version")"
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
       # `prepack` builds dist/ and the bundle.
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --tag "${{ steps.version.outputs.prerelease == 'true' && 'next' || 'latest' }}"
       - name: Publish GitHub Release with the bundled plugin
         uses: softprops/action-gh-release@v2
         with:
           files: dist/mystra.mjs
           generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
