@@ -2,6 +2,7 @@
  * Pure AST node constructors for MyST-spec compliant nodes.
  * Every function returns a plain object — no side effects, no state.
  */
+import type { AstraNodeIdentity } from '../publication.js';
 
 // ── Inline nodes ──
 
@@ -210,19 +211,6 @@ export function walkNodes(node: any, visit: (n: any) => void): void {
 /** Generic inline `span` with a class and children. */
 function span(cls: string, children: any[]) {
   return { type: 'span' as const, class: cls, children };
-}
-
-export interface AstraNodeIdentity {
-  /** The presentation surface represented by this node. */
-  kind: string;
-  /** Local authored id (a child id for option/evidence surfaces). */
-  id: string;
-  /** SDK record address. Never used for analysis navigation targets. */
-  canonicalPath?: string;
-  /** SDK analysis address (`$` for root). Never used as a record address. */
-  analysisPath?: string;
-  /** Host-provided route for an analysis page, when one is configured. */
-  href?: string;
 }
 
 /** A neutral inline ASTRA reference with explicit record/analysis identity. */

@@ -7,7 +7,7 @@
 Pull your decisions, outputs, findings, and live numbers in *by reference*.
 One source of truth, no copy-pasted values, no figures that drift out of sync.
 
-[![Docs](https://img.shields.io/badge/docs-online-3178C6.svg)](https://lightconeresearch.github.io/MySTRA/)
+[![Docs](https://img.shields.io/badge/docs-online-3178C6.svg)](https://astra-project.github.io/MySTRA/)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](./LICENSE)
 [![MyST](https://img.shields.io/badge/MyST-plugin-DE5C42.svg)](https://mystmd.org/)
 [![status](https://img.shields.io/badge/status-alpha-orange.svg)](#)
@@ -49,7 +49,7 @@ the result table (uncertainty included), the prior insight renders as a
 citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml`
 and rerun the analysis; the report updates itself.
 
-**[Full documentation →](https://lightconeresearch.github.io/MySTRA/)**
+**[Full documentation →](https://astra-project.github.io/MySTRA/)**
 
 ## Contents
 
@@ -77,7 +77,7 @@ focus on the argument.
 
 | Concern | Single source of truth |
 |---|---|
-| **Data** — what a decision/output/finding *is* | `astra.yaml` (+ `universes/`, `results/`) |
+| **Data** — what a decision/output/finding *is* | `astra.yaml` (including `universes`, plus `results/`) |
 | **Composition** — what appears, where, in what order | your `index.md` |
 | **Presentation** — how it looks | the MyST theme |
 
@@ -87,15 +87,15 @@ decisions of its own.
 
 ## Quick start
 
-MyST loads a plugin from a single bundled `.mjs` file referenced by URL — there
-is nothing to `npm install`. Point your ASTRA project's `myst.yml` at the latest
-release artifact and list your pages:
+MyST loads a plugin from a single bundled `.mjs` file referenced by URL — an
+ASTRA project has nothing to `npm install`. Point your ASTRA project's `myst.yml`
+at the latest release artifact and list your pages:
 
 ```yaml
 version: 1
 project:
   plugins:
-    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
 site:
@@ -114,10 +114,12 @@ myst start        # → http://localhost:3000
 
 That's it — no custom server and no build step of your own. MySTRA reads
 `astra.yaml` from the working directory — run `myst` from the ASTRA project
-root — and delegates universe selection and full-project resolution to the SDK.
+root. Node.js 20+ and Git are required; Python is not. The SDK resolves all universes together, and page presentation defaults to the first authored root universe. Set `astra_universe: universes.baseline` in page frontmatter or the `universe` role/directive option to choose explicitly.
 
 For a five-minute walk-through, see
-[getting started](https://lightconeresearch.github.io/MySTRA/getting-started/).
+[getting started](https://astra-project.github.io/MySTRA/getting-started/).
+
+MySTRA reads ASTRA 0.1 analyses; earlier spec versions are unsupported.
 
 ## Authoring
 
@@ -138,7 +140,7 @@ the first collection keyword fixes the target.
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
 decisions.algorithm.gp                  a child — one option of a decision
-findings.sig.fig1                       a child — one evidence record of a finding
+findings.sig.0                          a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis
@@ -179,7 +181,7 @@ dialog). A few specialised variants follow MyST's colon convention
 :::{astra} outputs.hubble_diagram
 :::                                   # the figure (or table / metric)
 :::{astra} findings.signal_detected
-:::                                   # claim + notes + scope + evidence
+:::                                   # claim + description + scope + evidence
 :::{astra} prior_insights.recon_sharpens_bao
 :::                                   # the prior insight as an admonition
 :::{astra} reconstruction
@@ -196,8 +198,8 @@ Options follow MyST's `:key: value` form:
 |---|---|
 | `:label:` | Cross-reference label for the rendered block (manage the anchor yourself). |
 | `:caption:` | Caption text (figure / table outputs). |
-| `:compact:` | Findings: claim + notes + scope only (no evidence figures). |
-| `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, notes, scope, evidence`). |
+| `:compact:` | Findings: claim + description + scope only (no evidence figures). |
+| `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, description, scope, evidence`). |
 | `:class:` | Extra CSS class(es) on the rendered block. |
 
 ### Live values — never hard-type a measured number
@@ -234,9 +236,9 @@ validate it, instead of inventing an unscoped ASTRA identifier:
 
 Everything else — prose, math, figures you author yourself, the table of
 contents, multi-page structure — is ordinary MyST. The
-[authoring guide](https://lightconeresearch.github.io/MySTRA/authoring/) covers
+[authoring guide](https://astra-project.github.io/MySTRA/authoring/) covers
 each surface in depth, including
-[multi-page reports](https://lightconeresearch.github.io/MySTRA/authoring/multi-page/)
+[multi-page reports](https://astra-project.github.io/MySTRA/authoring/multi-page/)
 that mirror your sub-analyses.
 
 ## Themes
@@ -248,8 +250,9 @@ prior insights are cards, numbers show their value. **No user CSS required.**
 A dedicated MyST theme can go further — kind glyphs, per-kind colours, record
 dialogs, and shared ASTRA UI — driven by the stable `astra-*` classes,
 explicit record/analysis identity, and SDK publication bundle the plugin bakes
-into every page. Building one? The contract is documented
-in [theming](https://lightconeresearch.github.io/MySTRA/reference/theming/).
+into every page. Building one? Install `@astra-spec/mystra` and import its
+types and decoder from `@astra-spec/mystra/publication`; the contract is
+documented in [theming](https://astra-project.github.io/MySTRA/reference/theming/).
 
 ## What MyST handles for you
 

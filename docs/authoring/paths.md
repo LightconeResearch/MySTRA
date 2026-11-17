@@ -1,12 +1,12 @@
 # Paths — addressing any element
 
-A **path** is a dot-separated route through the analysis tree — the same structure as `astra.yaml`, and the same dotted spelling the spec itself uses for element references (`when: decision.option`, `from: scope.id`, recipe placeholders `{inputs.id}`). Dots address elements; slashes are reserved for files. A path is read left-to-right: leading segments step into sub-analyses, and the first collection keyword fixes the target. One grammar drives every surface: the `{astra}` role, the `{astra}` directive, and the `{astra:*}` variants.
+A **path** is a dot-separated route through the analysis tree — the same structure as `astra.yaml`, and the same dotted spelling the spec uses for output dependencies, declaration routes, and recipe placeholders such as `{inputs.id}`. Dots address elements; slashes are reserved for files. A path is read left-to-right: leading segments step into sub-analyses, and the first collection keyword fixes the target. One grammar drives every surface: the `{astra}` role, the `{astra}` directive, and the `{astra:*}` variants.
 
 ```
 outputs.hubble_diagram                  an output (figure / table / metric / …)
 decisions.algorithm                     a decision
 decisions.algorithm.gp                  a child — one option of a decision
-findings.sig.fig1                       a child — one evidence record of a finding
+findings.sig.0                          a child — one evidence record of a finding
 prior_insights.recon_sharpens_bao       a prior insight
 inputs.raw_catalog                      an input
 reconstruction.outputs.xi               an output in the `reconstruction` sub-analysis
@@ -23,7 +23,7 @@ The recognised collections are exactly the `astra.yaml` keys:
 | `inputs` | Declared input datasets | `input` |
 | `outputs` | Figures, tables, metrics, data, reports | `output` |
 | `decisions` | Methodological choices and their options | `decision` |
-| `findings` | Claims with notes, scope, and evidence | `finding` |
+| `findings` | Claims with descriptions, scope, and evidence | `finding` |
 | `prior_insights` | Cited claims from the literature | `prior_insight` |
 | `analyses` | Nested sub-analyses | `analysis` |
 
@@ -38,7 +38,7 @@ clustering.correlation.outputs.xi       two levels deep
 reconstruction                          the sub-analysis itself (renders a summary card)
 ```
 
-Each segment before the first collection keyword is a step into a sub-analysis; the first collection keyword fixes the target.
+Each segment before the first collection keyword is a declaration step. For a declaration whose ID is also a collection word, use the explicit form, such as `analyses.outputs.outputs.fit`. Record IDs themselves can also be collection words, such as `outputs.universes`.
 
 ## Children
 
@@ -46,11 +46,11 @@ Two element kinds have addressable children — decisions have **options**, find
 
 ```
 decisions.<id>.<option-id>              one option of a decision
-findings.<id>.<evidence-id>             one evidence record of a finding
-prior_insights.<id>.<evidence-id>       one evidence record of a prior insight
+findings.<id>.<index>                   one evidence record of a finding
+prior_insights.<id>.<index>             one evidence record of a prior insight
 
 decisions.<id>.options.<option-id>      … the explicit long forms
-findings.<id>.evidence.<evidence-id>
+findings.<id>.evidence.<index>
 ```
 
 ## Registries
@@ -68,4 +68,4 @@ A path always resolves from the **root analysis**, so it means the same thing on
 
 ## IDs and labels
 
-The final path segments are the `id`s you declared in `astra.yaml` (`snake_case` by convention). When MySTRA needs a human-readable label — an inline reference with no display text, for instance — it prefers the element's `label:` (or `name:` for analyses) and falls back to the id with underscores replaced by spaces.
+Evidence uses a zero-based array index, such as `findings.signal.evidence.0`; authored evidence IDs are not part of ASTRA 0.1. Other final path segments are the IDs you declared in `astra.yaml` (`snake_case` by convention). When MySTRA needs a human-readable label — an inline reference with no display text, for instance — it prefers the element's `label:` for records and analyses and falls back to the id with underscores replaced by spaces.

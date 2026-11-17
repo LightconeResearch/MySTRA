@@ -11,6 +11,9 @@
 
 Edit `astra.yaml` or rerun the analysis, rebuild, and every number in the prose updates itself.
 
+The body names a metric or table output, or a decision. `data` outputs are never
+read; see [result content](../reference/configuration.md#result-content).
+
 The neutral text is also self-describing for rich themes: its ASTRA metadata
 retains the owning record path plus the selected decision option, table
 column/filter, or parsed metric unit when available.

@@ -5,7 +5,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseAstraPath,
-  canonicalRecordPath,
   pathIdentifier,
   splitDisplay,
   KIND_BY_COLLECTION,
@@ -30,10 +29,10 @@ describe('parseAstraPath', () => {
   });
 
   it('parses a child (evidence of a finding)', () => {
-    expect(parseAstraPath('findings.sig.evidence.fig1')).toMatchObject({
+    expect(parseAstraPath('findings.sig.evidence.0')).toMatchObject({
       collection: 'findings',
       id: 'sig',
-      child: { collection: 'evidence', id: 'fig1' },
+      child: { collection: 'evidence', id: '0' },
     });
   });
 
@@ -43,15 +42,15 @@ describe('parseAstraPath', () => {
       id: 'algorithm',
       child: { collection: 'options', id: 'gp' },
     });
-    expect(parseAstraPath('findings.sig.fig1')).toMatchObject({
+    expect(parseAstraPath('findings.sig.0')).toMatchObject({
       collection: 'findings',
       id: 'sig',
-      child: { collection: 'evidence', id: 'fig1' },
+      child: { collection: 'evidence', id: '0' },
     });
-    expect(parseAstraPath('prior_insights.recon.e1')).toMatchObject({
+    expect(parseAstraPath('prior_insights.recon.1')).toMatchObject({
       collection: 'prior_insights',
       id: 'recon',
-      child: { collection: 'evidence', id: 'e1' },
+      child: { collection: 'evidence', id: '1' },
     });
   });
 
@@ -69,6 +68,12 @@ describe('parseAstraPath', () => {
       collection: 'outputs',
       id: 'xi',
     });
+  });
+
+  it('allows valid IDs that coincide with collection words through explicit scopes', () => {
+    expect(parseAstraPath('analyses.outputs.outputs.fit')).toMatchObject({scope:['outputs'],collection:'outputs',id:'fit'});
+    expect(parseAstraPath('outputs.universes')).toMatchObject({scope:[],collection:'outputs',id:'universes'});
+    expect(parseAstraPath('analyses.universes.outputs.fit')).toMatchObject({scope:['universes'],collection:'outputs',id:'fit'});
   });
 
   it('parses nested scopes', () => {
@@ -98,21 +103,36 @@ describe('parseAstraPath', () => {
   });
 
   it('parses a whole collection (a registry)', () => {
-    expect(parseAstraPath('outputs')).toMatchObject({ collection: 'outputs', id: null });
+    expect(parseAstraPath('outputs')).toMatchObject({
+      collection: 'outputs',
+      id: null,
+    });
     expect(parseAstraPath('reconstruction.inputs')).toMatchObject({
       scope: ['reconstruction'],
       collection: 'inputs',
       id: null,
     });
-    expect(parseAstraPath('analyses')).toMatchObject({ collection: 'analyses', id: null });
+    expect(parseAstraPath('analyses')).toMatchObject({
+      collection: 'analyses',
+      id: null,
+    });
   });
 
   it('rejects malformed and non-canonical paths', () => {
     expect(() => parseAstraPath('/decisions.method')).toThrow(/must not start/);
     expect(() => parseAstraPath('outputs..xi')).toThrow(/invalid ASTRA path/);
-    expect(() => parseAstraPath('outputs.xi.extra')).toThrow(/unexpected segment/);
-    expect(() => parseAstraPath('prior-insights.recon')).toThrow(/prior_insights/);
-    expect(() => parseAstraPath('universes.baseline')).toThrow(/not addressable/);
+    expect(() => parseAstraPath('outputs.xi.extra')).toThrow(
+      /unexpected segment/,
+    );
+    expect(() => parseAstraPath('prior-insights.recon')).toThrow(
+      /prior_insights/,
+    );
+    expect(() => parseAstraPath('universes.baseline')).toThrow(
+      /not addressable/,
+    );
+    expect(() => parseAstraPath('findings.f.evidence.named')).toThrow(
+      /zero-based/,
+    );
   });
 });
 
@@ -120,38 +140,27 @@ describe('pathIdentifier', () => {
   it('maps collection + id to <kind>-<id>', () => {
     expect(pathIdentifier(parseAstraPath('outputs.xi'))).toBe('output-xi');
     expect(pathIdentifier(parseAstraPath('decisions.m'))).toBe('decision-m');
-    expect(pathIdentifier(parseAstraPath('prior_insights.p'))).toBe('prior_insight-p');
+    expect(pathIdentifier(parseAstraPath('prior_insights.p'))).toBe(
+      'prior_insight-p',
+    );
   });
 
   it('collapses children to their parent element identifier', () => {
-    expect(pathIdentifier(parseAstraPath('decisions.m.options.a'))).toBe('decision-m');
-    expect(pathIdentifier(parseAstraPath('findings.f.evidence.e'))).toBe('finding-f');
+    expect(pathIdentifier(parseAstraPath('decisions.m.options.a'))).toBe(
+      'decision-m',
+    );
+    expect(pathIdentifier(parseAstraPath('findings.f.evidence.0'))).toBe(
+      'finding-f',
+    );
     expect(pathIdentifier(parseAstraPath('decisions.m.a'))).toBe('decision-m');
   });
 
   it('returns null for registries and sub-analyses (separate pages)', () => {
     expect(pathIdentifier(parseAstraPath('outputs'))).toBeNull();
     expect(pathIdentifier(parseAstraPath('reconstruction'))).toBeNull();
-    expect(pathIdentifier(parseAstraPath('analyses.reconstruction'))).toBeNull();
-  });
-});
-
-describe('canonicalRecordPath', () => {
-  it('matches SDK record paths at root and in nested analyses', () => {
-    expect(canonicalRecordPath(parseAstraPath('outputs.xi'))).toBe('outputs.xi');
-    expect(canonicalRecordPath(parseAstraPath('stage.outputs.plot'))).toBe(
-      'stage.outputs.plot',
-    );
-  });
-
-  it('collapses children to their owning record and excludes navigation targets', () => {
-    expect(canonicalRecordPath(parseAstraPath('decisions.method.grid'))).toBe(
-      'decisions.method',
-    );
-    expect(canonicalRecordPath(parseAstraPath('findings.result.evidence.plot'))).toBe(
-      'findings.result',
-    );
-    expect(canonicalRecordPath(parseAstraPath('stage'))).toBeNull();
+    expect(
+      pathIdentifier(parseAstraPath('analyses.reconstruction')),
+    ).toBeNull();
   });
 });
 
@@ -164,7 +173,10 @@ describe('splitDisplay', () => {
   });
 
   it('returns a bare path unchanged with null display', () => {
-    expect(splitDisplay('outputs.xi')).toEqual({ display: null, path: 'outputs.xi' });
+    expect(splitDisplay('outputs.xi')).toEqual({
+      display: null,
+      path: 'outputs.xi',
+    });
   });
 
   it('supports %s placeholders in the display text', () => {

@@ -1,7 +1,7 @@
 /**
  * Renders each finding as one `div` carrier bearing `finding-<id>`,
  * containing the neutral fallback: an h3 claim heading, the author's
- * notes prose, scope, and evidence blocks. Nesting the fallback
+ * description prose, scope, and evidence blocks. Nesting the fallback
  * inside the carrier means a rich theme that overrides the carrier
  * replaces the fallback with it — the same pattern the output /
  * prior-insight carriers follow. Tags ride along on the carrier's
@@ -13,7 +13,7 @@
  * overlapping tags.
  */
 
-import type { ResolvedInsight, ResolvedOutput } from '@astra-spec/sdk';
+import type { Insight, ResolvedAnalysisIndex } from '@astra-spec/sdk';
 import {
   carrierDiv,
   heading,
@@ -22,22 +22,20 @@ import {
   emphasis,
 } from './ast-helpers.js';
 import type { ProseParser } from './prose.js';
-import {
-  renderEvidenceBlock,
-  type ArtifactResolver,
-} from './render-evidence.js';
+import { renderEvidenceBlock } from './render-evidence.js';
 
 export function renderFinding(
-  finding: ResolvedInsight,
+  finding: Insight,
   index: number,
   findingId: string,
-  results: ArtifactResolver,
-  outputs: ReadonlyMap<string, ResolvedOutput>,
+  analysisIndex: ResolvedAnalysisIndex,
   prose: ProseParser,
   opts: {
-    /** Parts to render (of notes / scope / evidence). The claim heading —
+    /** Parts to render (of description / scope / evidence). The claim heading —
      *  the finding's identifier carrier — is always kept. */
     parts: Set<string>;
+    universe?: string;
+    resultPath: (resultId: string) => string | undefined;
     /** Absolute artifact path → servable URL, for figure evidence. */
     resultUrl: (absPath: string) => string;
     /** The page's vfile, for broken-reference diagnostics. */
@@ -55,8 +53,8 @@ export function renderFinding(
 
   // Notes parse as full Markdown — block-level structure (multiple
   // paragraphs, lists, code blocks) is intentionally allowed.
-  if (has('notes') && finding.notes) {
-    nodes.push(...prose.blocks(finding.notes, 4));
+  if (has('description') && finding.description) {
+    nodes.push(...prose.blocks(finding.description, 4));
   }
 
   // Scope
@@ -66,9 +64,11 @@ export function renderFinding(
 
   // Evidence blocks (figures, tables, artifact references)
   if (has('evidence')) {
-    for (const evidence of finding.evidence ?? []) {
+    for (const [evidenceIndex] of finding.evidence.entries()) {
       nodes.push(
-        ...renderEvidenceBlock(evidence, results, outputs, prose, {
+        ...renderEvidenceBlock(analysisIndex, finding, evidenceIndex, prose, {
+          universe: opts.universe,
+          resultPath: opts.resultPath,
           resultUrl: opts.resultUrl,
           vfile: opts.vfile,
         }),

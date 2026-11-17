@@ -1,8 +1,20 @@
-import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { basename, dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { validate } from '@astra-spec/sdk/node';
 
 import {
   clearResolvedProjectCache,
@@ -14,21 +26,40 @@ import { parseTableData } from '../src/transform/parse-table-data.js';
 
 let root: string;
 
-function analysis(name = 'Cache One'): string {
-  return `version: "0.0.14"
-name: ${name}
-inputs: []
+function analysis(label = 'Cache One'): string {
+  return `spec_version: "0.1.0"
+label: ${label}
 outputs:
-  - id: result
-    type: data
+  result:
+    type: report
     format: txt
+    recipe: {command: 'echo artifact > {output}'}
+universes:
+  baseline: {}
 `;
+}
+
+function git(...args: string[]): string {
+  return execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=MySTRA tests',
+      '-c',
+      'user.email=tests@astra.invalid',
+      ...args,
+    ],
+    { cwd: root, encoding: 'utf8' },
+  ).trim();
 }
 
 beforeEach(async () => {
   clearResolvedProjectCache();
   root = await mkdtemp(join(tmpdir(), 'mystra-project-'));
   await writeFile(join(root, 'astra.yaml'), analysis());
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-qm', 'fixture');
 });
 
 afterEach(async () => {
@@ -37,87 +68,220 @@ afterEach(async () => {
 });
 
 describe('loadResolvedProject', () => {
-  it('returns the SDK bundle and its canonical lookup maps', async () => {
-    await mkdir(join(root, 'results', 'default'), { recursive: true });
-    await writeFile(join(root, 'results', 'default', 'result.txt'), 'artifact');
-
+  it('returns the shared reports and resources keyed by result identity', async () => {
+    await mkdir(join(root, 'results'), { recursive: true });
+    await writeFile(join(root, 'results', 'result.txt'), 'artifact');
     const project = await loadResolvedProject(root);
-
     expect(project.root).toBe(root);
-    expect(project.bundle.document.analysis.name).toBe('Cache One');
-    expect(project.index.recordByPath.get('outputs.result')).toMatchObject({
-      id: 'result',
-      kind: 'output',
+    expect(project.analysis.analyses[0]?.label).toBe('Cache One');
+    expect(project.index.elementByRef.get('outputs.result')).toMatchObject({
+      collection: 'outputs',
+      element: { ref: 'outputs.result' },
     });
-    expect(project.bindingsByOutputPath.get('outputs.result')?.path)
-      .toBe('results/default/result.txt');
+    const resource = project.resources.get('result')!;
+    expect(await readFile(resource.path, 'utf8')).toBe('artifact');
+    expect(resource.cacheToken).toBe(
+      createHash('sha256').update('artifact').digest('hex'),
+    );
+    // Actual bytes remain publishable even without a provenance record.
+    expect(project.status.statuses['result']).toMatchObject({
+      state: 'missing',
+    });
   });
 
-  it('shares concurrent work and reuses an unchanged result', async () => {
+  it('shares concurrent work but refreshes a later document pass', async () => {
     const first = loadResolvedProject(root);
     const second = loadResolvedProject(root);
     expect(second).toBe(first);
-
     const resolved = await first;
-    expect(await loadResolvedProject(root)).toBe(resolved);
+    const refreshed = await loadResolvedProject(root);
+    expect(refreshed).not.toBe(resolved);
+    expect(refreshed.analysis).toEqual(resolved.analysis);
   });
 
-  it('tracks readText content even when size and mtime are unchanged', async () => {
+  it('refreshes authored content even when size and mtime are unchanged', async () => {
     const source = join(root, 'astra.yaml');
     const before = await stat(source);
     const first = await loadResolvedProject(root);
-
-    // The replacement is deliberately the same length, and the timestamp is
-    // restored, so metadata-only invalidation would miss it.
     await writeFile(source, analysis('Cache Two'));
     await utimes(source, before.atime, before.mtime);
-
     const second = await loadResolvedProject(root);
     expect(second).not.toBe(first);
-    expect(second.bundle.document.analysis.name).toBe('Cache Two');
+    expect(second.analysis.analyses[0]?.label).toBe('Cache Two');
   });
 
-  it('tracks directory listings used for implicit universe selection', async () => {
-    await mkdir(join(root, 'universes'));
-    await writeFile(join(root, 'universes', 'later.yaml'), 'id: later\n');
+  it('observes Git HEAD changes without an authored-file edit', async () => {
     const first = await loadResolvedProject(root);
-    expect(first.bundle.document.universe.universeId).toBe('later');
-
-    await writeFile(join(root, 'universes', 'earlier.yaml'), 'id: earlier\n');
+    git('commit', '--allow-empty', '-qm', 'new HEAD');
     const second = await loadResolvedProject(root);
-    expect(second.bundle.document.universe.universeId).toBe('earlier');
+    expect(second.analysis.head).not.toBe(first.analysis.head);
+    expect(second.status.head).toBe(second.analysis.head);
   });
 
-  it('tracks missing stat results so newly produced artifacts appear', async () => {
+  it('retains all universes and observes newly authored selections', async () => {
+    await writeFile(
+      join(root, 'astra.yaml'),
+      analysis().replace('  baseline: {}', '  later: {}'),
+    );
     const first = await loadResolvedProject(root);
-    expect(first.bundle.bindings).toEqual([]);
-
-    await mkdir(join(root, 'results', 'default'), { recursive: true });
-    await writeFile(join(root, 'results', 'default', 'result.txt'), 'artifact');
-
+    expect(
+      first.analysis.analyses[0]?.universes.map((item) => item.ref),
+    ).toEqual(['universes.later']);
+    await writeFile(
+      join(root, 'astra.yaml'),
+      analysis().replace('  baseline: {}', '  later: {}\n  earlier: {}'),
+    );
     const second = await loadResolvedProject(root);
-    expect(second.bindingsByOutputPath.get('outputs.result')).toBeDefined();
+    expect(
+      second.analysis.analyses[0]?.universes.map((item) => item.ref),
+    ).toEqual(['universes.later', 'universes.earlier']);
+  });
+
+  it('observes newly produced and changed artifact bytes', async () => {
+    expect((await loadResolvedProject(root)).resources.size).toBe(0);
+    await mkdir(join(root, 'results'), { recursive: true });
+    await writeFile(join(root, 'results', 'result.txt'), 'first');
+    const first = await loadResolvedProject(root);
+    await writeFile(join(root, 'results', 'result.txt'), 'other');
+    const second = await loadResolvedProject(root);
+    expect(first.resources.get('result')?.cacheToken).not.toBe(
+      second.resources.get('result')?.cacheToken,
+    );
+    expect(await readFile(second.resources.get('result')!.path, 'utf8')).toBe(
+      'other',
+    );
+  });
+
+  it('keeps an already published copy and its modification time', async () => {
+    await mkdir(join(root, 'results'), { recursive: true });
+    await writeFile(join(root, 'results', 'result.txt'), 'artifact');
+    const first = (await loadResolvedProject(root)).resources.get('result')!;
+    const published = new Date('2020-01-01T00:00:00Z');
+    await utimes(first.path, published, published);
+    const second = (await loadResolvedProject(root)).resources.get('result')!;
+    expect(second.path).toBe(first.path);
+    // MyST names its static copy from path, size and mtime: a new mtime would
+    // publish the same bytes again.
+    expect((await stat(second.path)).mtime).toEqual(published);
+    expect(await readdir(join(root, '_build', 'astra-resources'))).toEqual([
+      basename(first.path),
+    ]);
+  });
+
+  it('neither reads nor publishes data bytes but keeps their result places', async () => {
+    await writeFile(
+      join(root, 'astra.yaml'),
+      analysis().replace('type: report', 'type: data'),
+    );
+    await mkdir(join(root, 'results'), { recursive: true });
+    await writeFile(join(root, 'results', 'result.txt'), 'dataset');
+    const project = await loadResolvedProject(root);
+    expect(project.resources.size).toBe(0);
+    expect(
+      project.analysis.results.find((item) => item.id === 'result')?.places[0]
+        ?.file_path,
+    ).toBe('results/result.txt');
+    expect(await readdir(join(root, '_build', 'astra-resources'))).toEqual([]);
+  });
+
+  it('uses a later available result place when the first alias has no bytes', async () => {
+    await mkdir(join(root, 'stage'));
+    await writeFile(join(root, 'stage', 'astra.yaml'), `spec_version: "0.1.0"
+label: Shared stage
+decisions:
+  method:
+    options: {a: {}}
+  other:
+    options: {a: {}}
+outputs:
+  fit:
+    type: metric
+    format: json
+    decisions: [method, other]
+    recipe: {command: 'fit {decisions.method} {decisions.other} > {output}'}
+`);
+    await writeFile(join(root, 'astra.yaml'), `spec_version: "0.1.0"
+analyses:
+  stage: {path: stage}
+  alias: {path: stage}
+outputs:
+  comparison:
+    type: report
+    format: txt
+    inputs: [stage.fit, alias.fit]
+    recipe: {command: 'cat {inputs} > {output}'}
+universes:
+  baseline:
+    decisions: {stage.method: a, alias.other: a}
+`);
+    git('add', '.');
+    git('commit', '-qm', 'aliases');
+    const validation = await validate(root);
+    expect(validation.valid, JSON.stringify(validation.diagnostics)).toBe(true);
+    const initial = await loadResolvedProject(root);
+    const output = initial.analysis.analyses.find((item) => item.label === 'Shared stage')!.outputs[0]!;
+    const result = initial.analysis.results.find((item) => item.output === output.ref)!;
+    expect(result.places).toHaveLength(2);
+    const available = join(root, result.places[1]!.file_path);
+    await mkdir(dirname(available), {recursive: true});
+    await writeFile(available, '{"value":7}');
+    const project = await loadResolvedProject(root);
+    expect(await readFile(project.resources.get(result.id)!.path, 'utf8')).toBe('{"value":7}');
+  });
+
+  it('reads a pinned sub-analysis from its commit instead of the dirty worktree', async () => {
+    await mkdir(join(root, 'stage', 'results'), { recursive: true });
+    await writeFile(
+      join(root, 'stage', 'astra.yaml'),
+      analysis('Historical stage'),
+    );
+    await writeFile(
+      join(root, 'stage', 'results', 'result.txt'),
+      'historical bytes',
+    );
+    git('add', '.');
+    git('commit', '-qm', 'stage');
+    const commit = git('rev-parse', 'HEAD');
+    await writeFile(
+      join(root, 'astra.yaml'),
+      `spec_version: "0.1.0"\nanalyses:\n  stage: {path: stage, commit: ${commit}}\nfindings:\n  historical:\n    claim: Historical output.\n    evidence: [{artifact: stage.result}]\n`,
+    );
+    await writeFile(
+      join(root, 'stage', 'results', 'result.txt'),
+      'wrong current bytes',
+    );
+    const project = await loadResolvedProject(root);
+    const output = project.analysis.analyses.find(
+      (item) => item.label === 'Historical stage',
+    )!.outputs[0]!;
+    const result = project.analysis.results.find(
+      (item) => item.output === output.ref,
+    )!;
+    expect(result.commit?.id).toBe(commit);
+    expect(await readFile(project.resources.get(result.id)!.path, 'utf8')).toBe(
+      'historical bytes',
+    );
   });
 });
 
 describe('formatProjectError', () => {
-  it('formats authored validation issues with their source locations and codes', async () => {
+  it('formats validation diagnostics with their source pointers and codes', async () => {
     await writeFile(
       join(root, 'astra.yaml'),
-      analysis().replace('type: data', 'type: impossible'),
+      analysis().replace('type: report', 'type: impossible'),
     );
-
     let failure: unknown;
     try {
       await loadResolvedProject(root);
     } catch (error) {
       failure = error;
     }
-
     const lines = formatProjectError(failure);
-    expect(lines).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^astra\.yaml:outputs\.0\.type \[SCHEMA_ENUM\]/),
-    ]));
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^astra\.yaml:\/outputs\/result\/type.* \[/),
+      ]),
+    );
   });
 
   it('keeps unexpected failures useful', () => {
@@ -136,8 +300,16 @@ describe('readMetric', () => {
     await writeFile(path, '[2.5, 0.1]');
     expect(readMetric(path)).toEqual({ value: 2.5, uncertainty: 0.1 });
 
-    await writeFile(path, '{"value":2.5,"error":0.2,"unit":"Mpc","label":"Fit"}');
-    expect(readMetric(path)).toEqual({ value: 2.5, uncertainty: 0.2, unit: 'Mpc', label: 'Fit' });
+    await writeFile(
+      path,
+      '{"value":2.5,"error":0.2,"unit":"Mpc","label":"Fit"}',
+    );
+    expect(readMetric(path)).toEqual({
+      value: 2.5,
+      uncertainty: 0.2,
+      unit: 'Mpc',
+      label: 'Fit',
+    });
   });
 
   it('returns undefined for unsupported files and values', async () => {
@@ -155,7 +327,10 @@ describe('readMetric', () => {
 describe('parseTableData', () => {
   it('retains every row and numeric precision for value lookup', async () => {
     const csv = join(root, 'large.csv');
-    const rows = Array.from({ length: 250 }, (_, index) => `${index},${index + 0.123456789}`);
+    const rows = Array.from(
+      { length: 250 },
+      (_, index) => `${index},${index + 0.123456789}`,
+    );
     await writeFile(csv, `id,value\n${rows.join('\n')}\n`);
 
     const parsed = parseTableData(csv)!;

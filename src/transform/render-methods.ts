@@ -13,12 +13,8 @@
  * has no opinion about how decisions are organised.
  */
 
-import type {
-  ResolvedDecision,
-  ResolvedInsight,
-  ResolvedRecord,
-  ResolvedOption,
-} from '@astra-spec/sdk';
+import type { Decision, Insight, Option } from '@astra-spec/sdk';
+import { localId } from '../path.js';
 import {
   carrierDiv,
   heading,
@@ -38,23 +34,11 @@ import type { ProseParser } from './prose.js';
  * scope (by the plugin) and threaded through to every renderer that
  * mints tab keys, so the counter is per-pass, not global.
  */
-export type TabItemFn = (title: string, children: any[], selected?: boolean) => any;
-
-/**
- * Will this decision produce a rendered block on the page?
- *
- * A decision drops out only when its `when` predicate is unmet under the
- * active universe. The SDK has already resolved `from` references into a
- * complete record, so renderers do not special-case their authored origin.
- *
- * Inactive decisions have no carrier and are reported explicitly when an
- * author addresses them.
- */
-export function isDecisionRendered(
-  decision: ResolvedDecision,
-): boolean {
-  return decision.active && decision.options.length > 0;
-}
+export type TabItemFn = (
+  title: string,
+  children: any[],
+  selected?: boolean,
+) => any;
 
 /**
  * The "Supporting insight(s): a, b" paragraph of SDK-backed `astra-ref`
@@ -63,17 +47,24 @@ export function isDecisionRendered(
  * tabs and the single-option embed.
  */
 export function supportingInsightsParagraph(
-  insightPaths: string[],
-  records: ReadonlyMap<string, ResolvedRecord>,
+  insightPaths: readonly string[],
+  records: ReadonlyMap<string, Insight>,
 ): any | null {
   const refs: any[] = [];
-  for (const canonicalPath of insightPaths) {
-    const insight = records.get(canonicalPath) as ResolvedInsight;
-    const linkText = insight.label ?? insight.claim ?? insight.id;
-    refs.push(refNode('prior_insight', insight.id, linkText, undefined, { canonicalPath }));
+  for (const insightRef of insightPaths) {
+    const insight = records.get(insightRef);
+    if (!insight) continue;
+    const linkText = insight.label ?? insight.claim ?? localId(insight);
+    refs.push(
+      refNode(insight.kind, localId(insight), linkText, undefined, {
+        ref: insightRef,
+      }),
+    );
   }
   if (refs.length === 0) return null;
-  const para: any[] = [text(refs.length === 1 ? 'Supporting insight: ' : 'Supporting insights: ')];
+  const para: any[] = [
+    text(refs.length === 1 ? 'Supporting insight: ' : 'Supporting insights: '),
+  ];
   refs.forEach((ref, i) => {
     if (i > 0) para.push(text(', '));
     para.push(ref);
@@ -83,13 +74,13 @@ export function supportingInsightsParagraph(
 
 export function renderDecision(
   id: string,
-  decision: ResolvedDecision,
-  records: ReadonlyMap<string, ResolvedRecord>,
+  decision: Decision,
+  records: ReadonlyMap<string, Insight>,
   prose: ProseParser,
   tabItem: TabItemFn,
+  selectedId?: string,
 ): any[] {
   const options = decision.options;
-  const selectedId = decision.selectedOptionId;
   const selectedOption = selectedId
     ? options.find((option) => option.id === selectedId)
     : undefined;
@@ -145,9 +136,9 @@ export function renderDecision(
 }
 
 function renderOptionTab(
-  option: ResolvedOption,
+  option: Option,
   isSelected: boolean,
-  records: ReadonlyMap<string, ResolvedRecord>,
+  records: ReadonlyMap<string, Insight>,
   prose: ProseParser,
   tabItem: TabItemFn,
 ): any {
@@ -160,7 +151,7 @@ function renderOptionTab(
   } else {
     marker = ' ○';
   }
-  const title = `${option.label}${marker}`;
+  const title = `${option.label ?? option.id}${marker}`;
 
   const children: any[] = [];
 
@@ -170,23 +161,18 @@ function renderOptionTab(
   }
 
   // Excluded reason: parsed as author prose.
-  // The "Excluded:" prefix is dropped — the boolean `excluded`
-  // field already carries that semantics; the prose just explains
+  // The "Excluded:" prefix is dropped — the `excluded` reason
+  // already carries that semantics; the prose explains
   // why. Inline-only because we want the reason to read as a
   // single emphasised line under the option.
-  if (option.excluded && option.excluded_reason) {
-    children.push(
-      paragraph([emphasis(prose.inline(option.excluded_reason))]),
-    );
+  if (option.excluded) {
+    children.push(paragraph([emphasis(prose.inline(option.excluded))]));
   }
 
   // Supporting insights use the same canonical-path `astra-ref` token as the
   // authoring role. Rich themes can open the shared record UI; bare themes show
   // the label.
-  const insightsPara = supportingInsightsParagraph(
-    option.resolvedInsightPaths,
-    records,
-  );
+  const insightsPara = supportingInsightsParagraph(option.insights, records);
   if (insightsPara) children.push(insightsPara);
 
   return tabItem(title, children, isSelected);

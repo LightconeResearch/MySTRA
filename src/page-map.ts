@@ -23,7 +23,7 @@ import {
   sep,
 } from 'node:path';
 import { slugToUrl } from 'myst-common';
-import type { AnalysisIndex } from '@astra-spec/sdk';
+import { getDeclaredAnalysis, type ResolvedAnalysisIndex } from '@astra-spec/sdk';
 import { effectiveMystConfig, rawPageFrontmatter } from './myst-config.js';
 
 export type AstraScopeValue = string | string[];
@@ -196,23 +196,23 @@ export function scopeSegments(
   return stem && stem !== 'index' ? stem.split('.').filter(Boolean) : [];
 }
 
-/** Dotted analysis segments → the canonical `$`-rooted analysis path. */
-export function canonicalAnalysisPath(segments: readonly string[]): string {
-  return segments.length ? segments.join('.') : '$';
-}
-
 function pageAnalysisPath(
   file: string,
-  index: AnalysisIndex,
+  index: ResolvedAnalysisIndex,
   rootPage: boolean,
 ): string | undefined {
   const explicit = rawAstraScope(file);
-  const analysisPath = canonicalAnalysisPath(scopeSegments(explicit, file));
-  if (index.analysisByPath.has(analysisPath)) return analysisPath;
+  let analysis = index.analysisByKey.get('');
+  for (const segment of scopeSegments(explicit, file)) {
+    analysis = analysis
+      ? getDeclaredAnalysis(index, analysis.key, segment)
+      : undefined;
+  }
+  if (analysis) return analysis.key;
   // This matches active-page fallback for a custom project index filename,
   // while still refusing to map arbitrary non-index appendices onto root.
-  return explicit === undefined && rootPage && index.analysisByPath.has('$')
-    ? '$'
+  return explicit === undefined && rootPage && index.analysisByKey.has('')
+    ? ''
     : undefined;
 }
 
@@ -223,7 +223,7 @@ function pageAnalysisPath(
  */
 export function analysisPageHrefs(
   root: string,
-  index: AnalysisIndex,
+  index: ResolvedAnalysisIndex,
 ): ReadonlyMap<string, string> {
   const config = configuredPages(root);
   if (!config) return new Map();
@@ -241,16 +241,17 @@ export function analysisPageHrefs(
   configuredFiles.forEach((configured, position) => {
     const file = resolvePageFile(root, configured);
     if (!file) return;
-    const href = position === 0
-      ? hrefForSlug('', config.projectSlug)
-      : hrefForSlug(
-        pageSlug(root, file, config.folders, seenSlugs),
-        config.projectSlug,
-      );
+    const href =
+      position === 0
+        ? hrefForSlug('', config.projectSlug)
+        : hrefForSlug(
+            pageSlug(root, file, config.folders, seenSlugs),
+            config.projectSlug,
+          );
     // Slug every configured page in TOC order, including non-ASTRA pages, so
     // duplicate-name suffixes stay identical to MyST's route assignment.
     const analysisPath = pageAnalysisPath(file, index, position === 0);
-    if (!analysisPath) return;
+    if (analysisPath === undefined) return;
     const hrefs = candidates.get(analysisPath) ?? new Set<string>();
     hrefs.add(href);
     candidates.set(analysisPath, hrefs);

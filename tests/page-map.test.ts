@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AnalysisIndex } from '@astra-spec/sdk';
+import type { ResolvedAnalysisIndex } from '@astra-spec/sdk';
 
 import { analysisPageHrefs, rawAstraScope } from '../src/page-map.js';
 
@@ -15,15 +15,35 @@ function project(): string {
   return root;
 }
 
-function index(...analysisPaths: string[]): AnalysisIndex {
+function index(...analysisKeys: string[]): ResolvedAnalysisIndex {
+  analysisKeys = [
+    ...new Set(
+      analysisKeys.flatMap((key) =>
+        key
+          .split('.')
+          .map((_, position, parts) => parts.slice(0, position + 1).join('.')),
+      ),
+    ),
+  ];
+  const analysisByKey = new Map(
+    analysisKeys.map((key) => [
+      key,
+      { key, declares: {} as Record<string, string> },
+    ]),
+  );
+  for (const key of analysisKeys) {
+    if (!key) continue;
+    const parts = key.split('.');
+    const id = parts.pop()!;
+    const owner = analysisByKey.get(parts.join('.'));
+    if (owner) owner.declares[id] = key;
+  }
   return {
-    analysisByPath: new Map(analysisPaths.map((canonicalPath) => [
-      canonicalPath,
-      { canonicalPath },
-    ])),
-    recordByPath: new Map(),
-    analysisByRecordPath: new Map(),
-  } as unknown as AnalysisIndex;
+    analysisByKey,
+    elementByRef: new Map(),
+    resultById: new Map(),
+    resultsByOutput: new Map(),
+  } as unknown as ResolvedAnalysisIndex;
 }
 
 afterEach(() => {
@@ -51,10 +71,10 @@ project:
 
     const hrefs = analysisPageHrefs(
       root,
-      index('$', 'reconstruction', 'unlisted'),
+      index('', 'reconstruction', 'unlisted'),
     );
     expect([...hrefs]).toEqual([
-      ['$', '/'],
+      ['', '/'],
       ['reconstruction', '/methods'],
     ]);
     expect(hrefs.has('unlisted')).toBe(false);
@@ -82,8 +102,8 @@ project:
 `,
     );
 
-    const hrefs = analysisPageHrefs(root, index('$', 'stage'));
-    expect(hrefs.get('$')).toBe('/');
+    const hrefs = analysisPageHrefs(root, index('', 'stage'));
+    expect(hrefs.get('')).toBe('/');
     expect(hrefs.has('stage')).toBe(false);
   });
 
@@ -108,7 +128,7 @@ site:
 `,
     );
 
-    expect(analysisPageHrefs(root, index('$', 'stage')).get('stage')).toBe(
+    expect(analysisPageHrefs(root, index('', 'stage')).get('stage')).toBe(
       '/chapters/overview',
     );
   });
@@ -131,8 +151,8 @@ site:
 `,
     );
 
-    expect([...analysisPageHrefs(root, index('$', 'stage'))]).toEqual([
-      ['$', '/report/'],
+    expect([...analysisPageHrefs(root, index('', 'stage'))]).toEqual([
+      ['', '/report/'],
       ['stage', '/report/stage'],
     ]);
   });
@@ -170,7 +190,7 @@ extend: site.yml
 `,
     );
 
-    expect(analysisPageHrefs(root, index('$', 'stage')).get('stage')).toBe(
+    expect(analysisPageHrefs(root, index('', 'stage')).get('stage')).toBe(
       '/chapters/overview',
     );
   });
@@ -200,7 +220,7 @@ site:
     );
     writeFileSync(join(root, 'myst.yml'), `version: 1\nextend: ${url}\n`);
 
-    expect(analysisPageHrefs(root, index('$', 'stage')).get('stage')).toBe(
+    expect(analysisPageHrefs(root, index('', 'stage')).get('stage')).toBe(
       '/chapters/overview',
     );
   });
@@ -227,7 +247,7 @@ site:
 `,
     );
 
-    expect(analysisPageHrefs(root, index('$', 'stage')).get('stage')).toBe(
+    expect(analysisPageHrefs(root, index('', 'stage')).get('stage')).toBe(
       '/stage',
     );
   });
@@ -244,7 +264,7 @@ project:
 `,
     );
 
-    const hrefs = analysisPageHrefs(root, index('$', 'stage'));
+    const hrefs = analysisPageHrefs(root, index('', 'stage'));
     expect([...hrefs]).toEqual([['stage', '/']]);
   });
 
@@ -262,7 +282,7 @@ project:
 `,
     );
 
-    const hrefs = analysisPageHrefs(root, index('$', 'stage.inner'));
+    const hrefs = analysisPageHrefs(root, index('', 'stage.inner'));
     expect(hrefs.get('stage.inner')).toBe('/stage-inner');
   });
 
@@ -292,7 +312,7 @@ project:
 `,
     );
 
-    const hrefs = analysisPageHrefs(root, index('$', 'notebook', 'uppercase'));
+    const hrefs = analysisPageHrefs(root, index('', 'notebook', 'uppercase'));
     expect(hrefs.get('notebook')).toBe('/stage');
     expect(hrefs.has('uppercase')).toBe(false);
   });
@@ -312,7 +332,9 @@ project:
 `,
     );
 
-    expect(analysisPageHrefs(root, index('$', 'stage')).has('stage')).toBe(false);
+    expect(analysisPageHrefs(root, index('', 'stage')).has('stage')).toBe(
+      false,
+    );
   });
 
   it('omits hrefs when host-owned TOC pattern expansion prevents proof', () => {
@@ -329,13 +351,13 @@ project:
 `,
     );
 
-    expect(analysisPageHrefs(root, index('$', 'stage')).size).toBe(0);
+    expect(analysisPageHrefs(root, index('', 'stage')).size).toBe(0);
   });
 
   it('returns no routes without an explicit project TOC', () => {
     const root = project();
     writeFileSync(join(root, 'stage.md'), '# Stage');
-    expect(analysisPageHrefs(root, index('$', 'stage')).size).toBe(0);
+    expect(analysisPageHrefs(root, index('', 'stage')).size).toBe(0);
   });
 });
 

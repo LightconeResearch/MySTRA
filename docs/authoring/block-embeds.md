@@ -13,8 +13,8 @@ The `{astra}` directive embeds any addressable element, child, or collection as 
 |---|---|
 | `decisions.<id>` | The decision: label, rationale, and its options as tabs, with the universe's selection marked |
 | `decisions.<id>.<option>` | One option: label, description, supporting insights |
-| `outputs.<id>` | The active output — a real figure, table, or metric when materialized |
-| `findings.<id>` | The finding: claim + notes + scope + evidence |
+| `outputs.<id>` | The active output — a real figure, table, metric, or report when materialized; a `data` output names its result's file instead |
+| `findings.<id>` | The finding: claim + description + scope + evidence |
 | `findings.<id>.<evidence>` | One evidence record |
 | `prior_insights.<id>` | The prior insight as a "see also" admonition with its evidence |
 | `inputs.<id>` | The input as a one-row registry table |
@@ -28,7 +28,7 @@ Examples:
 :::                                   # the figure (or table / metric)
 
 :::{astra} findings.signal_detected
-:::                                   # claim + notes + scope + evidence
+:::                                   # claim + description + scope + evidence
 
 :::{astra} reconstruction
 :::                                   # a sub-analysis summary card
@@ -45,11 +45,10 @@ page URL: site navigation belongs to MyST's table of contents. An inline
 sub-analysis reference can expose a link when exactly one concrete TOC page is
 mapped to that analysis; see [multi-page reports](multi-page.md).
 
-Universe files still select decisions, conditional records, and artifact
-bindings for the entire rendered publication. They are resolution inputs,
-rather than records or collections, so `universes` and `universes.<id>` are not
-addressable `{astra}` paths. The rendered decisions and outputs already reflect
-the selected universe; see
+The report contains all authored universes. Choose a page default with
+`astra_universe: universes.baseline` in frontmatter, or pass
+`:universe: universes.alternate` on a block. Universe refs are presentation
+context rather than records rendered by the directive; see
 [project root and universe](../reference/configuration.md#project-root-and-universe).
 
 ## Options
@@ -60,9 +59,10 @@ Options follow MyST's `:key: value` form:
 |---|---|
 | `:label:` | Cross-reference label for the rendered block. This **replaces** the default `<kind>-<id>` anchor — manage the anchor yourself if you set it. |
 | `:caption:` | Caption text (figure / table outputs). Markdown is allowed. |
-| `:compact:` | Findings: claim + notes + scope only (no evidence). |
-| `:show:` | Findings: parts to include, from `claim, notes, scope, evidence` (comma- or space-separated). The claim is always kept. |
+| `:compact:` | Findings: claim + description + scope only (no evidence). |
+| `:show:` | Findings: parts to include, from `claim, description, scope, evidence` (comma- or space-separated). The claim is always kept. |
 | `:hide:` | Findings: parts to exclude (same part names). |
+| `:universe:` | SDK universe ref for this placement, overriding page context. |
 | `:class:` | Extra CSS class(es) on the rendered block. |
 
 ```markdown
@@ -91,7 +91,7 @@ project-wide cross-references. Figures and tables are numbered by MyST as usual:
 
 ## Markdown inside ASTRA fields
 
-Descriptions, rationales, finding notes, and other ASTRA prose fields support
+Descriptions, rationales, finding descriptions, and other ASTRA prose fields support
 normal MyST structure, inline markup, math, directives such as admonitions, and
 HTML. Features that require MyST's earlier host session — `{mdast}`, `{include}`,
 `{raw}`, `{code-cell}`, and `{eval}` — must instead be authored on the report

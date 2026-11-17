@@ -19,7 +19,7 @@ consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 [:lucide-book-open: Authoring guide](authoring/index.md){ .md-button }
 
 !!! warning "Alpha development"
-    MySTRA is in active, **pre-1.0 development**. The plugin vocabulary, publication-carrier contract, and public API may change without notice between releases, and there are rough edges. Pin a specific release tag in your `myst.yml` rather than tracking `latest`, and expect breaking changes. Feedback and issues are very welcome on the [GitHub repo](https://github.com/LightconeResearch/MySTRA/issues).
+    MySTRA is in active, **pre-1.0 development**. The plugin vocabulary, publication-carrier contract, and public API may change without notice between releases, and there are rough edges. Pin a specific release tag in your `myst.yml` rather than tracking `latest`, and expect breaking changes. Feedback and issues are very welcome on the [GitHub repo](https://github.com/astra-project/MySTRA/issues).
 
 ## Why MySTRA?
 
@@ -29,7 +29,7 @@ MySTRA removes the duplication. The report references the analysis instead of re
 
 | Concern | Single source of truth |
 |---|---|
-| **Data** — what a decision/output/finding *is* | `astra.yaml` (+ `universes/`, `results/`) |
+| **Data** — what a decision/output/finding *is* | `astra.yaml` (including `universes`, plus `results/`) |
 | **Composition** — what appears, where, in what order | your `index.md` |
 | **Presentation** — how it looks | the MyST theme |
 
@@ -60,32 +60,32 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
 === "Analysis (`astra.yaml`)"
 
     ```yaml
-    version: "1.0"
-    name: BAO from the ELG sample
-
+    spec_version: "0.1.0"
+    label: BAO from the ELG sample
     outputs:
-      - id: alpha_table
+      alpha_table:
         type: table
         format: csv
-        description: Best-fit BAO dilation parameters per tracer.
-      - id: bao_fit_plot
+        decisions: [algorithm]
+        recipe: {command: 'fit {decisions.algorithm} > {output}'}
+      bao_fit_plot:
         type: figure
         format: png
-        description: Correlation function and best-fit model.
-
+        inputs: [alpha_table]
+        recipe: {command: 'plot {inputs.alpha_table} > {output}'}
     decisions:
       algorithm:
         label: Reconstruction algorithm
-        default: multigrid
         options:
-          multigrid: { label: MultiGrid }
-          iterative_fft: { label: Iterative FFT }
-
+          multigrid: {label: MultiGrid}
+          iterative_fft: {label: Iterative FFT}
+    universes:
+      baseline:
+        decisions: {algorithm: multigrid}
     findings:
       bao_detected:
         claim: The BAO feature is detected at high significance.
-        created_at: "2026-01-15T00:00:00Z"
-        evidence: []
+        evidence: [{artifact: bao_fit_plot}]
     ```
 
 === "Run it (`myst.yml`)"
@@ -94,7 +94,7 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     version: 1
     project:
       plugins:
-        - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+        - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
       toc:
         - file: index.md
     site:
@@ -111,5 +111,5 @@ MySTRA writes only the ASTRA→AST bridge and leans on the stock `myst` engine f
 
 ---
 
-[:simple-github: GitHub](https://github.com/LightconeResearch/MySTRA){ .md-button }
+[:simple-github: GitHub](https://github.com/astra-project/MySTRA){ .md-button }
 [:lucide-file-code: ASTRA specification](https://astra-spec.org/){ .md-button }

@@ -2,7 +2,7 @@
  * The prose engine: parse the Markdown embedded in ASTRA *components*.
  *
  * Every Markdown field on a component — `Insight.claim`, `Decision.rationale`,
- * `Option/Input/Output.description`, captions, finding notes — flows through
+ * `Option/Input/Output.description`, captions, finding descriptions — flows through
  * `myst-parser`, so MySTRA stays MyST-native and emits the same `mdast` themes
  * consume.
  *

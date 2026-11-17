@@ -1,52 +1,89 @@
 # Configuration
 
-MySTRA is deliberately configuration-light: one plugin line in `myst.yml` and a results-layout convention. Everything else is data (`astra.yaml`) or composition (your Markdown).
+MySTRA needs an ASTRA 0.1 analysis in a Git repository, Node.js 20+ and Git.
+The plugin bundles its TypeScript SDK and requires no Python installation.
 
 ## `myst.yml`
 
-MyST loads a plugin from a single bundled `.mjs` file referenced by URL — there is nothing to `npm install`:
+MyST loads the single plugin file referenced in its configuration:
 
 ```yaml title="myst.yml"
 version: 1
 project:
   plugins:
-    - https://github.com/LightconeResearch/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
   toc:
     - file: index.md
 site:
   template: book-theme
 ```
 
-The `…/releases/latest/download/…` URL always tracks the newest release; pin a specific version by swapping `latest` for a tag (e.g. `download/v0.0.1/`). MyST fetches and caches the file on the first build. All other `myst.yml` settings — theme, numbering, math macros, bibliography, export targets — are [standard MyST project configuration](https://mystmd.org/guide/frontmatter).
+The `…/releases/latest/download/…` URL tracks the newest stable release. For a
+reproducible publication, pin a release by swapping `latest` for its tag (for
+example `download/v0.1.0/`). MyST fetches and caches the file on the first build.
+All other `myst.yml` settings are
+[standard MyST project configuration](https://mystmd.org/guide/frontmatter).
 
 ## Project root and universe
 
-MySTRA reads `astra.yaml` from the working directory — run `myst` from the ASTRA project root. The SDK selects the first `.yaml` or `.yml` universe filename in lexical order when files exist, or uses authored defaults when they do not. That resolved universe determines decision selections, active conditional records, and artifact bindings.
+Run MyST from the folder containing the root `astra.yaml`. Authored universes
+are entries of `universes` in that file. MySTRA resolves every universe together,
+then selects the first root universe in authored order for page presentation.
+If the root has none, a scoped analysis can use its own first universe.
 
-The SDK validates the complete project before rendering. Structural or reference errors are reported through MyST with their source file, authored path, and validation code; MySTRA does not publish a partial resolved bundle. The affected syntax remains visibly represented by fallback error text so a preview never hides the failure.
+Set a page default explicitly with frontmatter:
 
-## Results layout
-
-MySTRA delegates artifact resolution to `@astra-spec/sdk`. The SDK never scans the results tree; it derives each known location deterministically:
-
+```yaml
+astra_scope: stage
+astra_universe: universes.alternate
 ```
-results/<universe-id>/<output-id>.<format>                  # root output
-results/<universe-id>/<analysis-id>.<output-id>.<format>   # inline child
-```
 
-Deeper inline analysis ids continue the dotted namespace. A path-backed sub-analysis starts a fresh `results/` namespace at its own project root. Every materialized artifact becomes an SDK binding and is handed to MyST's asset pipeline, which hashes and copies it into the build.
+Override it on a block with `:universe: universes.alternate`, or on a role with
+`{astra:value universe=universes.alternate}`. The option is a complete SDK universe
+ref, including the declaring analysis key when applicable. Unknown refs produce
+an authoring diagnostic. Values and output blocks use the selected result; a
+once-built result is shared across universes.
 
-## Caching and live reload
+The SDK validates the complete analysis before rendering. Errors include the
+source file, JSON Pointer and validation code. The plugin emits visible fallback
+text rather than a partial publication payload when resolution fails.
 
-- The resolved SDK bundle is shared across pages. The cache tracks every file, directory listing, missing artifact, and metadata entry the SDK reads; a changed nested analysis, universe set, or materialized artifact invalidates it.
-- `myst start` watches **Markdown files only**. After editing `astra.yaml` or a universe file, re-save any `.md` page (or restart the server) to trigger a re-render — the plugin will pick up the fresh spec at that point.
-- Result artifacts are part of cache freshness, but MyST still needs a Markdown save or restart to trigger the plugin transform after an external tool writes one.
+## Result content
 
-## Two render modes
+The SDK owns result planning and repository-relative places. MySTRA streams the
+actual bytes of every result a page can display (figures, tables, metrics and
+reports) through `resultResources`, including historical commit trees and
+large-file stand-ins. It tries each place until content is available, streams
+chunks to a temporary file while hashing, then atomically materializes a
+content-hashed file under `_build/astra-resources/` for MyST's asset pipeline.
+Unchanged bytes keep their existing file, so MyST does not copy them again. It
+never scans result directories or derives result paths itself.
 
-- **Basic — plugin only.** On the stock `book-theme` with no stylesheet, the document is already clean and readable: decisions are dropdowns, outputs are real figures/tables, findings and prior insights are cards, numbers show their value, and inline references show a plain label. **No user CSS required.**
-- **Rich — a dedicated ASTRA theme.** A MyST theme keyed on the `astra-*` classes and canonical paths can add shared ASTRA UI components, record dialogs, and branded treatments, driven by the SDK [publication bundle](theming.md) baked into the build. The only change is the `site.template:` line.
+`data` outputs are datasets that no page displays, so MySTRA neither reads nor
+publishes their bytes. Their results stay in the published reports with their
+places, and a placed data output, or evidence citing one, renders as its label
+and the file path of its result. `{astra:value}` reads metric and table outputs,
+not data outputs.
 
-## Bibliography
+Resources for all resolved universes are included in publication v2. Rich themes
+can switch universes with SDK selectors and the resource map, without a server
+round trip. Provenance state comes from `StatusReport`; actual content can remain
+available when its provenance record is missing or stale.
 
-Citations are delegated to MyST. Every DOI attached to prior-insight or finding evidence is registered with MyST's citation pipeline at build time, so `{astra:cite}` / `{astra:cite:t}` render formatted author–year citations and the entries appear in the project's reference list once a bibliography is wired in `myst.yml`.
+## Live reload
+
+Concurrent document transforms share in-flight project work. Completed reports
+are refreshed on the next document pass: Git HEAD, dirty inputs, nested analyses,
+records and actual result bytes can all change independently of file metadata.
+There is no completed-project cache.
+
+MyST still needs a document rebuild to invoke the plugin. After changing ASTRA
+or result files during `myst start`, re-save a Markdown page or restart the server
+if that edit does not itself trigger a rebuild.
+
+## Rendering and bibliography
+
+Stock MyST themes render the neutral figures, tables, decisions and findings.
+The ASTRA theme adds shared interactive UI using the versioned
+[publication transport](theming.md). Literature citations use MyST's citation
+pipeline and the project's normal bibliography configuration.
