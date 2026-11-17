@@ -12,15 +12,15 @@ Placed blocks carry an `astra-<kind>` class and `data.astra`:
 {
   kind: 'output',
   id: 'fit',
-  canonicalPath: 'stage.outputs.fit', // the SDK element ref
+  ref: 'stage.outputs.fit', // the SDK element ref
   universe: 'universes.baseline',    // optional context for this placement
 }
 ```
 
-`canonicalPath` is an SDK ref, independent of a MyST label or HTML identifier.
+`ref` is an SDK ref, independent of a MyST label or HTML identifier.
 An option uses its decision's ref and its option `id`. Evidence uses its insight's
 ref and `evidenceIndex`, the zero-based index in the insight's evidence array.
-Analysis cards and navigation references use `analysisPath`, the SDK analysis key;
+Analysis cards and navigation references use `analysisKey`, the SDK analysis key;
 the root key is `""`. Analysis keys and element refs are distinct lookup domains.
 
 Inline references use `astra-ref` and `astra-ref--<kind>` classes. Values also

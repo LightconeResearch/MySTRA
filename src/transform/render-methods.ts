@@ -56,13 +56,13 @@ export function supportingInsightsParagraph(
   records: ReadonlyMap<string, Insight>,
 ): any | null {
   const refs: any[] = [];
-  for (const canonicalPath of insightPaths) {
-    const insight = records.get(canonicalPath);
+  for (const insightRef of insightPaths) {
+    const insight = records.get(insightRef);
     if (!insight) continue;
     const linkText = insight.label ?? insight.claim ?? localId(insight);
     refs.push(
       refNode(insight.kind, localId(insight), linkText, undefined, {
-        canonicalPath,
+        ref: insightRef,
       }),
     );
   }

@@ -218,9 +218,9 @@ export interface AstraNodeIdentity {
   /** Local authored id (a child id for option/evidence surfaces). */
   id: string;
   /** SDK record address. Never used for analysis navigation targets. */
-  canonicalPath?: string;
+  ref?: string;
   /** SDK analysis address (`""` for root). Never used as a record address. */
-  analysisPath?: string;
+  analysisKey?: string;
   /** Host-provided route for an analysis page, when one is configured. */
   href?: string;
   /** Zero-based index into the owning insight evidence array. */

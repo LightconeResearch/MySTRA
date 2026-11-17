@@ -702,7 +702,7 @@ describe('neutral block rendering from the resolved SDK model', () => {
     expect(pinned).not.toContain('22');
     const pending = await renderDirective('findings.contextual.2');
     expect(textContent(pending)).toContain('Output "Hidden metric" has not been produced yet');
-    expect(pending[0].data.astra).toMatchObject({canonicalPath: 'findings.contextual', evidenceIndex: 2});
+    expect(pending[0].data.astra).toMatchObject({ref: 'findings.contextual', evidenceIndex: 2});
   });
 
   it('preserves an artifact quote once in a prior insight without available result bytes', async () => {
@@ -716,7 +716,7 @@ describe('neutral block rendering from the resolved SDK model', () => {
   it('retains request universe and evidence identity on artifact citation references', async () => {
     const [reference] = await renderRole('astra:cite', 'findings.contextual.1', {universe: 'universes.alternate'});
     expect(reference.data.astra).toMatchObject({
-      canonicalPath: 'findings.contextual', evidenceIndex: 1, universe: 'universes.alternate',
+      ref: 'findings.contextual', evidenceIndex: 1, universe: 'universes.alternate',
     });
   });
 
@@ -760,7 +760,7 @@ describe('neutral block rendering from the resolved SDK model', () => {
     ).toEqual({
       kind: 'output',
       id: 'sub_table',
-      canonicalPath: 'sub.outputs.sub_table',
+      ref: 'sub.outputs.sub_table',
       universe: 'universes.baseline',
     });
 
@@ -771,7 +771,7 @@ describe('neutral block rendering from the resolved SDK model', () => {
     ).toEqual({
       kind: 'decision',
       id: 'method',
-      canonicalPath: 'decisions.method',
+      ref: 'decisions.method',
       universe: 'universes.baseline',
     });
 
@@ -785,10 +785,10 @@ describe('neutral block rendering from the resolved SDK model', () => {
     expect(analysisCarrier.data.astra).toEqual({
       kind: 'analysis',
       id: 'sub',
-      analysisPath: 'sub',
+      analysisKey: 'sub',
       universe: 'universes.baseline',
     });
-    expect(analysisCarrier.data.astra).not.toHaveProperty('canonicalPath');
+    expect(analysisCarrier.data.astra).not.toHaveProperty('ref');
   });
 
   it('stamps child embeds and registry rows with their resolvable owner identity', async () => {
@@ -798,7 +798,7 @@ describe('neutral block rendering from the resolved SDK model', () => {
     ).toEqual({
       kind: 'option',
       id: 'grid',
-      canonicalPath: 'decisions.method',
+      ref: 'decisions.method',
       universe: 'universes.baseline',
     });
 
@@ -807,19 +807,19 @@ describe('neutral block rendering from the resolved SDK model', () => {
       kind: 'evidence',
       id: '0',
       evidenceIndex: 0,
-      canonicalPath: 'findings.signal',
+      ref: 'findings.signal',
       universe: 'universes.baseline',
     });
 
     const outputs = await renderDirective('outputs');
     const outputRow = find(
       outputs,
-      (node) => node.data?.astra?.canonicalPath === 'outputs.scatter_plot',
+      (node) => node.data?.astra?.ref === 'outputs.scatter_plot',
     );
     expect(outputRow?.data.astra).toEqual({
       kind: 'output',
       id: 'scatter_plot',
-      canonicalPath: 'outputs.scatter_plot',
+      ref: 'outputs.scatter_plot',
     });
   });
 });
@@ -829,13 +829,13 @@ describe('inline roles', () => {
     const rootRef = (await renderRole('astra', 'outputs.scatter_plot'))[0]!;
     expect(rootRef.data.astra).toMatchObject({
       kind: 'output',
-      canonicalPath: 'outputs.scatter_plot',
+      ref: 'outputs.scatter_plot',
     });
     expect(rootRef.data.astra).not.toHaveProperty('path');
-    expect(rootRef.data.astra).not.toHaveProperty('analysisPath');
+    expect(rootRef.data.astra).not.toHaveProperty('analysisKey');
     expect(rootRef.data.astra).not.toHaveProperty('href');
     const nestedRef = (await renderRole('astra', 'sub.outputs.sub_table'))[0]!;
-    expect(nestedRef.data.astra.canonicalPath).toBe('sub.outputs.sub_table');
+    expect(nestedRef.data.astra.ref).toBe('sub.outputs.sub_table');
   });
 
   it('keeps analysis navigation separate and links only a configured page mapping', async () => {
@@ -843,17 +843,17 @@ describe('inline roles', () => {
     expect(mapped.data.astra).toEqual({
       kind: 'analysis',
       id: 'sub',
-      analysisPath: 'sub',
+      analysisKey: 'sub',
       href: '/sub',
       universe: 'universes.baseline',
     });
-    expect(mapped.data.astra).not.toHaveProperty('canonicalPath');
+    expect(mapped.data.astra).not.toHaveProperty('ref');
 
     const unmapped = (await renderRole('astra', 'unmapped'))[0]!;
     expect(unmapped.data.astra).toEqual({
       kind: 'analysis',
       id: 'unmapped',
-      analysisPath: 'unmapped',
+      analysisKey: 'unmapped',
       universe: 'universes.baseline',
     });
     expect(unmapped.data.astra).not.toHaveProperty('href');
@@ -863,14 +863,14 @@ describe('inline roles', () => {
     const [reference] = await renderRole('astra', 'sub.parent');
     expect(reference.data.astra).toMatchObject({
       kind: 'analysis',
-      analysisPath: '',
+      analysisKey: '',
       href: '/',
     });
     const [output] = await renderRole(
       'astra',
       'sub.parent.outputs.summary_metric',
     );
-    expect(output.data.astra.canonicalPath).toBe('outputs.summary_metric');
+    expect(output.data.astra.ref).toBe('outputs.summary_metric');
   });
 
   it('recomputes analysis routes when page mappings change in a live session', async () => {
@@ -910,10 +910,10 @@ describe('inline roles', () => {
     expect(project.index.resultById.get('outputs:collision_test')?.output).toBe('outputs.outputs.collision_test');
     const [value] = await renderRole('astra:value', 'outputs.collision_test');
     expect(textContent(value)).toBe('42');
-    expect(value.data.astra.canonicalPath).toBe('outputs.collision_test');
+    expect(value.data.astra.ref).toBe('outputs.collision_test');
     const [childValue] = await renderRole('astra:value', 'analyses.outputs.outputs.collision_test');
     expect(textContent(childValue)).toBe('99');
-    expect(childValue.data.astra.canonicalPath).toBe('outputs.outputs.collision_test');
+    expect(childValue.data.astra.ref).toBe('outputs.outputs.collision_test');
   });
 
   it('renders DOI-backed citation nodes', async () => {
@@ -932,7 +932,7 @@ describe('inline roles', () => {
     const [decision] = await renderRole('astra:value', 'decisions.method');
     expect(textContent(decision)).toContain('Grid search');
     expect(decision.data.astra).toMatchObject({
-      canonicalPath: 'decisions.method',
+      ref: 'decisions.method',
       type: 'decision',
       selection: 'grid',
     });
@@ -942,7 +942,7 @@ describe('inline roles', () => {
     });
     expect(textContent(metric)).toContain('1.5 ± 0.3');
     expect(metric.data.astra).toMatchObject({
-      canonicalPath: 'outputs.summary_metric',
+      ref: 'outputs.summary_metric',
       type: 'metric',
       unit: 'Mpc',
     });
@@ -958,7 +958,7 @@ describe('inline roles', () => {
     );
     expect(textContent(tableValue)).toContain('19.88 ± 0.17');
     expect(tableValue.data.astra).toMatchObject({
-      canonicalPath: 'outputs.measurements',
+      ref: 'outputs.measurements',
       type: 'table',
       col: 'value',
       filter: 'tracer=lrg',

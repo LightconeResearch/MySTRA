@@ -360,7 +360,7 @@ function stampAstra(node: any, identity: AstraNodeIdentity): void {
  */
 function tagComponent(
   nodes: any[],
-  identity: AstraNodeIdentity & { canonicalPath: string },
+  identity: AstraNodeIdentity & { ref: string },
   subtype?: string,
 ): any[] {
   const { kind, id } = identity;
@@ -433,7 +433,7 @@ function renderFindingParts(
         ...evidenceOptions(scope),
       },
     ),
-    { kind: 'finding', id, canonicalPath: finding.ref },
+    { kind: 'finding', id, ref: finding.ref },
   );
 }
 
@@ -468,7 +468,7 @@ function renderPriorInsightBlock(
   stampAstra(node, {
     kind: 'prior_insight',
     id,
-    canonicalPath: insight.ref,
+    ref: insight.ref,
   });
   return node;
 }
@@ -479,7 +479,7 @@ function renderOneInput(id: string, scope: Scope): any[] {
   if (!input) throw new Error(`no input "${id}" in this scope`);
   const table = renderInputsTable([input], scope.prose);
   addClass(table, 'astra-input');
-  stampAstra(table, { kind: 'input', id, canonicalPath: input.ref });
+  stampAstra(table, { kind: 'input', id, ref: input.ref });
   return [table];
 }
 
@@ -518,7 +518,7 @@ function renderOneOption(
   stampAstra(head, {
     kind: 'option',
     id: optionId,
-    canonicalPath: decision.ref,
+    ref: decision.ref,
   });
   return nodes;
 }
@@ -548,7 +548,7 @@ function renderOneEvidence(p: AstraPath, scope: Scope): any[] {
     stampAstra(nodes[0], {
       kind: 'evidence',
       id: p.child!.id,
-      canonicalPath: owner.ref,
+      ref: owner.ref,
       evidenceIndex,
     });
   }
@@ -567,7 +567,7 @@ function renderSubAnalysisCard(subId: string, scope: Scope): any[] {
   stampAstra(node, {
     kind: 'analysis',
     id: subId,
-    analysisPath: sub.key,
+    analysisKey: sub.key,
   });
   return [node];
 }
@@ -587,7 +587,7 @@ function renderDecisionBlock(
       scope.tabItem,
       selectedOption(scope, decision),
     ),
-    { kind: 'decision', id, canonicalPath: decision.ref },
+    { kind: 'decision', id, ref: decision.ref },
   );
 }
 
@@ -602,7 +602,7 @@ function stampRegistryRows(
     stampAstra(rows[index], {
       kind,
       id: localId(record),
-      canonicalPath: record.ref,
+      ref: record.ref,
     });
   });
 }
@@ -702,7 +702,7 @@ function renderElement(
       if (options.caption) applyCaption(nodes, scope, options.caption);
       return tagComponent(
         nodes,
-        { kind: 'output', id, canonicalPath: output.ref },
+        { kind: 'output', id, ref: output.ref },
         output.type,
       );
     }
@@ -868,7 +868,7 @@ function resolveInlineRef(
   id: string;
   label: string;
   subtype?: string;
-  analysisPath?: string;
+  analysisKey?: string;
 } {
   // Children first — an option / evidence inline reference.
   if (p.child) {
@@ -938,7 +938,7 @@ function resolveInlineRef(
         kind: 'analysis',
         id,
         label: display ?? sub.label ?? humanize(id),
-        analysisPath: sub.key,
+        analysisKey: sub.key,
       };
     }
     case 'inputs': {
@@ -1219,19 +1219,19 @@ function renderAstraRefRequest(
     }
     const scope = resolveScope(project, p.scope, prose, vfile, universe);
     const ref = resolveInlineRef(p, scope, display);
-    const canonicalPath = recordRef(p, scope);
+    const elementRef = recordRef(p, scope);
     const href =
-      ref.analysisPath !== undefined
-        ? analysisHrefs.get(ref.analysisPath)
+      ref.analysisKey !== undefined
+        ? analysisHrefs.get(ref.analysisKey)
         : undefined;
     const identity =
-      ref.kind === 'analysis' && ref.analysisPath !== undefined
+      ref.kind === 'analysis' && ref.analysisKey !== undefined
         ? {
-            analysisPath: ref.analysisPath,
+            analysisKey: ref.analysisKey,
             ...(href ? { href } : {}),
           }
-        : canonicalPath
-          ? { canonicalPath }
+        : elementRef
+          ? { ref: elementRef }
           : {};
     return [
       refNode(ref.kind, ref.id, ref.label, ref.subtype, {
@@ -1269,15 +1269,15 @@ function renderCiteRequest(
     const dois = refDois(p, scope);
     if (dois.length === 0) {
       const ref = resolveInlineRef(p, scope, display);
-      const canonicalPath = recordRef(p, scope);
+      const elementRef = recordRef(p, scope);
       return [
         refNode(
           ref.kind,
           ref.id,
           ref.label,
           ref.subtype,
-          canonicalPath ? {
-            canonicalPath,
+          elementRef ? {
+            ref: elementRef,
             ...(scope.universe ? { universe: scope.universe } : {}),
             ...(p.child?.collection === 'evidence' ? { evidenceIndex: Number(p.child.id) } : {}),
           } : undefined,
@@ -1333,7 +1333,7 @@ function renderValue(
       vfile,
       options.universe,
     );
-    const canonicalPath = recordRef(parsed, scope);
+    const elementRef = recordRef(parsed, scope);
 
     if (parsed.collection === 'decisions') {
       const decision = scope.decisionsById.get(id);
@@ -1351,7 +1351,7 @@ function renderValue(
         id,
         label,
         'decision',
-        canonicalPath ? { canonicalPath } : undefined,
+        elementRef ? { ref: elementRef } : undefined,
       );
       Object.assign(node.data.astra, {
         ...(scope.universe ? { universe: scope.universe } : {}),
@@ -1364,11 +1364,11 @@ function renderValue(
       return fail(`"${path}" is not an output or decision`);
     }
     const output = scope.outputsById.get(id);
-    if (!output || !canonicalPath) return fail(`no output "${id}"`);
+    if (!output || !elementRef) return fail(`no output "${id}"`);
     if (!selectedResult(scope, output)) {
       return fail(inactiveUnderUniverse('output', id, scope));
     }
-    const absolutePath = scope.results(canonicalPath);
+    const absolutePath = scope.results(elementRef);
     if (!absolutePath) {
       reportWarn(
         vfile,
@@ -1386,7 +1386,7 @@ function renderValue(
         if (options.pm && uncertainty !== undefined && uncertainty !== '') {
           value += ` ± ${fmtNum(String(uncertainty), 2)}`;
         }
-        const node = refNode('value', id, value, 'metric', { canonicalPath });
+        const node = refNode('value', id, value, 'metric', { ref: elementRef });
         const unit = metric.unit;
         Object.assign(node.data.astra, {
           ...(scope.universe ? { universe: scope.universe } : {}),
@@ -1436,7 +1436,7 @@ function renderValue(
       }
     }
     const filter = filters.map(([key, item]) => `${key}=${item}`).join(', ');
-    const node = refNode('value', id, value, output.type, { canonicalPath });
+    const node = refNode('value', id, value, output.type, { ref: elementRef });
     Object.assign(node.data.astra, {
       ...(scope.universe ? { universe: scope.universe } : {}),
       col: column,
