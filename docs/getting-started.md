@@ -29,27 +29,29 @@ There is nothing to install for MySTRA itself: MyST loads a plugin from a single
 
 ## Register the plugin
 
-In your ASTRA project directory, create a `myst.yml` that points at the latest release artifact and lists your pages:
+In your ASTRA project directory, create a `myst.yml` that points at a release of the plugin and lists your pages:
 
 ```yaml title="myst.yml"
 version: 1
 project:
   plugins:
-    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/download/v0.1.0rc1/mystra.mjs
   toc:
     - file: index.md
 site:
   template: book-theme
 ```
 
-The `…/releases/latest/download/…` URL always tracks the newest release; MyST fetches and caches the file on the first build.
+The URL pins `v0.1.0rc1`, the first release that reads ASTRA 0.1. MyST fetches and caches the file on the first build.
 
-!!! tip "Pin a version"
-    MySTRA is pre-1.0 and the vocabulary may change between releases. For anything you intend to keep building, pin a specific version by swapping `latest` for a tag:
+!!! tip "Pinned or latest"
+    MySTRA is pre-1.0 and the vocabulary may change between releases, so keep a pinned tag for anything you intend to keep building. To track the newest stable release instead, use:
 
     ```yaml
-    - https://github.com/astra-project/MySTRA/releases/download/v0.0.1/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
     ```
+
+    GitHub's `latest` skips release candidates, so this URL reads ASTRA 0.1 analyses only from v0.1.0 on.
 
 ## Project layout
 
@@ -109,10 +111,10 @@ MySTRA reads `astra.yaml` from the working directory and resolves all universes 
 myst build --html
 ```
 
-produces a static site in `_build/html/` that you can host anywhere. All referenced result artifacts are copied and hashed by MyST's asset pipeline; the output is fully self-contained.
+produces a static site in `_build/html/` that you can host anywhere. MyST's asset pipeline copies and hashes every result a page displays, so the output is fully self-contained. Data outputs are named by their file path rather than copied.
 
 ## Next steps
 
 - Learn the full [path grammar](authoring/paths.md) — one idea that drives every surface.
 - Split a large report into [multiple pages](authoring/multi-page.md) that mirror your sub-analyses.
-- Building a theme? See [theming](reference/theming.md) for the classes, canonical paths, and SDK publication bundle the plugin emits.
+- Building a theme? See [theming](reference/theming.md) for the classes, SDK refs and publication bundle the plugin emits.

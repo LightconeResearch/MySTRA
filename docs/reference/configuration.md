@@ -11,17 +11,18 @@ MyST loads the single plugin file referenced in its configuration:
 version: 1
 project:
   plugins:
-    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/download/v0.1.0rc1/mystra.mjs
   toc:
     - file: index.md
 site:
   template: book-theme
 ```
 
-The `…/releases/latest/download/…` URL tracks the newest stable release. For a
-reproducible publication, pin a release by swapping `latest` for its tag (for
-example `download/v0.1.0/`). MyST fetches and caches the file on the first build.
-All other `myst.yml` settings are
+The URL pins a release tag, here `v0.1.0rc1`, the first release that reads ASTRA
+0.1. MyST fetches and caches the file on the first build. Keep a pinned tag for
+a reproducible publication. `…/releases/latest/download/mystra.mjs` tracks the
+newest stable release instead; GitHub's `latest` skips release candidates, so it
+reads ASTRA 0.1 analyses only from v0.1.0 on. All other `myst.yml` settings are
 [standard MyST project configuration](https://mystmd.org/guide/frontmatter).
 
 ## Project root and universe

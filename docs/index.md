@@ -13,7 +13,7 @@ consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 :::
 ```
 
-→ the decision links to its full record, the value is interpolated live from the result table (uncertainty included), the prior insight renders as a citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml` and rerun the analysis; the report updates itself.
+→ the decision renders as its label (a rich theme opens its full record), the value is interpolated live from the result table (uncertainty included), the prior insight renders as a citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml` and rerun the analysis; the report updates itself.
 
 [:lucide-rocket: **Get started**](getting-started.md){ .md-button .md-button--primary }
 [:lucide-book-open: Authoring guide](authoring/index.md){ .md-button }
@@ -94,7 +94,7 @@ One name — `astra` — drives every surface, the MyST way (just as `{math}` is
     version: 1
     project:
       plugins:
-        - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
+        - https://github.com/astra-project/MySTRA/releases/download/v0.1.0rc1/mystra.mjs
       toc:
         - file: index.md
     site:

@@ -44,10 +44,11 @@ consistent with {astra:cite}`prior_insights.recon_sharpens_bao`.
 :::
 ```
 
-→ the decision links to its full record, the value is interpolated live from
-the result table (uncertainty included), the prior insight renders as a
-citation, and the figure is pulled from the resolved artifact binding. Edit `astra.yaml`
-and rerun the analysis; the report updates itself.
+→ the decision renders as its label (a rich theme opens its full record), the
+value is interpolated live from the result table (uncertainty included), the
+prior insight renders as a citation, and the figure is pulled from the resolved
+artifact binding. Edit `astra.yaml` and rerun the analysis; the report updates
+itself.
 
 **[Full documentation →](https://astra-project.github.io/MySTRA/)**
 
@@ -89,22 +90,23 @@ decisions of its own.
 
 MyST loads a plugin from a single bundled `.mjs` file referenced by URL — an
 ASTRA project has nothing to `npm install`. Point your ASTRA project's `myst.yml`
-at the latest release artifact and list your pages:
+at a release of the plugin and list your pages:
 
 ```yaml
 version: 1
 project:
   plugins:
-    - https://github.com/astra-project/MySTRA/releases/latest/download/mystra.mjs
+    - https://github.com/astra-project/MySTRA/releases/download/v0.1.0rc1/mystra.mjs
   toc:
     - file: index.md
 site:
   template: book-theme
 ```
 
-The `…/releases/latest/download/…` URL always tracks the newest release; pin a
-specific version by swapping `latest` for a tag (e.g. `download/v0.0.1/`). MyST
-fetches and caches the file on the first build.
+This pins `v0.1.0rc1`, the first release that reads ASTRA 0.1; MyST fetches and
+caches the file on the first build. `…/releases/latest/download/mystra.mjs`
+tracks the newest stable release instead. GitHub's `latest` skips release
+candidates, so that URL reads ASTRA 0.1 analyses only from v0.1.0 on.
 
 Then run the stock MyST CLI from the project directory:
 
@@ -200,6 +202,7 @@ Options follow MyST's `:key: value` form:
 | `:caption:` | Caption text (figure / table outputs). |
 | `:compact:` | Findings: claim + description + scope only (no evidence figures). |
 | `:show:` / `:hide:` | Findings: parts to include / exclude (`claim, description, scope, evidence`). |
+| `:universe:` | Universe for this placement (e.g. `universes.alternate`), overriding the page default. |
 | `:class:` | Extra CSS class(es) on the rendered block. |
 
 ### Live values — never hard-type a measured number
@@ -216,7 +219,8 @@ Pull a number straight from the resolved analysis at build time:
 The body is the path; the selection is expressed as role options: `col=` picks
 the column, `where="key=val …"` filters rows (all pairs must match,
 case-insensitively), `pm=true` appends the `± <col>_std` uncertainty
-(`err=<col>` names an explicit column), and `sig=N` sets significant figures. A
+(`err=<col>` names an explicit column and implies `pm`), `sig=N` sets
+significant figures, and `universe=` reads another universe's result. A
 metric output interpolates its scalar directly with no options; a
 `decisions.<id>` path renders the option selected under the active universe.
 
